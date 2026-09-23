@@ -131,13 +131,15 @@ static int syntax(struct syntax_state *s,const struct drm_dsc_config *c,
 }
 static int half_floor(int v) {return v>=0?v/2:-((-v+1)/2);}
 static uint8_t byte(int v){return (uint8_t)bound(v,255);}
-int dsc_decode_slice(const struct drm_dsc_config *c,const uint8_t *p,size_t n,uint8_t *rgb,size_t cap)
+static int decode_slice(const struct drm_dsc_config *c,const struct dsc_options *opt,unsigned slice,
+ const uint8_t *p,size_t n,uint8_t *rgb,size_t cap)
 {
  struct syntax_state s={0};
  struct dsc_rc rc;
  struct dsc_predict *pred;
+ struct dsc_group_trace tr;
  size_t pos=0,expected;
- unsigned x,y,g=0,j,k,level[3],idx[3],actual,ideal;
+ unsigned x,y,g=0,j,k,level[3],idx[3],actual,ideal,qp;
  int res[3][3],mpp[3],ich,status=validate(c);
  uint16_t pixel[3][3];
  if(status)return status;
@@ -147,6 +149,7 @@ int dsc_decode_slice(const struct drm_dsc_config *c,const uint8_t *p,size_t n,ui
  if(!c->vbr_enable && n!=expected)return n<expected?DSC_TRUNCATED:DSC_INVALID;
  if(c->vbr_enable && n>expected)return DSC_INVALID;
  if(dsc_rc_init(&rc,c))return DSC_INVALID;
+ dsc_rc_set_options(&rc,opt);
  pred=dsc_predict_create(c->slice_width,c->slice_height,c->line_buf_depth,c->block_pred_enable,
                         c->pic_width!=c->slice_width);
  if(!pred)return DSC_NOMEM;
@@ -156,7 +159,8 @@ int dsc_decode_slice(const struct drm_dsc_config *c,const uint8_t *p,size_t n,ui
   for(j=0;j<3;j++)if(refill(&s.s[j],p,n,&pos)){status=DSC_TRUNCATED;goto done;}
   if(dsc_rc_apply_flat(&rc,s.flat_group==g,s.flat_type)){status=DSC_RATE_CONTROL;goto done;}
   memset(res,0,sizeof(res));memset(idx,0,sizeof(idx));
-  if(syntax(&s,c,g,dsc_rc_qp(&rc),level,res,mpp,&ich,idx,&actual,&ideal)) {
+  qp=dsc_rc_qp(&rc);
+  if(syntax(&s,c,g,qp,level,res,mpp,&ich,idx,&actual,&ideal)) {
    status=DSC_BITSTREAM;goto done;
   }
   /* Section 6.6: partial groups carry zero residuals or repeat the
@@ -176,6 +180,12 @@ int dsc_decode_slice(const struct drm_dsc_config *c,const uint8_t *p,size_t n,ui
    rgb[o]=byte(co+b);rgb[o+1]=byte(cg+t);rgb[o+2]=byte(b);
   }
   if(dsc_rc_step(&rc,y,g,count,actual,ideal)){status=DSC_RATE_CONTROL;goto done;}
+  if(opt->trace) {
+   tr.slice=slice;tr.group=g;tr.x=x;tr.y=y;tr.qp=qp;tr.actual=actual;tr.ideal=ideal;
+   tr.range=rc.range;tr.generated_qp=rc.last_qp;tr.buffer_fullness=rc.fullness;
+   tr.model_fullness=rc.last_inputs.model;tr.ich=ich;tr.flat_override=rc.flat_override;
+   opt->trace(opt->trace_context,&tr);
+  }
  }
  /* Residual funnel and CBR slice-tail padding must be zero (6.7.4). */
  for(j=0;j<3;j++)for(k=s.s[j].read;k<s.s[j].count;k++)
@@ -185,13 +195,27 @@ int dsc_decode_slice(const struct drm_dsc_config *c,const uint8_t *p,size_t n,ui
  status=DSC_OK;
  done:dsc_predict_destroy(pred);return status;
 }
-int dsc_decode_frame(const struct drm_dsc_config *c,const uint8_t *data,size_t n,uint8_t *rgb,size_t cap)
+int dsc_decode_slice_ex(const struct drm_dsc_config *c,const struct dsc_options *opt,
+ const uint8_t *p,size_t n,uint8_t *rgb,size_t cap)
 {
+ struct dsc_options defaults;
+ if(!opt){dsc_options_init(&defaults);opt=&defaults;}
+ return decode_slice(c,opt,0,p,n,rgb,cap);
+}
+int dsc_decode_slice(const struct drm_dsc_config *c,const uint8_t *p,size_t n,uint8_t *rgb,size_t cap)
+{
+ return dsc_decode_slice_ex(c,NULL,p,n,rgb,cap);
+}
+int dsc_decode_frame_ex(const struct drm_dsc_config *c,const struct dsc_options *opt,
+ const uint8_t *data,size_t n,uint8_t *rgb,size_t cap)
+{
+ struct dsc_options defaults;
  unsigned nx,ny,sx,sy,y;
  size_t bytes,pixels,expected;
  uint8_t *slice,*decoded;
  int status=validate(c);
  if(status)return status;
+ if(!opt){dsc_options_init(&defaults);opt=&defaults;}
  if(c->vbr_enable)return DSC_UNSUPPORTED;
  if(!data||!rgb)return DSC_INVALID;
  if(cap<(size_t)c->pic_width*c->pic_height*3)return DSC_LIMIT;
@@ -209,7 +233,7 @@ int dsc_decode_frame(const struct drm_dsc_config *c,const uint8_t *data,size_t n
    size_t source=((size_t)sy*c->slice_height*nx+(size_t)y*nx+sx)*c->slice_chunk_size;
    memcpy(slice+(size_t)y*c->slice_chunk_size,data+source,c->slice_chunk_size);
   }
-  status=dsc_decode_slice(c,slice,bytes,decoded,pixels);
+  status=decode_slice(c,opt,sy*nx+sx,slice,bytes,decoded,pixels);
   if(status)goto done;
   for(y=0;y<c->slice_height && sy*c->slice_height+y<c->pic_height;y++) {
    unsigned width=c->pic_width-sx*c->slice_width;
@@ -219,4 +243,8 @@ int dsc_decode_frame(const struct drm_dsc_config *c,const uint8_t *data,size_t n
   }
  }
  done:free(slice);free(decoded);return status;
+}
+int dsc_decode_frame(const struct drm_dsc_config *c,const uint8_t *data,size_t n,uint8_t *rgb,size_t cap)
+{
+ return dsc_decode_frame_ex(c,NULL,data,n,rgb,cap);
 }

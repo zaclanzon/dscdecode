@@ -1,0 +1,572 @@
+{
+ "oq1_flat_restart": {
+  "question": "flat_restart",
+  "width": 96,
+  "height": 1,
+  "mux_bits": 576,
+  "payload_bits": 768,
+  "initial_offset": 6144,
+  "pps_sha256": "030380380dbbb5dec289afc8fe41461d184010fe3cf20ba85601cbd7a325839a",
+  "payload_sha256": "70eca847be4d39ef51b67948c1fbf7de6c911f0c85c8de6adee01ad1b1fdce2a",
+  "readings": {
+   "next-cycle": {
+    "expected_sha256": "11b3d988499d241d9212b7d955dec4c5b68e59fd791dce0ade4ea62d7635da0d",
+    "qp_schedule": [
+     0,
+     0,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     4,
+     8
+    ],
+    "last_group_rgb": [
+     [
+      216,
+      232,
+      184
+     ],
+     [
+      192,
+      176,
+      224
+     ],
+     [
+      208,
+      208,
+      208
+     ]
+    ],
+    "decisive": [
+     {
+      "group": 29,
+      "qp": 8,
+      "actual": 24,
+      "ideal": 21,
+      "fullness": 388,
+      "model": -2380,
+      "range": 6,
+      "on_threshold": false,
+      "generated": 8
+     },
+     {
+      "group": 30,
+      "qp": 4,
+      "actual": 39,
+      "ideal": 3,
+      "fullness": 427,
+      "model": -2365,
+      "range": 6,
+      "on_threshold": false,
+      "generated": 4
+     },
+     {
+      "group": 31,
+      "qp": 8,
+      "actual": 32,
+      "ideal": 24,
+      "fullness": 459,
+      "model": -2357,
+      "range": 6,
+      "on_threshold": false,
+      "generated": 8
+     }
+    ]
+   },
+   "in-flight": {
+    "expected_sha256": "40c26acc5e87658f6ca16bff3263ebae4b20c549c65823e81fd2a2f68a1aaf6f",
+    "qp_schedule": [
+     0,
+     0,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     4,
+     4
+    ],
+    "last_group_rgb": [
+     [
+      198,
+      202,
+      190
+     ],
+     [
+      192,
+      188,
+      200
+     ],
+     [
+      196,
+      196,
+      196
+     ]
+    ],
+    "decisive": [
+     {
+      "group": 29,
+      "qp": 8,
+      "actual": 24,
+      "ideal": 21,
+      "fullness": 388,
+      "model": -2380,
+      "range": 6,
+      "on_threshold": false,
+      "generated": 8
+     },
+     {
+      "group": 30,
+      "qp": 4,
+      "actual": 39,
+      "ideal": 3,
+      "fullness": 427,
+      "model": -2365,
+      "range": 6,
+      "on_threshold": false,
+      "generated": 4
+     },
+     {
+      "group": 31,
+      "qp": 4,
+      "actual": 32,
+      "ideal": 24,
+      "fullness": 459,
+      "model": -2357,
+      "range": 6,
+      "on_threshold": false,
+      "generated": 8
+     }
+    ]
+   }
+  }
+ },
+ "oq2_threshold_equality": {
+  "question": "threshold_eq",
+  "width": 96,
+  "height": 1,
+  "mux_bits": 576,
+  "payload_bits": 768,
+  "initial_offset": 5733,
+  "pps_sha256": "df10985a10e82ada75e279d6b09c404b40a8d8ea4f43f8f9150d99401d11ff59",
+  "payload_sha256": "84634e068240507a4fb95e8536ad4ee1ba819bf957a74ebd451d9af95676724b",
+  "readings": {
+   "lower": {
+    "expected_sha256": "522adaa166d082b00f06fdd600ae2cd9355d712daa325fda8b0b77d8fc35219a",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     8
+    ],
+    "last_group_rgb": [
+     [
+      152,
+      168,
+      120
+     ],
+     [
+      128,
+      112,
+      160
+     ],
+     [
+      144,
+      144,
+      144
+     ]
+    ],
+    "decisive": [
+     {
+      "group": 29,
+      "qp": 0,
+      "actual": 12,
+      "ideal": 12,
+      "fullness": 363,
+      "model": -2816,
+      "range": 5,
+      "on_threshold": true,
+      "generated": 8
+     },
+     {
+      "group": 30,
+      "qp": 0,
+      "actual": 12,
+      "ideal": 3,
+      "fullness": 375,
+      "model": -2828,
+      "range": 5,
+      "on_threshold": false,
+      "generated": 7
+     },
+     {
+      "group": 31,
+      "qp": 8,
+      "actual": 31,
+      "ideal": 24,
+      "fullness": 406,
+      "model": -2821,
+      "range": 5,
+      "on_threshold": false,
+      "generated": 8
+     }
+    ]
+   },
+   "upper": {
+    "expected_sha256": "20657883ee83d1708734e7e8f283e146a69dbf09b031ec627939b8e14975e9bc",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "last_group_rgb": [
+     [
+      132,
+      132,
+      131
+     ],
+     [
+      129,
+      128,
+      130
+     ],
+     [
+      130,
+      130,
+      130
+     ]
+    ],
+    "decisive": [
+     {
+      "group": 29,
+      "qp": 0,
+      "actual": 12,
+      "ideal": 12,
+      "fullness": 363,
+      "model": -2816,
+      "range": 6,
+      "on_threshold": true,
+      "generated": 0
+     },
+     {
+      "group": 30,
+      "qp": 0,
+      "actual": 12,
+      "ideal": 3,
+      "fullness": 375,
+      "model": -2828,
+      "range": 5,
+      "on_threshold": false,
+      "generated": 4
+     },
+     {
+      "group": 31,
+      "qp": 0,
+      "actual": 31,
+      "ideal": 24,
+      "fullness": 406,
+      "model": -2821,
+      "range": 5,
+      "on_threshold": false,
+      "generated": 8
+     }
+    ]
+   }
+  }
+ },
+ "oq3_fractional_bpp": {
+  "question": "frac_reset",
+  "width": 96,
+  "height": 1,
+  "mux_bits": 768,
+  "payload_bits": 816,
+  "initial_offset": 4096,
+  "pps_sha256": "b4dfbc1dbd00e5ea33d5096e6f40710cc968ed86bf79e98d69c7e2d5a71e626f",
+  "payload_sha256": "6dbb8c226f0cdf5672fb4ef9b792b766912cbe9405d191f182f70600aa88e77e",
+  "readings": {
+   "chunk": {
+    "expected_sha256": "2a396faec9e2ddf347e6f71d22d094711596c2637e8f76c3e196a4be72874efb",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "last_group_rgb": [
+     [
+      183,
+      183,
+      182
+     ],
+     [
+      180,
+      179,
+      181
+     ],
+     [
+      181,
+      181,
+      181
+     ]
+    ],
+    "decisive": [
+     {
+      "group": 29,
+      "qp": 0,
+      "actual": 44,
+      "ideal": 36,
+      "fullness": 63,
+      "model": -4314,
+      "range": 4,
+      "on_threshold": false,
+      "generated": 0
+     },
+     {
+      "group": 30,
+      "qp": 0,
+      "actual": 36,
+      "ideal": 3,
+      "fullness": 74,
+      "model": -4303,
+      "range": 4,
+      "on_threshold": false,
+      "generated": 0
+     },
+     {
+      "group": 31,
+      "qp": 0,
+      "actual": 31,
+      "ideal": 24,
+      "fullness": 79,
+      "model": -4298,
+      "range": 4,
+      "on_threshold": false,
+      "generated": 0
+     }
+    ]
+   },
+   "literal": {
+    "expected_sha256": "b01d1ab1910bc984c94e6e33782c7692a1b35cd6abf336cac2939a67690dde33",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     8
+    ],
+    "last_group_rgb": [
+     [
+      203,
+      219,
+      171
+     ],
+     [
+      179,
+      163,
+      211
+     ],
+     [
+      195,
+      195,
+      195
+     ]
+    ],
+    "decisive": [
+     {
+      "group": 29,
+      "qp": 0,
+      "actual": 44,
+      "ideal": 36,
+      "fullness": 64,
+      "model": -4313,
+      "range": 4,
+      "on_threshold": false,
+      "generated": 8
+     },
+     {
+      "group": 30,
+      "qp": 0,
+      "actual": 36,
+      "ideal": 3,
+      "fullness": 74,
+      "model": -4303,
+      "range": 4,
+      "on_threshold": false,
+      "generated": 7
+     },
+     {
+      "group": 31,
+      "qp": 8,
+      "actual": 31,
+      "ideal": 24,
+      "fullness": 80,
+      "model": -4297,
+      "range": 4,
+      "on_threshold": false,
+      "generated": 7
+     }
+    ]
+   }
+  }
+ }
+}

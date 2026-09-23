@@ -23,3 +23,6 @@ leak-*
 timeout-*
 oom-*
 slow-unit-*
+
+# Python bytecode from the test generators
+__pycache__/

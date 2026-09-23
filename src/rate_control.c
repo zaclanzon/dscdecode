@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: MIT
  * Original implementation of DSC 1.1 sections 6.8 and 7.3.
  * Prose-only timing interpretation is recorded in research/rc-ambiguities.md.
+ * Where the text supports two readings, both are implemented and selected by
+ * struct dsc_options (RESEARCH.md, open questions OQ-1, OQ-2, OQ-3, OQ-12).
  */
 #include "rate_control.h"
 #include <string.h>
@@ -12,12 +14,23 @@ static int64_t floor_div(int64_t value, int64_t divisor)
 static unsigned umax(unsigned a, unsigned b) { return a > b ? a : b; }
 static int fail(struct dsc_rc *s) { s->failed = 1; return -1; }
 
+void dsc_options_init(struct dsc_options *o)
+{
+    if (!o) return;
+    memset(o, 0, sizeof(*o));
+    o->flat_restart = DSC_FLAT_RESTART_NEXT_CYCLE;
+    o->threshold_eq = DSC_THRESHOLD_EQ_LOWER;
+    o->frac_reset = DSC_FRAC_RESET_CHUNK;
+    o->delay_offset = DSC_DELAY_OFFSET_INCLUSIVE;
+}
+
 int dsc_rc_init(struct dsc_rc *s, const struct drm_dsc_config *c)
 {
     unsigned i;
     if (!s || !c) return -1;
     memset(s, 0, sizeof(*s));
     s->cfg = c;
+    dsc_options_init(&s->opt);
     if (!c->slice_width || !c->slice_height || !c->bits_per_pixel ||
         c->bits_per_pixel > 384 || c->bits_per_component != 8 ||
         !c->rc_model_size || c->initial_offset >= c->rc_model_size ||
@@ -36,29 +49,108 @@ int dsc_rc_init(struct dsc_rc *s, const struct drm_dsc_config *c)
     return 0;
 }
 
+void dsc_rc_set_options(struct dsc_rc *s, const struct dsc_options *o)
+{
+    if (s && o) s->opt = *o;
+}
+
 unsigned dsc_rc_qp(const struct dsc_rc *s) { return s->qp; }
 unsigned dsc_rc_primary_qp(const struct dsc_rc *s) { return s->qp; }
 
+/* Figure 6-12 and Figure 6-13 for one set of inputs. prev and prev2 are the
+ * prevQp and prev2Qp of §6.8.4. */
+static unsigned short_term(const struct drm_dsc_config *c, const struct dsc_rc_inputs *in,
+                           unsigned prev, unsigned prev2)
+{
+    int64_t low = in->target - c->rc_tgt_offset_low;
+    int64_t high = in->target + c->rc_tgt_offset_high, increment;
+    unsigned cur, edge, permit, next = prev;
+    if (in->model > -172) return c->rc_range_params[14].range_max_qp;
+    if (in->ideal == 3) return umax(prev ? prev - 1 : 0, in->min_qp / 2);
+    if ((int64_t)in->actual < low && (int64_t)in->ideal < low)
+        return umax(prev ? prev - 1 : 0, in->min_qp);
+    if ((int64_t)in->actual > high && in->fullness >= 64) {
+        cur = umax(in->min_qp, prev);
+        edge = in->ideal * 2 < in->previous_ideal * c->rc_edge_factor;
+        /* Follow Figure 6-13's printed '<' direction exactly (OQ-5). */
+        permit = cur == prev2 ? edge :
+                 cur < prev2 ? edge && cur < c->rc_quant_incr_limit0 :
+                               cur < c->rc_quant_incr_limit1;
+        next = cur;
+        increment = floor_div((int64_t)in->actual - in->target, 2);
+        if (permit) next = increment + cur > in->max_qp ? in->max_qp : (unsigned)(increment + cur);
+    }
+    return next;
+}
+
 int dsc_rc_apply_flat(struct dsc_rc *s, int flat, int very_flat)
 {
-    unsigned q;
+    unsigned q, master, redo;
     if (!s || s->failed) return -1;
+    s->flat_override = 0;
     q = s->qp;
     if (!flat || q == s->cfg->rc_range_params[14].range_max_qp) return 0;
-    s->qp = (!very_flat || q < 7) ? (q > 4 ? q - 4 : 0) : 1;
-    /* Section 6.8.5.2 requires the override as the next RC starting point. */
-    s->last_qp = s->qp;
+    master = (!very_flat || q < 7) ? (q > 4 ? q - 4 : 0) : 1;
+    /* Section 6.8.5.2 restarts short-term RC only when the override
+     * actually changes masterQp. */
+    if (master == q) return 0;
+    s->qp = master;
+    s->flat_override = 1;
+    /* OQ-1: the cycle already run for the next group, re-run from the
+     * overridden QP. prev2Qp is the QP that decoded the previous group. */
+    redo = s->have_inputs ? short_term(s->cfg, &s->last_inputs, master, s->used_qp)
+                          : s->pending_qp;
+    if (s->opt.stats) {
+        ++s->opt.stats->flat_overrides;
+        if (redo != s->pending_qp) ++s->opt.stats->flat_queue_differs;
+    }
+    if (s->opt.flat_restart == DSC_FLAT_RESTART_IN_FLIGHT) {
+        if (redo > 15) return fail(s);
+        s->pending_qp = redo;
+        s->penultimate_qp = master;
+        s->last_qp = redo;
+    } else {
+        /* Next-cycle reading: the queued QP stands; the cycle after this
+         * group starts from the override. */
+        s->last_qp = master;
+    }
     return 0;
+}
+
+/* One pixel time of §6.8.1 bit removal under one OQ-3 reading. Returns the
+ * bits removed, including chunk padding, or -1 for impossible padding. */
+static int64_t drain_pixel(const struct drm_dsc_config *c, uint64_t pixel, int literal,
+                           uint32_t *fraction, uint32_t *chunk_bits, uint32_t *chunk_pixels)
+{
+    int64_t removed, padding;
+    if (pixel < c->initial_xmit_delay) return 0;
+    *fraction += c->bits_per_pixel;
+    removed = *fraction / 16;
+    *fraction %= 16;
+    *chunk_bits += (uint32_t)removed;
+    /* Literal reading: the printed per-pixel reset condition. */
+    if (literal && (pixel - c->initial_xmit_delay) % c->slice_width == 0) *fraction = 0;
+    if (++*chunk_pixels == c->slice_width) {
+        /* The chunk-completion reading bounds padding by 8 (§6.8.1). The
+         * literal reading can drop one fractional bit from the first chunk. */
+        padding = (int64_t)c->slice_chunk_size * 8 - *chunk_bits;
+        if (padding < 0 || padding > (literal ? 9 : 8)) return -1;
+        removed += padding;
+        *chunk_bits = *chunk_pixels = 0;
+        if (!literal) *fraction = 0;
+    }
+    return removed;
 }
 
 int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum,
                 unsigned n, unsigned actual, unsigned ideal)
 {
     const struct drm_dsc_config *c;
-    int64_t offset, transformed, delta, target, low, high, increment;
-    uint64_t delayed;
-    unsigned range = 0, next, lo, hi, i, edge, cur, permit;
-    int signed_bpg;
+    struct dsc_rc_inputs in;
+    int64_t offset, transformed, delta, target;
+    uint64_t delayed, delay_end;
+    unsigned range = 0, next, i, k;
+    int signed_bpg, literal;
     if (!s || s->failed) return -1;
     c = s->cfg;
     if (n < 1 || n > 3 || actual > 256 || ideal > 256 ||
@@ -71,24 +163,25 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum,
     if (s->fullness > (int64_t)(c->initial_xmit_delay + c->initial_dec_delay) *
                       c->bits_per_pixel / 16) return fail(s);
 
-    /* Account actual pixels, excluding residual padding in partial groups. */
+    /* Account actual pixels, excluding residual padding in partial groups.
+     * The alternative OQ-3 reading runs alongside for the statistics. */
+    literal = s->opt.frac_reset == DSC_FRAC_RESET_LITERAL;
     for (i = 0; i < n; ++i) {
-        unsigned removed;
+        int64_t removed, other;
         ++s->pixels;
-        if (s->pixels < c->initial_xmit_delay) continue;
-        s->fractional_bits += c->bits_per_pixel;
-        removed = s->fractional_bits / 16;
-        s->fractional_bits %= 16;
+        removed = drain_pixel(c, s->pixels, literal, &s->fractional_bits,
+                              &s->chunk_bits, &s->chunk_pixels);
+        if (removed < 0) return fail(s);
         s->fullness -= removed;
-        s->chunk_bits += removed;
-        if (++s->chunk_pixels == c->slice_width) {
-            int64_t padding = (int64_t)c->slice_chunk_size * 8 - s->chunk_bits;
-            if (padding < 0 || padding > 8) return fail(s);
-            s->fullness -= padding;
-            s->fractional_bits = s->chunk_bits = s->chunk_pixels = 0;
-        }
+        s->removed += removed;
+        other = drain_pixel(c, s->pixels, !literal, &s->shadow.fractional_bits,
+                            &s->shadow.chunk_bits, &s->shadow.chunk_pixels);
+        if (other < 0) s->shadow.failed = 1;
+        else s->shadow.removed += other;
     }
     if (s->fullness < 0) return fail(s);
+    if (s->opt.stats && (s->shadow.failed || s->shadow.removed != s->removed))
+        ++s->opt.stats->frac_differs;
 
     if (s->increase_next) {
         s->scale = 9;
@@ -106,9 +199,13 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum,
             --s->scale;
         }
     }
-    /* Q11 retains fractional precision across every group. */
+    /* Q11 retains fractional precision across every group. OQ-12: §6.8.1
+     * starts removing bits at pixelCount == initial_xmit_delay; whether that
+     * pixel is still "during the initial delay" for §6.8.2 is not stated. */
+    delay_end = c->initial_xmit_delay;
+    if (s->opt.delay_offset == DSC_DELAY_OFFSET_EXCLUSIVE && delay_end) --delay_end;
     delayed = s->pixels - n;
-    delayed = delayed < c->initial_xmit_delay ? c->initial_xmit_delay - delayed : 0;
+    delayed = delayed < delay_end ? delay_end - delayed : 0;
     if (delayed > n) delayed = n;
     delta = c->slice_bpg_offset + (y ? c->nfl_bpg_offset :
                                               -(int64_t)c->first_line_bpg_offset * 2048);
@@ -130,40 +227,46 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum,
         offset > INT64_C(1000000000000)) return fail(s);
     transformed = floor_div((s->fullness + offset) * s->scale, 8);
     if (transformed > 0) return fail(s);
-    while (range < 14 && transformed >
-           (int64_t)c->rc_buf_thresh[range] * 64 - c->rc_model_size) ++range;
-    lo = c->rc_range_params[range].range_min_qp;
-    hi = c->rc_range_params[range].range_max_qp;
+    /* OQ-2: Figure 6-11 does not say which range owns a threshold value. */
+    if (s->opt.threshold_eq == DSC_THRESHOLD_EQ_UPPER) {
+        while (range < 14 && transformed >=
+               (int64_t)c->rc_buf_thresh[range] * 64 - c->rc_model_size) ++range;
+    } else {
+        while (range < 14 && transformed >
+               (int64_t)c->rc_buf_thresh[range] * 64 - c->rc_model_size) ++range;
+    }
+    if (s->opt.stats)
+        for (k = 0; k < 14; ++k)
+            if (transformed == (int64_t)c->rc_buf_thresh[k] * 64 - c->rc_model_size) {
+                ++s->opt.stats->threshold_equal;
+                break;
+            }
+    s->range = range;
     signed_bpg = c->rc_range_params[range].range_bpg_offset & 63;
     if (signed_bpg & 32) signed_bpg -= 64;
     /* Section 6.8.4 specifies three samples even for a partial group. */
     target = ((int64_t)3 * c->bits_per_pixel + 8) / 16 + signed_bpg +
              (y ? -(int64_t)(c->nfl_bpg_offset / 2048) : c->first_line_bpg_offset) -
              c->slice_bpg_offset / 2048;
-    low = target - c->rc_tgt_offset_low;
-    high = target + c->rc_tgt_offset_high;
-    next = s->last_qp;
-    if (s->fullness + offset > -172) next = c->rc_range_params[14].range_max_qp;
-    else if (ideal == 3) next = umax(next ? next - 1 : 0, lo / 2);
-    else if ((int64_t)actual < low && (int64_t)ideal < low)
-        next = umax(next ? next - 1 : 0, lo);
-    else if ((int64_t)actual > high && s->fullness >= 64) {
-        cur = umax(lo, next);
-        edge = ideal * 2 < s->previous_ideal * c->rc_edge_factor;
-        /* Follow Figure 6-13's printed '<' direction exactly. */
-        permit = cur == s->penultimate_qp ? edge :
-                 cur < s->penultimate_qp ? edge && cur < c->rc_quant_incr_limit0 :
-                                          cur < c->rc_quant_incr_limit1;
-        next = cur;
-        increment = floor_div((int64_t)actual - target, 2);
-        if (permit) next = increment + cur > hi ? hi : (unsigned)(increment + cur);
-    }
+    in.fullness = s->fullness;
+    in.model = s->fullness + offset;
+    in.target = target;
+    in.actual = actual;
+    in.ideal = ideal;
+    in.previous_ideal = s->previous_ideal;
+    in.min_qp = c->rc_range_params[range].range_min_qp;
+    in.max_qp = c->rc_range_params[range].range_max_qp;
+    next = short_term(c, &in, s->last_qp, s->penultimate_qp);
     if (next > 15) return fail(s);
+    s->last_inputs = in;
+    s->have_inputs = 1;
+    s->used_qp = s->qp;
     s->penultimate_qp = s->last_qp;
     s->last_qp = next;
     s->previous_ideal = ideal;
     s->qp = s->pending_qp;
     s->pending_qp = next;
     ++s->groups;
+    if (s->opt.stats) ++s->opt.stats->groups;
     return 0;
 }

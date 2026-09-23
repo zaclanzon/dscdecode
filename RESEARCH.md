@@ -16,11 +16,27 @@ than one reading, or the only M1 answer came from model source that this
 repository no longer relies on. Where the decoder implements one reading of a
 question with two readings, the switch that selects it is named in the table.
 
+Switches are runtime options: `struct dsc_options` in `include/dsc.h`, or
+`dscdecode --reading NAME=VALUE`. `dsc_options_init()` sets the defaults.
+`dscdecode --stats` counts the groups where a question's readings could
+disagree.
+
+M2 correction, not an open question: §6.8.5.2 restarts the short-term RC
+only when the flatness override changes masterQp. M1 also restarted
+it when a flagged group was already at QP 0, which a somewhat-flat signal
+leaves at 0. The decoder now restarts only on a change (`tests/test_rc.c`,
+`flat_unmodified`).
+
+M2 source note: the DSC 1.1 E1 errata PDF contains model source excerpts
+after the prose of the fractional-bpp SCR. During M2 some of that excerpt was
+displayed while reading the SCR's prose. It was not used for any decision
+here. Only the SCR's prose change to §6.8.1 was used.
+
 | ID | Question | Spec reference | Current implementation | Status |
 |---|---|---|---|---|
-| OQ-1 | Flatness restart ordering. When a flatness override changes masterQp, does the new value only seed the next short-term RC calculation, or does it also replace the QP already queued for a later group? | DSC 1.1 §6.8.5.2, Figure 6-8, §7.3 | Override seeds the next short-term calculation; the queued QP is untouched | Open |
-| OQ-2 | Range threshold equality. When rcModelFullness equals a threshold exactly, is it in the lower or the upper range? | DSC 1.1 §6.8.3, Figure 6-11 | Strict comparison; equality stays in the lower range | Open |
-| OQ-3 | Fractional bits_per_pixel. Where does the fractional-bit accumulator reset, and how are chunk padding bits counted against the buffer model? | DSC 1.1 §6.8.1, as amended by the fractional-bpp underflow SCR in DSC 1.1 E1 | Accumulator and chunk counters reset after every slice_width pixel times following the initial delay; padding tops each chunk up to chunk_size×8 bits | Open |
+| OQ-1 | Flatness restart ordering. When a flatness override changes masterQp for group k, §6.8.5.2 says the new value seeds the short-term RC of the next RC cycle, without saying which cycle of the Figure 6-8 pipeline is next. Reading A (next-cycle): the cycle run after group k is decoded (it sets group k+2's QP) starts from the override; the QP already queued for group k+1 stands. Reading B (in-flight): with the Figure 6-8 pipeline, the cycle that sets group k+1's QP runs while group k decodes, so it is re-run from the override. | DSC 1.1 §6.8.5.2, Figure 6-8, §7.3 | `flat_restart=next-cycle` (default, M1 behavior) or `in-flight`. Discriminator `tests/discriminators/oq1_flat_restart` | Open |
+| OQ-2 | Range threshold equality. When rcModelFullness equals a threshold exactly, is it in the lower or the upper range? Figure 6-11 draws the boundaries without saying which side owns them. | DSC 1.1 §6.8.3, Figure 6-11 | `threshold_eq=lower` (default, M1 behavior) or `upper`. Discriminator `oq2_threshold_equality` | Open |
+| OQ-3 | Fractional bits_per_pixel. The printed §6.8.1 pseudocode resets the fractional accumulator when (pixelCount − initial_xmit_delay) is a multiple of slice_width, which includes the first pixel after the delay. Reading A (chunk): reset when a chunk of slice_width pixel times completes, as the framer's chunk accounting and §6.8.1's remark that the accumulator restarts for every slice line suggest. Reading B (literal): reset exactly where the pseudocode prints it. They differ by at most one bit of buffer fullness. The E1 fractional-bpp SCR changes only the encoder's forceMpp condition. | DSC 1.1 §6.8.1; DSC 1.1 E1, fractional-bpp underflow SCR | `frac_reset=chunk` (default, M1 behavior) or `literal`. Discriminator `oq3_fractional_bpp` | Open |
 | OQ-4 | Block prediction references left of the slice edge during the BP search | DSC 1.1 §6.4.2 and §6.4.4 (DSC 1.2 numbering §6.4.4.1) | BP-enabled PPS rejected | Open; see research/prediction-ambiguities.md |
 | OQ-5 | QP increment comparison direction. Figure 6-13 prints the rc_quant_incr_limit0 branch for curQp below prev2Qp; M1 recorded the opposite ordering from model source | DSC 1.1 §6.8.4, Figure 6-13 | Printed figure, literally | Open |
 | OQ-6 | Decrement floor after a group with zero residuals | DSC 1.1 §6.8.4, Figure 6-12 | Floor is half of minQp; the 1.1 figure supports this reading | Open, awaiting black-box confirmation |
@@ -29,6 +45,7 @@ question with two readings, the switch that selects it is named in the table.
 | OQ-9 | forceMpp chunk-bit comparison scaling | DSC 1.1 §6.8.1 and E1 | Encoder-side decision; the decoder does not compute forceMpp | Open; no decoder effect expected |
 | OQ-10 | BP SAD reduction (clip then sum, or sum then shift) | DSC 1.2 §6.4.4.1, DSC 1.2a E1, DSC 1.2b §6.4.4.1 | BP not implemented at M1 | Open; errata prose supports sum then shift |
 | OQ-11 | RC latency and startup. Group N's coded size sets the QP used for group N+2, and the first two groups decode at QP 0 | DSC 1.1 Figure 6-8, §7.3 | As described | Open |
+| OQ-12 | Initial-delay boundary. §6.8.1 starts removing bits at the pixel where pixelCount equals initial_xmit_delay. §6.8.2 lowers rcXformOffset while the initial delay lasts, without a pixel-exact end. Reading A (inclusive): the offset falls for initial_xmit_delay pixels, pixelCount 1 to initial_xmit_delay, so one pixel both removes bits and lowers the offset. Reading B (exclusive): only the initial_xmit_delay − 1 pixels that remove no bits count. Annex E's `initial_xmit_delay × bits_per_pixel` budgets fit reading A but are not exact enough to decide. Found in M2 while designing the OQ-3 discriminator. | DSC 1.1 §6.8.1, §6.8.2, Annex E | `delay_offset=inclusive` (default, M1 behavior) or `exclusive` | Open |
 
 ## Continuation — September 20, 2026
 

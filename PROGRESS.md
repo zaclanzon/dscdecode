@@ -88,3 +88,28 @@ the tree before any commit. Later runs write only to `~/dsc-runs/`.
   by default.
 * Gate: `scripts/ci.sh` green. Fuzz smoke: 1,760,114 libFuzzer executions in
   61 s (28,854 exec/s), then 400,000 deterministic executions, no findings.
+
+## Phase 3, part 1: reading switches and discriminators (2026-09-23)
+
+This part is committed before the reference model has run anything, so the
+discriminator predictions are fixed before any model output exists.
+
+* Rule 7 switches, runtime, in `struct dsc_options` and `dscdecode --reading`:
+  `flat_restart` (OQ-1), `threshold_eq` (OQ-2), `frac_reset` (OQ-3) and a new
+  `delay_offset` (OQ-12, the initial-delay boundary, found while designing the
+  OQ-3 input). Defaults keep M1 behavior. Both readings of each are recorded
+  in RESEARCH.md.
+* Correction under a clear text: the §6.8.5.2 restart now happens only when
+  the flatness override changes masterQp.
+* New `dscdecode --stats` (event counters) and `--trace FILE.csv` (per-group
+  QP, bits, fullness, range).
+* `tests/discriminators/`: `oq1_flat_restart`, `oq2_threshold_equality`,
+  `oq3_fractional_bpp`. They are built by `tests/make_discriminators.py`, a
+  rate-control model written separately from the decoder, and checked by
+  `tests/test_discriminators.py`. The decoder reproduces every predicted
+  output under all 16 switch combinations (48 decodes). The README states
+  which reading predicts which output.
+* `test_rc` gained hand-calculated cases for each switch and for the restart
+  correction.
+* Gate: `scripts/ci.sh` green. Fuzz smoke: 1,646,134 libFuzzer executions in
+  61 s, then 400,000 deterministic executions, no findings.

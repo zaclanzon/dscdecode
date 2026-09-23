@@ -36,9 +36,11 @@ step_fixtures() {
     work=$(mktemp -d)
     cp -r tests "$work/"
     (cd "$work/tests" && python3 make_vectors.py >/dev/null &&
-        python3 make_transition_vectors.py && python3 make_corpus.py)
+        python3 make_transition_vectors.py && python3 make_corpus.py &&
+        python3 make_discriminators.py >/dev/null)
     diff -r tests/fixtures "$work/tests/fixtures"
     diff -r tests/corpus "$work/tests/corpus"
+    diff -r tests/discriminators "$work/tests/discriminators"
     rm -rf "$work"
 }
 
