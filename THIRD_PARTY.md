@@ -19,3 +19,10 @@ downloaded the VESA DSC C reference model from an unofficial GitHub mirror and
 read its source. No model code was copied into dscdecode. From M2 onward, any
 comparison against the model uses the officially licensed model as a black
 box only.
+
+Registration record. Registration: 2026-09-23. VESA Public Standards Download
+Registration, product-development path. Terms: Implementer's License Agreement
+(Exhibit D of VESA Policy 200D). Archive: `Display Stream Compression (DSC).zip`,
+SHA-256 `4d8058e817bc71d41e5f87445979ca6b8f54ea83dd08870c42d158b617d02be2`.
+The archive, the specification, and the reference model are not in this
+repository. The reference model is used only as a black box.

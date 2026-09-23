@@ -322,6 +322,18 @@ Upstream freshness: the pre-validation remote-master recheck still returned
 changed. The vendored header was byte-compared with that checkout.
 ## Track B — official VESA acquisition, 2026-09-16
 
+### Registration record, 2026-09-23
+
+* Registration: 2026-09-23. VESA Public Standards Download Registration,
+  product-development path.
+* Terms: Implementer's License Agreement (Exhibit D of VESA Policy 200D).
+* Archive: `Display Stream Compression (DSC).zip`
+* SHA-256: `4d8058e817bc71d41e5f87445979ca6b8f54ea83dd08870c42d158b617d02be2`
+* The archive, the specification, and the reference model are not in this
+  repository. The reference model is used only as a black box.
+
+### Status as of 2026-09-16, superseded by the registration record above
+
 **Status: pending official acquisition; redistribution coverage not established. Track A is not blocked.** No official codec archive was acquired in this attempt, no agreement submitted, and no reference model was run or consulted for implementation. This is an unresolved acquisition/licensing branch, not a finding that VESA prohibits redistribution.
 
 ### Official channel and actual stopping point

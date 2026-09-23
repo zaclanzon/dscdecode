@@ -64,4 +64,7 @@ the tree before any commit. Later runs write only to `~/dsc-runs/`.
 * The officially obtained `DSC_v1.1.pdf` has the same SHA-256 as the copy M1
   cited (9f5a1a54…4da65), so M1's DSC 1.1 section and page citations refer to
   the same document.
+* Second commit: the VESA registration record (2026-09-23) went into the
+  Track B section of RESEARCH.md and a new final paragraph of
+  THIRD_PARTY.md. The provenance paragraph was not changed.
 * Gate: `make test` and `make sanitize` green, same counts as the baseline.
