@@ -31,6 +31,8 @@ jobs:
           CI_FUZZ_SECONDS: "60"
           CI_FUZZ_DIR: ${{ runner.temp }}/fuzz
         run: scripts/ci.sh fuzz
+      - name: Reference model comparison (SKIP without the licensed model)
+        run: scripts/ci.sh model
       - name: Keep fuzz crash inputs
         if: failure()
         uses: actions/upload-artifact@v4

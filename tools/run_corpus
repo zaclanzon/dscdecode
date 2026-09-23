@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""Run tools/compare_model over a corpus of real images kept outside the repo.
+
+  run_corpus [--dir ~/vesa-corpus] [--bpp 8] [--bp 0 1] [--slices 1 2 4]
+
+Finds PPM/PNM, PGM, PNG and DPX files in --dir (not recursive). The model
+reads PPM and DPX itself. PNG and PGM are converted to PPM in the run
+directory. JPEG is used only if Pillow is installed. For every image and
+every combination of settings, the model encodes the image and both the model
+and dscdecode decode the model's bitstream.
+
+Writes results.json and results.md (a table for PROGRESS.md) to a new directory
+under ~/dsc-runs/corpus. Images are never copied into the repository, and a
+--dir inside the repository is refused.
+"""
+import argparse
+import datetime
+import importlib.machinery
+import itertools
+import json
+import os
+from pathlib import Path
+import struct
+import sys
+import zlib
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parent
+cm = importlib.machinery.SourceFileLoader('compare_model', str(HERE / 'compare_model')).load_module()
+
+
+def png_to_ppm(src, dst):
+    """Non-interlaced PNG, bit depth 8 or 16, any colour type, to 8-bit PPM."""
+    data = Path(src).read_bytes()
+    if data[:8] != b'\x89PNG\r\n\x1a\n':
+        raise cm.HarnessError(f'{src}: not a PNG')
+    pos, idat, palette = 8, b'', None
+    while pos < len(data):
+        length, kind = struct.unpack('>I4s', data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + length]
+        if kind == b'IHDR':
+            w, h, depth, ctype, _, _, interlace = struct.unpack('>IIBBBBB', body)
+        elif kind == b'PLTE':
+            palette = body
+        elif kind == b'IDAT':
+            idat += body
+        pos += 12 + length
+    if interlace or depth not in (8, 16):
+        raise cm.HarnessError(f'{src}: interlaced or {depth}-bit PNG not supported')
+    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[ctype]
+    bpp = channels * depth // 8
+    stride = w * bpp
+    raw, rows, prev = zlib.decompress(idat), [], bytearray(stride)
+    for y in range(h):
+        f, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        for i in range(stride):
+            a = line[i - bpp] if i >= bpp else 0
+            b, c = prev[i], prev[i - bpp] if i >= bpp else 0
+            if f == 1:
+                line[i] = (line[i] + a) & 255
+            elif f == 2:
+                line[i] = (line[i] + b) & 255
+            elif f == 3:
+                line[i] = (line[i] + (a + b) // 2) & 255
+            elif f == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        rows.append(bytes(line))
+        prev = line
+    out = bytearray()
+    step = depth // 8
+    for line in rows:
+        for x in range(w):
+            px = [line[(x * channels + k) * step] for k in range(channels)]  # high byte
+            if ctype == 3:
+                out += palette[3 * px[0]:3 * px[0] + 3]
+            elif ctype in (0, 4):
+                out += bytes([px[0]] * 3)
+            else:
+                out += bytes(px[:3])
+    Path(dst).write_bytes(f'P6\n{w} {h}\n255\n'.encode() + bytes(out))
+
+
+def pgm_to_ppm(src, dst):
+    data = Path(src).read_bytes()
+    parts = data.split(maxsplit=4)
+    if parts[0] != b'P5' or int(parts[3]) > 255:
+        raise cm.HarnessError(f'{src}: not an 8-bit binary PGM')
+    w, h = int(parts[1]), int(parts[2])
+    gray = parts[4][:w * h]
+    Path(dst).write_bytes(f'P6\n{w} {h}\n255\n'.encode() + bytes(v for g in gray for v in (g, g, g)))
+
+
+def jpeg_to_ppm(src, dst):
+    try:
+        from PIL import Image
+    except ImportError:
+        raise cm.HarnessError(f'{src}: JPEG needs Pillow, which is not installed')
+    Image.open(src).convert('RGB').save(dst, format='PPM')
+
+
+def prepare(images, work):
+    """Return model-readable sources: PPM or DPX, converting where needed."""
+    ready, skipped = [], []
+    for src in images:
+        ext = src.suffix.lower()
+        try:
+            if ext in ('.ppm', '.pnm') and cm.read_ppm(src):
+                ready.append(src)
+            elif ext == '.dpx':
+                cm.image_size(src)
+                ready.append(src)
+            else:
+                dst = work / (src.stem + '.ppm')
+                {'.png': png_to_ppm, '.pgm': pgm_to_ppm,
+                 '.jpg': jpeg_to_ppm, '.jpeg': jpeg_to_ppm}[ext](src, dst)
+                ready.append(dst)
+        except (cm.HarnessError, KeyError, ValueError, OSError) as e:
+            skipped.append(f'{src.name}: {e}')
+    return ready, skipped
+
+
+def row(image, s):
+    r = s['results'][0]
+    if 'error' in r:
+        verdict, first, count = 'dscdecode error: ' + r['error'].splitlines()[-1], '', ''
+    elif r['match']:
+        verdict, first, count = 'match', '', '0'
+    elif r.get('size_mismatch'):
+        verdict, first, count = 'size mismatch', '', ''
+    else:
+        f = r['first']
+        verdict = 'mismatch'
+        first = f"({f['x']},{f['y']}) {f['component']} {f['expected']}/{f['actual']}"
+        count = f"{r['samples_differing']} samples"
+    return (f"| {image} | {s['bpp']:g} | {'on' if s['block_pred'] else 'off'} | {s['slices']} "
+            f"| {verdict} | {first} | {count} |")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--dir', default=str(Path.home() / 'vesa-corpus'))
+    ap.add_argument('--bpp', type=float, nargs='+', default=[8.0])
+    ap.add_argument('--bp', type=int, nargs='+', default=[0, 1], choices=(0, 1))
+    ap.add_argument('--slices', type=int, nargs='+', default=[1, 2, 4])
+    ap.add_argument('--min-images', type=int, default=20)
+    ap.add_argument('--limit', type=int, default=0, help='use only the first N images')
+    a = ap.parse_args()
+    if not os.environ.get('DSCDECODE_MODEL_BIN'):
+        print('SKIP: DSCDECODE_MODEL_BIN is not set')
+        return cm.SKIP
+    corpus = Path(a.dir).expanduser().resolve()
+    if corpus == REPO or REPO in corpus.parents:
+        print(f'ERROR: {corpus} is inside the repository; keep images outside it', file=sys.stderr)
+        return 2
+    if not corpus.is_dir():
+        print(f'SKIP: corpus directory {corpus} does not exist')
+        return cm.SKIP
+    images = sorted(p for p in corpus.iterdir() if p.is_file() and p.suffix.lower() in
+                    ('.ppm', '.pnm', '.pgm', '.png', '.dpx', '.jpg', '.jpeg'))
+    if a.limit:
+        images = images[:a.limit]
+    if not images:
+        print(f'SKIP: no images in {corpus}')
+        return cm.SKIP
+    root = Path(os.environ.get('DSCDECODE_RUNS', Path.home() / 'dsc-runs')) / 'corpus'
+    work = root / datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+    work.mkdir(parents=True)
+    ready, skipped = prepare(images, work)
+    for s in skipped:
+        print('skipped', s)
+    if len(ready) < a.min_images:
+        print(f'WARNING: {len(ready)} usable images, fewer than {a.min_images}')
+    lines = ['| Image | bpp | BP | Slices/line | Result | First differing sample (model/dscdecode) | Diff count |',
+             '|---|---|---|---|---|---|---|']
+    summaries, status = [], 0
+    for image, bpp, bp, slices in itertools.product(ready, a.bpp, a.bp, a.slices):
+        try:
+            s = cm.run_image(image, bpp, slices, None, bool(bp),
+                             run_dir=work / f'{image.stem}-bpp{bpp:g}-bp{bp}-s{slices}')
+        except cm.HarnessError as e:
+            s = dict(image=str(image), bpp=bpp, block_pred=bp, slices=slices,
+                     results=[dict(error=f'harness: {e}', match=False)])
+        summaries.append(s)
+        lines.append(row(image.name, s))
+        print(lines[-1], flush=True)
+        status |= 0 if s['results'][0]['match'] else 1
+    (work / 'results.json').write_text(json.dumps(dict(corpus=str(corpus), skipped=skipped,
+                                                       runs=summaries), indent=1))
+    (work / 'results.md').write_text('\n'.join(lines) + '\n')
+    print(f'\n{len(ready)} images, {len(summaries)} runs; results in {work}')
+    return status
+
+
+if __name__ == '__main__':
+    sys.exit(main())

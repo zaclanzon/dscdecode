@@ -1,0 +1,418 @@
+#!/usr/bin/env python3
+"""Compare dscdecode with the VESA DSC reference model, used as a black box.
+
+  compare_model image IMAGE [options]      model encodes IMAGE; the model and
+                                           dscdecode both decode its bitstream
+  compare_model bitstream PPS BIN [opts]   the model and dscdecode decode a
+                                           raw PPS plus payload
+  compare_model discriminators [NAME...]   the model decodes each input in
+                                           tests/discriminators; report which
+                                           predicted output it matches
+  compare_model --self-test                one small image comparison
+
+The model binary comes from DSCDECODE_MODEL_BIN. If that is unset, every mode
+prints SKIP and exits 77, which scripts/ci.sh counts as a pass.
+
+The model's interface is taken only from its README.TXT, its .cfg files, and
+the files it writes. Its .dsc files are the 4 bytes "DSCF", the 128-byte PPS,
+then the payload in DSC 1.1 §4.2.2 order: slice rows, then lines, then one
+chunk per horizontal slice. That is the same order dscdecode reads.
+
+Every run happens in a fresh directory under ~/dsc-runs/compare (override
+with DSCDECODE_RUNS). Model output never enters the repository.
+
+Exit status: 0 match, 1 mismatch, 2 error, 77 SKIP.
+"""
+import argparse
+import datetime
+import itertools
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+REPO = Path(__file__).resolve().parent.parent
+SKIP = 77
+MAGIC = b'DSCF'
+READINGS = {
+    'flat_restart': ('next-cycle', 'in-flight'),
+    'threshold_eq': ('lower', 'upper'),
+    'frac_reset': ('chunk', 'literal'),
+    'delay_offset': ('inclusive', 'exclusive'),
+}
+RC_FILES = {6: 'rc_8bpc_6bpp.cfg', 8: 'rc_8bpc_8bpp.cfg', 10: 'rc_8bpc_10bpp.cfg',
+            12: 'rc_8bpc_12bpp.cfg', 15: 'rc_8bpc_15bpp.cfg'}
+
+
+class HarnessError(Exception):
+    pass
+
+
+# --- images ----------------------------------------------------------------
+
+def read_ppm(path):
+    """Binary PPM (P6), maxval <= 255, comments allowed. Returns (w, h, rgb)."""
+    data = Path(path).read_bytes()
+    fields, pos = [], 0
+    while len(fields) < 4:
+        while pos < len(data) and data[pos:pos + 1].isspace():
+            pos += 1
+        if data[pos:pos + 1] == b'#':
+            pos = data.index(b'\n', pos) + 1
+            continue
+        end = pos
+        while end < len(data) and not data[end:end + 1].isspace():
+            end += 1
+        fields.append(data[pos:end])
+        pos = end
+    if fields[0] != b'P6' or int(fields[3]) > 255:
+        raise HarnessError(f'{path}: not an 8-bit binary PPM')
+    w, h = int(fields[1]), int(fields[2])
+    pixels = data[pos + 1:pos + 1 + 3 * w * h]
+    if len(pixels) != 3 * w * h:
+        raise HarnessError(f'{path}: truncated')
+    return w, h, pixels
+
+
+def image_size(path):
+    """(width, height) of a source image the model reads: PPM or DPX."""
+    path = Path(path)
+    head = path.read_bytes()[:1024]
+    if head[:4] in (b'SDPX', b'XPDS'):
+        order = 'big' if head[:4] == b'SDPX' else 'little'
+        return (int.from_bytes(head[772:776], order), int.from_bytes(head[776:780], order))
+    w, h, _ = read_ppm(path)
+    return w, h
+
+
+def compare_images(expected_path, actual_path):
+    """First differing sample and counts. Expected is the model's output."""
+    ew, eh, e = read_ppm(expected_path)
+    aw, ah, a = read_ppm(actual_path)
+    if (ew, eh) != (aw, ah):
+        return dict(match=False, size_mismatch=[ew, eh, aw, ah])
+    diffs = [i for i in range(len(e)) if e[i] != a[i]] if e != a else []
+    result = dict(match=not diffs, samples_differing=len(diffs),
+                  pixels_differing=len({i // 3 for i in diffs}))
+    if diffs:
+        i = diffs[0]
+        result['first'] = dict(x=(i // 3) % ew, y=(i // 3) // ew, component='RGB'[i % 3],
+                               expected=e[i], actual=a[i])
+    return result
+
+
+def describe(result):
+    if result.get('size_mismatch'):
+        return 'size mismatch: model {}x{}, dscdecode {}x{}'.format(*result['size_mismatch'])
+    if result['match']:
+        return 'match (bit-exact)'
+    f = result['first']
+    return (f"MISMATCH first at x={f['x']} y={f['y']} {f['component']} "
+            f"expected(model)={f['expected']} actual(dscdecode)={f['actual']}; "
+            f"{result['samples_differing']} samples in {result['pixels_differing']} pixels differ")
+
+
+# --- the model, as a black box ---------------------------------------------
+
+class Model:
+    def __init__(self, run_dir):
+        self.bin = os.environ.get('DSCDECODE_MODEL_BIN')
+        if not self.bin:
+            print('SKIP: DSCDECODE_MODEL_BIN is not set')
+            sys.exit(SKIP)
+        self.cfg_dir = Path(os.environ.get('DSCDECODE_MODEL_CFG_DIR', '/usr/local/share/dsc-ref'))
+        self.dir = run_dir
+        self.dir.mkdir(parents=True, exist_ok=True)
+
+    def run(self, cfg_name, cfg_text, list_lines):
+        (self.dir / f'{cfg_name}.list').write_text(''.join(l + '\n' for l in list_lines))
+        (self.dir / f'{cfg_name}.cfg').write_text(cfg_text.replace('@LIST@', f'{cfg_name}.list'))
+        p = subprocess.run([self.bin, '-F', f'{cfg_name}.cfg'], cwd=self.dir,
+                           capture_output=True, text=True, timeout=1800)
+        (self.dir / f'{cfg_name}.log').write_text(p.stdout + p.stderr)
+        if p.returncode:
+            raise HarnessError(f'model {cfg_name} failed ({p.returncode}): {(p.stdout + p.stderr)[-400:]}')
+        return p.stdout
+
+    def encode(self, image, bpp, slices, slice_height, block_pred, line_buffer):
+        w, h = image_size(image)
+        link = self.dir / ('input' + Path(image).suffix.lower())
+        if not link.exists():
+            link.symlink_to(Path(image).resolve())
+        for f in self.cfg_dir.glob('rc_*.cfg'):
+            shutil.copy(f, self.dir / f.name)
+        template = (self.cfg_dir / 'test_dsc_1_1.cfg').read_text()
+        rc = RC_FILES.get(bpp) or RC_FILES[min(RC_FILES, key=lambda b: abs(b - bpp))]
+        settings = dict(DSC_VERSION_MINOR='1', FUNCTION='1', SRC_LIST='@LIST@',
+                        PPM_FILE_OUTPUT='1', BLOCK_PRED_ENABLE=str(int(block_pred)),
+                        VBR_ENABLE='0', USE_YUV_INPUT='0', SIMPLE_422='0',
+                        NATIVE_422='0', NATIVE_420='0',
+                        LINE_BUFFER_BPC=str(line_buffer),
+                        SLICE_WIDTH=str(-(-w // slices)),
+                        BITS_PER_PIXEL=f'{bpp:g}')
+        if slice_height:
+            settings['SLICE_HEIGHT'] = str(slice_height)
+        self.run('encode', edit_cfg(template, settings, rc), [link.name])
+        dsc = self.dir / 'input.dsc'
+        if not dsc.exists():
+            raise HarnessError('model wrote no input.dsc')
+        return dsc
+
+    def decode(self, dsc):
+        self.run('decode', 'FUNCTION 2\nSRC_LIST @LIST@\nPPM_FILE_OUTPUT 1\n', [dsc.name])
+        out = self.dir / (dsc.stem + '.out.ppm')
+        if not out.exists():
+            raise HarnessError(f'model wrote no {out.name}')
+        return out
+
+
+def edit_cfg(template, settings, rc_file):
+    """Set KEY VALUE lines in a model config, uncommenting where needed.
+
+    The template places its INCLUDE lines before the BITS_PER_PIXEL override,
+    so the one INCLUDE kept here stays at the first INCLUDE position and every
+    setting appended at the end follows it.
+    """
+    lines, seen, included = [], set(), False
+    for raw in template.splitlines():
+        active = raw.strip().lstrip('/').strip()
+        key = active.split()[0] if active.split() else ''
+        if key == 'INCLUDE':
+            if not included:
+                lines.append(f'INCLUDE {rc_file}')
+                included = True
+            continue
+        if key in settings and key not in seen:
+            lines.append(f'{key} {settings[key]}')
+            seen.add(key)
+            continue
+        lines.append(raw)
+    if not included:
+        lines.append(f'INCLUDE {rc_file}')
+    lines += [f'{k} {v}' for k, v in settings.items() if k not in seen]
+    return '\n'.join(lines) + '\n'
+
+
+def split_dsc(dsc, run_dir):
+    data = dsc.read_bytes()
+    if data[:4] != MAGIC or len(data) < 132:
+        raise HarnessError(f'{dsc}: not a DSCF container')
+    pps, payload = data[4:132], data[132:]
+    be = lambda i: pps[i] * 256 + pps[i + 1]
+    height, width, sh, sw, chunk = be(6), be(8), be(10), be(12), be(14)
+    if not (sh and sw):
+        raise HarnessError(f'{dsc}: zero slice size in PPS')
+    # Whole slices: the last slice row carries its padding lines (§4.2.2).
+    expected = chunk * sh * -(-height // sh) * -(-width // sw)
+    if len(payload) != expected:
+        raise HarnessError(f'{dsc}: payload {len(payload)} bytes, PPS implies {expected}')
+    (run_dir / 'model.pps').write_bytes(pps)
+    (run_dir / 'model.bin').write_bytes(payload)
+    return run_dir / 'model.pps', run_dir / 'model.bin'
+
+
+# --- dscdecode --------------------------------------------------------------
+
+def dscdecode(pps, payload, out, readings=None, extra=()):
+    exe = os.environ.get('DSCDECODE_BIN', str(REPO / 'dscdecode'))
+    args = [exe, '--stats', *extra]
+    for k, v in (readings or {}).items():
+        args += ['--reading', f'{k}={v}']
+    args += [str(pps), str(payload), str(out)]
+    p = subprocess.run(args, capture_output=True, text=True, timeout=600)
+    stats = next((l for l in p.stderr.splitlines() if l.startswith('stats:')), '')
+    return p.returncode, p.stderr.strip(), stats
+
+
+def reading_sets(all_readings, fixed):
+    if not all_readings:
+        return [dict(fixed)]
+    names = list(READINGS)
+    return [dict(zip(names, v)) for v in itertools.product(*READINGS.values())]
+
+
+def compare_decodes(run_dir, pps, payload, model_out, readings_list):
+    results = []
+    for n, readings in enumerate(readings_list):
+        out = run_dir / f'dscdecode.{n}.ppm'
+        code, err, stats = dscdecode(pps, payload, out, readings)
+        if code:
+            results.append(dict(readings=readings, error=err, stats=stats, match=False))
+            continue
+        r = compare_images(model_out, out)
+        r.update(readings=readings, stats=stats)
+        results.append(r)
+    return results
+
+
+def new_run_dir(label):
+    root = Path(os.environ.get('DSCDECODE_RUNS', Path.home() / 'dsc-runs')) / 'compare'
+    stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    return root / f'{stamp}-{label}'
+
+
+def report(results, as_json):
+    if as_json:
+        print(json.dumps(results, indent=1))
+        return
+    for r in results:
+        tag = ' '.join(f'{k}={v}' for k, v in r['readings'].items()) or 'defaults'
+        text = f"decode error: {r['error']}" if 'error' in r else describe(r)
+        print(f'  [{tag}] {text}')
+        if r.get('stats'):
+            print(f"      {r['stats']}")
+
+
+def parse_readings(pairs):
+    out = {}
+    for pair in pairs or []:
+        k, _, v = pair.partition('=')
+        if k not in READINGS or v not in READINGS[k]:
+            raise HarnessError(f'unknown reading {pair}')
+        out[k] = v
+    return out
+
+
+# --- modes ------------------------------------------------------------------
+
+def run_image(image, bpp=8.0, slices=1, slice_height=None, bp=False, line_buffer=9,
+              readings_list=None, run_dir=None):
+    """Model encodes image; model and dscdecode decode it. Returns a summary."""
+    label = f"{Path(image).stem}-bpp{bpp:g}-s{slices}-bp{int(bp)}"
+    run_dir = Path(run_dir) if run_dir else new_run_dir(label)
+    model = Model(run_dir)
+    dsc = model.encode(image, bpp, slices, slice_height, bp, line_buffer)
+    model_out = model.decode(dsc)
+    pps, payload = split_dsc(dsc, run_dir)
+    results = compare_decodes(run_dir, pps, payload, model_out, readings_list or [{}])
+    summary = dict(mode='image', image=str(image), bpp=bpp, slices=slices,
+                   block_pred=int(bp), slice_height=slice_height, run_dir=str(run_dir),
+                   results=results)
+    (run_dir / 'result.json').write_text(json.dumps(summary, indent=1))
+    return summary
+
+
+def mode_image(a):
+    summary = run_image(a.image, a.bpp, a.slices, a.slice_height, a.bp, a.line_buffer,
+                        reading_sets(a.all_readings, parse_readings(a.reading)), a.run_dir)
+    results, run_dir = summary['results'], summary['run_dir']
+    if not a.json:
+        print(f'{a.image}: bpp {a.bpp:g}, {a.slices} slice(s)/line, BP {int(a.bp)}  [{run_dir}]')
+    report(results, a.json)
+    return 0 if any(r['match'] for r in results) else 1
+
+
+def wrap_and_decode(pps, payload, run_dir, model):
+    pps_b, pay_b = Path(pps).read_bytes(), Path(payload).read_bytes()
+    if len(pps_b) != 128:
+        raise HarnessError('PPS must be 128 bytes')
+    dsc = run_dir / 'input.dsc'
+    dsc.write_bytes(MAGIC + pps_b + pay_b)
+    return model.decode(dsc)
+
+
+def mode_bitstream(a):
+    run_dir = Path(a.run_dir) if a.run_dir else new_run_dir(Path(a.payload).stem)
+    model = Model(run_dir)
+    model_out = wrap_and_decode(a.pps, a.payload, run_dir, model)
+    results = compare_decodes(run_dir, a.pps, a.payload, model_out,
+                              reading_sets(a.all_readings, parse_readings(a.reading)))
+    (run_dir / 'result.json').write_text(json.dumps(dict(mode='bitstream', pps=str(a.pps),
+                                                         payload=str(a.payload),
+                                                         results=results), indent=1))
+    if not a.json:
+        print(f'{a.payload}  [{run_dir}]')
+    report(results, a.json)
+    return 0 if any(r['match'] for r in results) else 1
+
+
+def mode_discriminators(a):
+    root = REPO / 'tests' / 'discriminators'
+    manifest = json.loads((root / 'manifest.json').read_text())
+    names = a.names or list(manifest)
+    status, summary = 0, {}
+    for name in names:
+        run_dir = new_run_dir(name)
+        model = Model(run_dir)
+        model_out = wrap_and_decode(root / f'{name}.pps', root / f'{name}.bin', run_dir, model)
+        entry = manifest[name]
+        verdicts = {}
+        for reading in READINGS[entry['question']]:
+            verdicts[reading] = compare_images(model_out, root / f'{name}.{reading}.expected.ppm')
+        supported = [r for r, v in verdicts.items() if v['match']]
+        summary[name] = dict(question=entry['question'], supported=supported,
+                             verdicts=verdicts, run_dir=str(run_dir))
+        print(f"{name} ({entry['question']}): model output matches "
+              f"{', '.join(supported) if supported else 'NEITHER prediction'}  [{run_dir}]")
+        for reading, v in verdicts.items():
+            print(f'  prediction {reading}: {describe(v)}')
+        if len(supported) != 1:
+            status = 1
+    if a.json:
+        print(json.dumps(summary, indent=1))
+    return status
+
+
+def mode_self_test(a):
+    if not os.environ.get('DSCDECODE_MODEL_BIN'):
+        print('SKIP: DSCDECODE_MODEL_BIN is not set')
+        return SKIP
+    run_dir = new_run_dir('self-test')
+    run_dir.mkdir(parents=True)
+    w, h = 192, 108
+    image = run_dir / 'ramp.ppm'
+    image.write_bytes(f'P6\n{w} {h}\n255\n'.encode() + bytes(
+        v for y in range(h) for x in range(w)
+        for v in ((x * 4 + y) % 256, (y * 2 + x // 3) % 256, (255 - x) % 256)))
+    args = argparse.Namespace(image=str(image), bpp=8.0, slices=1, slice_height=108, bp=False,
+                              line_buffer=9, reading=[], all_readings=False,
+                              run_dir=str(run_dir / 'run'), json=False)
+    return mode_image(args)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--self-test', action='store_true')
+    ap.add_argument('--json', action='store_true')
+    sub = ap.add_subparsers(dest='mode')
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument('--reading', action='append', metavar='NAME=VALUE')
+    common.add_argument('--all-readings', action='store_true',
+                        help='decode with all 16 reading combinations')
+    common.add_argument('--run-dir')
+    common.add_argument('--json', action='store_true')
+    im = sub.add_parser('image', parents=[common])
+    im.add_argument('image')
+    im.add_argument('--bpp', type=float, default=8.0)
+    im.add_argument('--slices', type=int, default=1, help='slices per line')
+    im.add_argument('--slice-height', type=int, default=None,
+                    help='default: the value in test_dsc_1_1.cfg')
+    im.add_argument('--bp', type=int, choices=(0, 1), default=0)
+    im.add_argument('--line-buffer', type=int, default=9)
+    bs = sub.add_parser('bitstream', parents=[common])
+    bs.add_argument('pps')
+    bs.add_argument('payload')
+    ds = sub.add_parser('discriminators')
+    ds.add_argument('names', nargs='*')
+    ds.add_argument('--json', action='store_true')
+    a = ap.parse_args()
+    try:
+        if a.self_test:
+            return mode_self_test(a)
+        if a.mode == 'image':
+            return mode_image(a)
+        if a.mode == 'bitstream':
+            return mode_bitstream(a)
+        if a.mode == 'discriminators':
+            return mode_discriminators(a)
+        ap.print_help()
+        return 2
+    except HarnessError as e:
+        print(f'ERROR: {e}', file=sys.stderr)
+        return 2
+
+
+if __name__ == '__main__':
+    sys.exit(main())

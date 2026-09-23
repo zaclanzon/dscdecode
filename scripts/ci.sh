@@ -4,12 +4,13 @@
 #   scripts/ci.sh            all steps, in order
 #   scripts/ci.sh STEP...    only the named steps
 #
-# Steps: build test fixtures sanitize fuzz
+# Steps: build test fixtures sanitize fuzz model
 #
 # Environment:
 #   CI_FUZZ_SECONDS      libFuzzer smoke duration (default 60)
 #   CI_FUZZ_DIR          writable libFuzzer corpus (default: a fresh temp dir;
 #                        never tests/corpus, which holds the tracked seeds)
+#   DSCDECODE_MODEL_BIN  reference model for the model step; unset means SKIP
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -60,7 +61,22 @@ step_fuzz() {
     make fuzz-smoke
 }
 
-ALL=(build test fixtures sanitize fuzz)
+# Needs the licensed reference model (never on GitHub). SKIP counts as a pass.
+# With the model: a small image comparison plus every discriminator, each of
+# which must match exactly one of its two predictions.
+step_model() {
+    local status=0
+    make CFLAGS='-O2 -g -Werror' all
+    tools/compare_model --self-test || status=$?
+    if [ "$status" -eq 77 ]; then
+        RESULTS+=("model: SKIP (DSCDECODE_MODEL_BIN not set)")
+        return 0
+    fi
+    [ "$status" -eq 0 ] || return "$status"
+    tools/compare_model discriminators
+}
+
+ALL=(build test fixtures sanitize fuzz model)
 [ "$#" -gt 0 ] || set -- "${ALL[@]}"
 for step in "$@"; do
     case " ${ALL[*]} " in *" $step "*) ;; *) echo "unknown step: $step" >&2; exit 2;; esac

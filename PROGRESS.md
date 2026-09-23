@@ -113,3 +113,48 @@ discriminator predictions are fixed before any model output exists.
   correction.
 * Gate: `scripts/ci.sh` green. Fuzz smoke: 1,646,134 libFuzzer executions in
   61 s, then 400,000 deterministic executions, no findings.
+
+## Phase 3, part 2: model-comparison harness (2026-09-23)
+
+* `tools/compare_model` reads the model path from `DSCDECODE_MODEL_BIN`. It
+  prints SKIP and exits 77 when that is unset, and `scripts/ci.sh` counts 77
+  as a pass. Modes:
+  * `image`: the model encodes, then the model and dscdecode both decode.
+  * `bitstream`: a raw PPS and payload, decoded by both.
+  * `discriminators`: which prediction the model's decode matches.
+  * `--self-test`.
+
+  It reports the first differing sample (x, y, component, model value,
+  dscdecode value) and the number of differing samples and pixels.
+  `--all-readings` decodes with all 16 switch combinations. Runs go to
+  `~/dsc-runs/compare/`.
+* `tools/run_corpus` runs the image comparison over every image in a
+  directory outside the repo (default `~/vesa-corpus/`). It reads PPM, DPX,
+  PNG and PGM, plus JPEG if Pillow is present, and writes a Markdown table.
+  It refuses a directory inside the repository. `~/vesa-corpus/` does not
+  exist at the moment.
+* Model interface, from README.TXT, the .cfg files, and files the model wrote
+  (rule 1). I encoded one synthetic 480×108 gradient under
+  `~/dsc-runs/format-discovery/` to learn the formats. No pixel comparison was
+  made and no discriminator was run.
+  * The model reports "version 1.67".
+  * `.dsc` layout: the bytes `DSCF`, the 128-byte PPS, then the payload. The
+    chunk order was checked two ways, without decoding. A two-slice-per-line
+    encode equals the line-interleaved chunks of single-slice encodes of the
+    left and right halves. A two-slice-row encode equals the top-half payload
+    followed by the bottom-half payload. That is the DSC 1.1 §4.2.2 order
+    dscdecode already reads.
+  * Decode mode (`FUNCTION 2`, `PPM_FILE_OUTPUT 1`) writes `NAME.out.ppm`.
+  * README.TXT's first line refers to "test model notes at the bottom", but no
+    such section exists in the installed file.
+* `tests/fake_model.py` is a stand-in with the same command-line and file
+  conventions. `tests/test_compare_model.py` uses it in `make test` to check
+  the harness: SKIP, container handling, config generation, mismatch
+  reporting, `--all-readings`, discriminator verdicts, the PNG reader, and
+  `run_corpus`. Writing the image-mode check found and fixed a payload-size
+  error for pictures whose height is not a multiple of the slice height.
+* `scripts/ci.sh` has a new `model` step. The GitHub workflow has the same
+  step, which reports SKIP there.
+* Gate: `scripts/ci.sh` green with `DSCDECODE_MODEL_BIN` unset; the model
+  step reported SKIP. Fuzz smoke: 1,654,396 libFuzzer executions in 61 s,
+  then 400,000 deterministic executions, no findings.

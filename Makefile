@@ -22,6 +22,7 @@ test: all test_rc test_predict
 	./test_predict
 	python3 tests/test_cli.py ./dscdecode
 	python3 tests/test_discriminators.py ./dscdecode
+	python3 tests/test_compare_model.py ./dscdecode
 fuzz:
 	clang $(CPPFLAGS) -Isrc -std=c11 -g -O1 -fno-omit-frame-pointer -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=undefined $(LIBSRC) fuzz/fuzz_decode.c -o fuzz_decode
 # UBSan must abort, not print and continue, or a finding would not fail the

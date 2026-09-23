@@ -31,6 +31,12 @@ make sanitize
 scripts/ci.sh      # everything CI runs: build, suites, sanitizers, fuzz smoke
 ```
 
+Options: `--reading NAME=VALUE` selects one reading of a rate-control
+question the specification text leaves open (see "Open questions" in
+`RESEARCH.md`; `dscdecode` with no arguments lists them and the defaults),
+`--stats` prints how often those questions arose, and `--trace FILE.csv`
+writes per-group QP, bit counts and buffer fullness.
+
 The PPS file must be exactly 128 bytes. `compressed.bin` contains raw picture
 payload without a container header: for each vertical slice row, concatenate
 one `slice_chunk_size`-byte chunk from each horizontal slice, for each of the
@@ -90,9 +96,11 @@ fatal and report leaks; on a host where LeakSanitizer cannot run, set
   independent traces. Current interpretations and uncertainties are explicit
   in `research/rc-ambiguities.md`, not hidden behind the synthetic results.
 * VBR framing and buffer handling are not implemented.
-* Official VESA acquisition/license verification is a separate track.
-  No reference model is included or used as an oracle in this checkpoint.
-  Differential testing is conditional on establishing the requested terms.
+* The licensed VESA reference model is not included. `tools/compare_model`
+  drives it as a black box when `DSCDECODE_MODEL_BIN` points at it, and
+  `tests/discriminators/` holds inputs that separate the readings of the
+  open rate-control questions. Comparison results are recorded only in
+  `PROGRESS.md`.
 
 See `RESEARCH.md` for pinned Linux/NVIDIA/specification sources, PPS field notes,
 caller survey, RC-table adjudication, licensing evidence, and the
