@@ -561,7 +561,7 @@ Baseline at 23a0131, before any change. `scripts/ci.sh` green with
 | CLI checks (`tests/test_cli.py`) | 22 / 22 |
 | Discriminator decodes (`tests/test_discriminators.py`) | 72 / 72 |
 | `test_rc`, `test_predict` | pass, pass |
-| Harness checks with the stand-in model (`tests/test_compare_model.py`) | 10 / 10 |
+| Harness checks with the stand-in model (`tests/test_compare_model.py`) | 9 / 9 |
 | ASan + UBSan suites (`make sanitize`) | pass |
 | Fuzz smoke | 700,973 libFuzzer executions (61 s), then 680,000 deterministic |
 
@@ -766,3 +766,7 @@ step; history was not rewritten.
   `*.ref.ppm`), other archive formats, coverage output, and editor and patch
   leftovers.
 * Gate: `scripts/ci.sh` green with the model unset and set.
+* Correction (follow-up commit): the P1 baseline table first gave the
+  stand-in harness checks as 10; `tests/test_compare_model.py` has 9. The
+  count is 9 before and after this pass (the discriminators check gained
+  cases, not a new check line).
