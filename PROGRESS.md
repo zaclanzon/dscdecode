@@ -500,3 +500,46 @@ model.
 * The fuzz seed corpus gains the `oq2b` input (16 → 17 seeds).
 * Gate: `scripts/ci.sh` green (model step SKIP). Fuzz smoke: 628,564
   libFuzzer executions in 61 s, then 680,000 deterministic executions.
+
+## Phase 5, part 2: oq2b against the model (2026-09-23)
+
+Part 1 (a6cf228) committed `oq2b_threshold_equality` and its predictions
+before the model decoded it. Result:
+
+| Discriminator | Question | Model output matches |
+|---|---|---|
+| `oq2b_threshold_equality` | OQ-2 | lower (upper differs at x = 93: R 152 model, 132 upper prediction) |
+
+This agrees with the stream set, where `threshold_eq=upper` diverges on 69
+of 92 streams. RESEARCH.md now names `oq2b_threshold_equality` as the OQ-2
+discriminator.
+
+`scripts/ci.sh` with `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref` passes
+every step, including the model step: the self-test image matches
+bit-exactly; `oq1`, `oq2b`, `oq3` and `oq4` each match exactly one
+prediction (in-flight, lower, chunk, midpoint); `oq2` is reported
+inconclusive. Fuzz smoke in that run: 804,438 libFuzzer executions in 61 s,
+then 680,000 deterministic executions.
+
+Phase 5 summary: every open question the model can decide is resolved,
+with the model's reading as the default and the other readings kept behind
+their switches. OQ-7 (DSC 1.2 only) and OQ-9 (encoder only) remain open.
+~/vesa-corpus/ is absent, so no corpus images were compared.
+
+Lines of code after Phase 5 (`wc -l`, all lines; baseline in parentheses):
+
+| Area | Lines |
+|---|---|
+| Library and CLI (`src/*.c`, `src/*.h`, `include/dsc.h`) | 1,265 (732) |
+| Fuzz entry points (`fuzz/*.c`) | 85 (70) |
+| Tests (`tests/*.c`, `tests/*.py`) | 2,198 (563) |
+| Total of the baseline areas | 3,548 (1,365) |
+| Tools and scripts, new in M2 (`tools/*`, `scripts/*.sh`) | 761 |
+
+Fuzz executions this session: 190,188,947 libFuzzer (Phase 4 run
+123,075,596; Phase 2 run 56,073,894; BP precheck 958,981; Phase R check
+20,000; nine 61-second CI smoke runs 10,060,476) plus 5,040,000
+deterministic smoke executions. No crash, timeout, OOM or leak.
+
+* Gate: `scripts/ci.sh` green (model step SKIP). Fuzz smoke: 684,656
+  libFuzzer executions in 61 s, then 680,000 deterministic executions.
