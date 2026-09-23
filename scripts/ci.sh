@@ -31,14 +31,19 @@ step_test() {
     make CFLAGS='-O2 -g -Werror' test
 }
 
-# The generators must reproduce every committed fixture byte for byte.
+# The generators must reproduce every committed fixture byte for byte. They
+# start from empty output directories, so a committed file that no generator
+# writes fails the diff too. tests/discriminators/README.md is hand-written.
+# The seed corpus is packaged last, from the fixtures and discriminators.
 step_fixtures() {
     local work
     work=$(mktemp -d)
     cp -r tests "$work/"
+    find "$work/tests/fixtures" "$work/tests/corpus" "$work/tests/discriminators" \
+        -type f ! -path '*/discriminators/README.md' -delete
     (cd "$work/tests" && python3 make_vectors.py >/dev/null &&
-        python3 make_transition_vectors.py && python3 make_corpus.py &&
-        python3 make_bp_vectors.py >/dev/null && python3 make_discriminators.py >/dev/null)
+        python3 make_transition_vectors.py && python3 make_bp_vectors.py >/dev/null &&
+        python3 make_discriminators.py >/dev/null && python3 make_corpus.py)
     diff -r tests/fixtures "$work/tests/fixtures"
     diff -r tests/corpus "$work/tests/corpus"
     diff -r tests/discriminators "$work/tests/discriminators"

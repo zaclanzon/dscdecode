@@ -15,7 +15,7 @@ Phase order for M2: R, 0, 1, 3, 4, 2, 5.
 | Python | 3.14.4 |
 | Host | Linux 7.0.0-34-generic, x86-64 |
 
-## Session baseline (Phase R, 2026-09-23)
+## M2 baseline (Phase R, 2026-09-23)
 
 Measured on m2-work at 429c4e8 "M1 baseline (Sept 20 checkpoint)", before any
 M2 change. It matches the M1 expected results.
@@ -41,7 +41,7 @@ Lines of code at baseline (`wc -l`, all lines):
 | Tests | `tests/*.c`, `tests/*.py` | 563 |
 | Total | | 1,365 |
 
-Phases complete at session start: none. Phase 0 had been started: the
+Phases complete when M2 started: none. Phase 0 had been started: the
 baseline commit and the m2-work branch existed. RESEARCH.md, the provenance
 paragraph, and this file did not.
 
@@ -94,7 +94,7 @@ the tree before any commit. Later runs write only to `~/dsc-runs/`.
 This part is committed before the reference model has run anything, so the
 discriminator predictions are fixed before any model output exists.
 
-* Rule 7 switches, runtime, in `struct dsc_options` and `dscdecode --reading`:
+* Reading switches, runtime, in `struct dsc_options` and `dscdecode --reading`:
   `flat_restart` (OQ-1), `threshold_eq` (OQ-2), `frac_reset` (OQ-3) and a new
   `delay_offset` (OQ-12, the initial-delay boundary, found while designing the
   OQ-3 input). Defaults keep M1 behavior. Both readings of each are recorded
@@ -134,7 +134,7 @@ discriminator predictions are fixed before any model output exists.
   It refuses a directory inside the repository. `~/vesa-corpus/` does not
   exist at the moment.
 * Model interface, from README.TXT, the .cfg files, and files the model wrote
-  (rule 1). I encoded one synthetic 480×108 gradient under
+  (black-box use only). One synthetic 480×108 gradient was encoded under
   `~/dsc-runs/format-discovery/` to learn the formats. No pixel comparison was
   made and no discriminator was run.
   * The model reports "version 1.67".
@@ -198,8 +198,8 @@ discriminator predictions are fixed before any model output exists.
   §7.5.2.1, with the bpSad equation as corrected in DSC 1.2b §6.4.4.1.
   BP-enabled PPS are now decoded rather than rejected. `dsc_options_init`
   moved to `src/options.c` so the predictor and RC tests can both link it.
-* Rule 7 switches:
-  * `bp_left` (OQ-4, the question the brief names): `replicate`, the default
+* Reading switches:
+  * `bp_left` (OQ-4): `replicate`, the default
     by analogy with §6.4.1's rule for previous-line samples outside the
     slice, or `midpoint`.
   * `bp_edge` (OQ-13, new): which previous-line sample `lastEdgeCount` is
@@ -245,8 +245,8 @@ discriminator predictions are fixed before any model output exists.
   | libFuzzer coverage (fork mode) | cov 483, ft 2,879 (Phase 4: 428, 2,467) |
   | Source coverage of final corpus plus seeds (llvm-cov) | lines 97.3% (655/673), branches 82.9% (711/858); `predict.c` lines 100%, branches 87.9% |
 
-* No crash, so no regression inputs were added. Fuzz executions so far this
-  session: 123,075,596 (Phase 4) + 56,073,894 (this run) + 958,981 (BP
+* No crash, so no regression inputs were added. Fuzz executions so far in
+  M2: 123,075,596 (Phase 4) + 56,073,894 (this run) + 958,981 (BP
   precheck) + the 60-second CI smoke runs listed in each phase.
 * Gate: `scripts/ci.sh` green (model step SKIP). Fuzz smoke: 826,572
   libFuzzer executions in 61 s, then 640,000 deterministic executions.
@@ -274,7 +274,7 @@ groups. The per-group QP the model used was recovered from its decoded
 pixels: a scratch build (outside the repository) decodes with a forced QP
 per group and keeps the QP that reproduces the model's pixels. Candidate
 readings were then fitted against the recovered QP sequences, and each fit
-was checked by full bit-exact decodes. This gave rule-7 switches for
+was checked by full bit-exact decodes. This gave reading switches for
 questions that the M1 code had fixed silently, each with the model's
 reading as the default and the M1 reading kept:
 
@@ -503,7 +503,7 @@ model.
 
 ## Phase 5, part 2: oq2b against the model (2026-09-23)
 
-Part 1 (a6cf228) committed `oq2b_threshold_equality` and its predictions
+Part 1 (3e41c9e) committed `oq2b_threshold_equality` and its predictions
 before the model decoded it. Result:
 
 | Discriminator | Question | Model output matches |
@@ -536,7 +536,7 @@ Lines of code after Phase 5 (`wc -l`, all lines; baseline in parentheses):
 | Total of the baseline areas | 3,548 (1,365) |
 | Tools and scripts, new in M2 (`tools/*`, `scripts/*.sh`) | 761 |
 
-Fuzz executions this session: 190,188,947 libFuzzer (Phase 4 run
+Fuzz executions in M2: 190,188,947 libFuzzer (Phase 4 run
 123,075,596; Phase 2 run 56,073,894; BP precheck 958,981; Phase R check
 20,000; nine 61-second CI smoke runs 10,060,476) plus 5,040,000
 deterministic smoke executions. No crash, timeout, OOM or leak.
@@ -702,4 +702,67 @@ Baseline at 23a0131, before any change. `scripts/ci.sh` green with
 and no corpus table was made. The 7.5 bpp column that P2 made possible was
 not run either. No code or test changed in this step.
 
+* Gate: `scripts/ci.sh` green with the model unset and set.
+
+### P4: final audit (2026-09-23)
+
+Scope: every tracked file on main and m2-work, every text blob in the history
+of both branches (13 commits, 222 distinct blobs, before this step's
+commit), and the commit messages. Scripts and reports are under
+`~/dsc-runs/pub/audit/`; reports that quote specification text are under
+`~/vesa-spec/audit/`. The full finding list, including the history locations
+that only a history rewrite could remove, went to the maintainer with this
+step; history was not rewritten.
+
+* Specification text. The three PDFs were already converted (page counts
+  match); `-raw` conversions were added under `~/vesa-spec/`. Runs of 12 or
+  more consecutive words shared with the specification text: two, both in
+  the doc comments of `include/drm/display/drm_dsc.h`, the Linux header kept
+  byte-identical to upstream (THIRD_PARTY.md); not changed. With punctuation
+  ignored as well, the same header plus one SCR title quoted in
+  `research/prediction-ambiguities.md`, now cited by date and subject
+  instead. No blob or commit message shares even 8 consecutive words with
+  the E1 errata, whose model source excerpts are therefore not reproduced;
+  the "M2 source note" in RESEARCH.md describes the excerpt without quoting
+  it.
+* Model material. No model source file name, model copyright notice, mirror
+  link or model archive hash in any blob. The hashes present identify the
+  officially obtained archive, the DSC 1.1 and 1.2 PDFs M1 cited, and two
+  copies of this project's research record. The provenance and M1
+  disclosure statements are kept unchanged. Statements of model behavior
+  come from the black-box runs in this file; the one M1 table entry that
+  names a model value is verifiable from the installed `.cfg` files.
+* Committed binary and image files. All 102 files in `tests/fixtures`,
+  `tests/corpus` and `tests/discriminators` regenerate byte for byte from
+  empty directories; none came from dsc-ref output (every expected image the
+  model reproduces was committed by a generator before the model ran).
+  `scripts/ci.sh fixtures` used to regenerate on top of a copy of `tests/`,
+  so a file no generator writes would still have passed. It now empties the
+  output directories first (keeping the hand-written discriminator README)
+  and packages the seed corpus last; a stray seed now fails the step.
+* Third-party code: only `include/drm/display/drm_dsc.h` (Linux, MIT,
+  Intel), identical to the installed Linux 7.0.0-34 header. `drm_dp.h` is an
+  original shim. No NVIDIA, i915 or other copied code or tables. `src/`
+  holds no RC parameter set (the decoder reads every RC value from the PPS);
+  the test generators and `tests/test_rc.c` define hand-chosen sets, some
+  using the common 8 bpc buffer thresholds. Listed for the maintainer, not
+  changed.
+* Secrets and personal data. No keys, tokens or passwords. The only email
+  in a file is the Intel author line in the vendored header. Five M1 build
+  and test logs in `research/` recorded an absolute home path (with a
+  username and a tool name) and a container scratch path; at the tip each is
+  now the relative directory `dsc-decoder`.
+* Git metadata: one author and committer identity on both branches, and a
+  `Co-Authored-By` trailer on every commit. Reported only.
+* Wording. Every status word the README may not claim is negated or
+  technical at the tip; one summary of the agreement now says "products that
+  implement it". References to prompt rules, to the person running the
+  work, and to session, tool or sub-task process were rewritten in
+  RESEARCH.md, PROGRESS.md and `research/rc-ambiguities.md` ("reading
+  switch" for the rule-numbered name, "M2" for "session"). PROGRESS.md cited
+  the Phase 5 part 1 commit by its pre-rewrite hash; it now cites 3e41c9e.
+* Ignored files. Nothing that should be ignored was ever tracked.
+  `.gitignore` now also covers model output (`*.dsc`, `*.dpx`, `*.out.ppm`,
+  `*.ref.ppm`), other archive formats, coverage output, and editor and patch
+  leftovers.
 * Gate: `scripts/ci.sh` green with the model unset and set.

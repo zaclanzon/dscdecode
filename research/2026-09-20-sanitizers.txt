@@ -1,9 +1,9 @@
 make clean
-make[1]: Entering directory '/home/z/Documents/Codex/2026-09-20/cont/work/dsc-decoder'
+make[1]: Entering directory 'dsc-decoder'
 rm -f src/pps.o src/decode.o src/predict.o src/rate_control.o src/main.o libdsc.a dscdecode fuzz_decode fuzz_smoke fuzz_afl test_rc test_predict
-make[1]: Leaving directory '/home/z/Documents/Codex/2026-09-20/cont/work/dsc-decoder'
+make[1]: Leaving directory 'dsc-decoder'
 make CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined' all
-make[1]: Entering directory '/home/z/Documents/Codex/2026-09-20/cont/work/dsc-decoder'
+make[1]: Entering directory 'dsc-decoder'
 cc -Iinclude -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/pps.c -o src/pps.o
 cc -Iinclude -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/decode.c -o src/decode.o
 cc -Iinclude -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/predict.c -o src/predict.o
@@ -11,7 +11,7 @@ cc -Iinclude -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -std=c1
 ar rcs libdsc.a src/pps.o src/decode.o src/predict.o src/rate_control.o
 cc -Iinclude -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/main.c -o src/main.o
 cc -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined src/main.o libdsc.a -o dscdecode
-make[1]: Leaving directory '/home/z/Documents/Codex/2026-09-20/cont/work/dsc-decoder'
+make[1]: Leaving directory 'dsc-decoder'
 ASAN_OPTIONS=detect_leaks=0 python3 tests/test_cli.py ./dscdecode
 PASS flat: exact expected PPM
 PASS gradient: exact expected PPM
@@ -28,14 +28,14 @@ PASS invalid_partial_residual: rejected without overwriting output
 PASS invalid_partial_ich: rejected without overwriting output
 18 checks passed
 make CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined' test_rc
-make[1]: Entering directory '/home/z/Documents/Codex/2026-09-20/cont/work/dsc-decoder'
+make[1]: Entering directory 'dsc-decoder'
 cc -Iinclude -Isrc -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion src/rate_control.c tests/test_rc.c -o test_rc
-make[1]: Leaving directory '/home/z/Documents/Codex/2026-09-20/cont/work/dsc-decoder'
+make[1]: Leaving directory 'dsc-decoder'
 ASAN_OPTIONS=detect_leaks=0 ./test_rc
 RC hand-calculated traces passed (not a conformance oracle)
 make CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined' test_predict
-make[1]: Entering directory '/home/z/Documents/Codex/2026-09-20/cont/work/dsc-decoder'
+make[1]: Entering directory 'dsc-decoder'
 cc -Iinclude -Isrc -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion src/predict.c tests/test_predict.c -o test_predict
-make[1]: Leaving directory '/home/z/Documents/Codex/2026-09-20/cont/work/dsc-decoder'
+make[1]: Leaving directory 'dsc-decoder'
 ASAN_OPTIONS=detect_leaks=0 ./test_predict
 Prediction sample traces passed (line precision and history boundaries)

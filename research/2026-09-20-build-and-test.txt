@@ -1,4 +1,4 @@
-make: Entering directory '/home/z/Documents/Codex/2026-09-20/cont/work/dsc-decoder'
+make: Entering directory 'dsc-decoder'
 cc -Iinclude -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/pps.c -o src/pps.o
 cc -Iinclude -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/decode.c -o src/decode.o
 cc -Iinclude -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/predict.c -o src/predict.o
@@ -27,4 +27,4 @@ PASS short PPS rejected
 PASS invalid_partial_residual: rejected without overwriting output
 PASS invalid_partial_ich: rejected without overwriting output
 18 checks passed
-make: Leaving directory '/home/z/Documents/Codex/2026-09-20/cont/work/dsc-decoder'
+make: Leaving directory 'dsc-decoder'

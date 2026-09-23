@@ -32,7 +32,7 @@ after the prose of the fractional-bpp SCR. During M2 some of that excerpt was
 displayed while reading the SCR's prose. It was not used for any decision
 here. Only the SCR's prose change to §6.8.1 was used.
 
-Phase 5 (2026-09-23) ran the VESA C model as a black box (rule: command line
+Phase 5 (2026-09-23) ran the VESA C model as a black box (its command line
 and output files only; see `PROGRESS.md`). A question marked resolved had one
 reading that reproduced the model's own decode bit-exactly on every model
 stream and discriminator that exercises it, while the other reading diverged.
@@ -75,10 +75,11 @@ on September 20.
 
 ### Recovered inputs and source discipline
 
-The supplied `dsc-decoder-checkpoint.zip` was extracted into a local working
-directory. Its `RESEARCH.md` is byte-identical to supplied `RESEARCH (2).md`
-(SHA-256 `95eb8ebe83afb0e4803e5b77e857fe405782f58d4418f1f94876ca5d66d454bc`).
-Supplied revisions (1) and (3) are identical older research snapshots.
+The checkpoint archive `dsc-decoder-checkpoint.zip` was extracted into a
+local working directory. Its `RESEARCH.md` is byte-identical to the latest
+separately kept copy of the research record (SHA-256
+`95eb8ebe83afb0e4803e5b77e857fe405782f58d4418f1f94876ca5d66d454bc`); two
+other kept copies are identical older snapshots.
 The imported six image fixtures, RC traces and 14 CLI checks passed before edits.
 
 The pinned DSC 1.1 PDF was downloaded again from the source listed below;
@@ -268,12 +269,12 @@ Implementation status and final freshness/test results will be appended after Ph
 ## Track A implementation checkpoint — 2026-09-16
 
 Implementation began only after Phase 0 and the licensing/erratum follow-up were
-written and the user explicitly authorized independent Track A. No driver was
+written, as the independent Track A. No driver was
 edited. No reference-model source was consulted to implement or resolve
 ambiguities in this track. The earlier researcher's exposure remains disclosed;
 this is an independently expressed implementation, not a formal clean-room claim.
-One erratum extraction in the RC subtask included attached source text after its
-prose; the subtask explicitly did not use that excerpt. The shipped project
+One text extraction of an erratum, made for the rate-control work, included the
+model source excerpt attached after its prose; that excerpt was not used. The shipped project
 contains no reference-model code or binary.
 
 ### Delivered functionality and files
@@ -400,7 +401,7 @@ changed. The vendored header was byte-compared with that checkout.
 
 The complete, verbatim source is [Standards Implementor License Agreement, Exhibit D of VESA Policy 200D, §§1–2](https://vesa.org/wp-content/uploads/2024/05/Standards-Implementor-License-Agreement.pdf), pages 1–2. Refer to that original for exact language, including its placeholders and formatting defects; this report does not silently replace it with BSD-3-Clause text.
 
-Section 1 makes (a) applicable to text, makes (b) applicable to Software included in the Specification as defined in Policy 200D, and gives (b) priority over inconsistent (a). Section 1(a) authorizes using the Specification to develop and distribute compliant products; it excludes sublicensing/modifying the Specification itself and distinguishes implementing products from derivatives of the Specification.
+Section 1 makes (a) applicable to text, makes (b) applicable to Software included in the Specification as defined in Policy 200D, and gives (b) priority over inconsistent (a). Section 1(a) authorizes using the Specification to develop and distribute products that implement it; it excludes sublicensing/modifying the Specification itself and distinguishes implementing products from derivatives of the Specification.
 
 Section 1(b) includes this condition: **“Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.”** It also requires corresponding notices/conditions/disclaimer in materials accompanying binary redistribution and prohibits endorsement using copyright-holder/contributor names without written permission. It identifies its license as copyright-only and refers patent terms to Policy 200D. Section 2 disclaims warranties and liability. Section 4 provides breach notice and a 30-day cure mechanism (with an exception for incurable breaches); Section 6 warrants registration accuracy.
 

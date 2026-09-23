@@ -3,9 +3,9 @@
 This implementation was written from DSC 1.1 §§6.8, 7.3, Figures 6-8,
 6-12 and 6-13, and the prose portion of the DSC 1.1 fractional-bpp-underflow
 SCR adopted September 3, 2015. No reference-model implementation was used
-as the algorithm source. While extracting the erratum, the output extended
-past its normative prose into the attached code excerpt; that excerpt was
-not used to resolve any implementation choice.
+as the algorithm source. The text extracted from the erratum also contained
+the code excerpt attached after its normative prose; that excerpt was not
+used to resolve any implementation choice.
 
 ## Explicit choices and remaining uncertainty
 

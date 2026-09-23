@@ -9,10 +9,22 @@
 /test_predict
 /build/
 
-# VESA material, the reference model and archives never enter this repository
+# VESA material, the reference model, its output and archives never enter
+# this repository (model runs belong under ~/dsc-runs/)
 vesa/
 model/
 *.zip
+*.tar
+*.tar.*
+*.tgz
+*.gz
+*.xz
+*.7z
+*.rar
+*.dsc
+*.dpx
+*.out.ppm
+*.ref.ppm
 
 # Fuzzing work products (the seed corpus in tests/corpus is tracked)
 /fuzz-corpus/
@@ -26,3 +38,20 @@ slow-unit-*
 
 # Python bytecode from the test generators
 __pycache__/
+
+# Coverage output
+*.profraw
+*.profdata
+*.gcda
+*.gcno
+
+# Editor and patch leftovers
+*~
+*.swp
+*.swo
+.#*
+.DS_Store
+.vscode/
+.idea/
+*.orig
+*.rej

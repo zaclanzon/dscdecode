@@ -1,4 +1,4 @@
-make: Entering directory '/workspace/scratch/996bc95a3188/dsc-decoder'
+make: Entering directory 'dsc-decoder'
 cc -Iinclude -O2 -g -Werror -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/pps.c -o src/pps.o
 cc -Iinclude -O2 -g -Werror -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/decode.c -o src/decode.o
 cc -Iinclude -O2 -g -Werror -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/predict.c -o src/predict.o
@@ -20,4 +20,4 @@ PASS independent first checker slice
 PASS six truncated frame payloads rejected
 PASS short PPS rejected
 14 checks passed
-make: Leaving directory '/workspace/scratch/996bc95a3188/dsc-decoder'
+make: Leaving directory 'dsc-decoder'
