@@ -158,3 +158,36 @@ discriminator predictions are fixed before any model output exists.
 * Gate: `scripts/ci.sh` green with `DSCDECODE_MODEL_BIN` unset; the model
   step reported SKIP. Fuzz smoke: 1,654,396 libFuzzer executions in 61 s,
   then 400,000 deterministic executions, no findings.
+
+## Phase 4: robustness (2026-09-23)
+
+* The fuzz target now also decodes each input under one combination of the
+  reading switches, taken from the payload bytes so the choice is
+  reproducible. It collects statistics and a per-group trace, so those paths
+  are fuzzed too. The discriminator inputs joined the seed corpus (13 seeds).
+* libFuzzer run with clang 21.1.8, ASan and UBSan (UB fatal), and
+  LeakSanitizer on:
+  `-fork=6 -max_total_time=1800 -max_len=65536 -timeout=2 -seed=20260923`,
+  started 2026-09-23T18:19:43Z, finished 18:49:46Z.
+
+  | Measure | Result |
+  |---|---|
+  | Wall time | 1,802 s (30 min), 6 worker processes |
+  | Executions | 123,075,596 |
+  | Crashes / timeouts / OOMs / leaks | 0 / 0 / 0 / 0 (no artifacts written) |
+  | libFuzzer coverage (fork mode) | cov 428, ft 2,467, corpus 625 units |
+  | Source coverage of final corpus plus seeds (llvm-cov) | lines 97.0% (588/606), branches 81.4% (633/778), regions 93.7% |
+  | Same, seeds only, for comparison | lines 91.9%, branches 65.2% |
+
+  The 18 lines not reached are `dsc_strerror` (called only by the CLI), an
+  unused accessor, and three defensive returns the decoder cannot reach
+  through its own call pattern. Those are the syntax-error return after a
+  successful reservoir refill, `signed_size` beyond 10 bits, and the RC
+  step's argument check.
+* No crash, so no regression inputs were added. This is a finite run, not a
+  proof of crash freedom.
+* The M1 run reported "cov 1,281" from a single-process run; fork mode counts
+  differently, so the two libFuzzer coverage numbers are not comparable. The
+  llvm-cov figures above are the comparable measure.
+* Gate: `scripts/ci.sh` green (model step SKIP). Fuzz smoke: 1,276,188
+  libFuzzer executions in 61 s, then 520,000 deterministic executions.

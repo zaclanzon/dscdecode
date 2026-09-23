@@ -4,7 +4,8 @@ from pathlib import Path
 root=Path(__file__).resolve().parent
 out=root/'corpus'
 out.mkdir(exist_ok=True)
-for p in (root/'fixtures').glob('*.pps'):
-    bitstream=p.with_suffix('.bin')
-    if bitstream.exists():
-        (out/p.stem).write_bytes(p.read_bytes()+bitstream.read_bytes())
+for d in ('fixtures','discriminators'):
+    for p in (root/d).glob('*.pps'):
+        bitstream=p.with_suffix('.bin')
+        if bitstream.exists():
+            (out/p.stem).write_bytes(p.read_bytes()+bitstream.read_bytes())
