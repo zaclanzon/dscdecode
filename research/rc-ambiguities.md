@@ -80,3 +80,13 @@ adjustment, fractional-bit chunk accounting including partial groups, and
 buffer/order errors. They test these interpretations, not VESA-model
 equivalence. In particular, they do not establish the unresolved flatness
 interaction with queued QPs.
+
+## M2 note (2026-09-23)
+
+Each uncertainty above is now a row of the "Open questions" table in
+RESEARCH.md, with a runtime reading switch where the text supports more than
+one reading: flatness restart (OQ-1), threshold equality (OQ-2), fractional
+accounting (OQ-3), increment direction (OQ-5), RC latency (OQ-11), scale
+decrement start (OQ-14) and partial-group target (OQ-15). Several defaults
+differ from the choices described above, which record the M1 implementation.
+The table gives the current default of each and the evidence for it.

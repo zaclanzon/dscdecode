@@ -35,8 +35,10 @@ Groups x=15 and x=18 each contain a >32 edge, so the edge gate does not remove t
 
 Block prediction is now implemented (Phase 2 of M2). The left-of-slice
 question above is OQ-4 in RESEARCH.md. Both conventions discussed here,
-midpoint and replication, are available through `bp_left`; replication is
-the default, by analogy with §6.4.1's rule for previous-line samples outside
-the slice. `tests/discriminators/oq4_bp_left` separates the two, and
-research/bp-worked-note.md works the fixtures by hand. The counterexample
+midpoint and replication, are available through `bp_left`. Replication was
+the first default, by analogy with §6.4.1's rule for previous-line samples
+outside the slice. Since M2 Phase 5 the default is midpoint, the reading that
+the black-box comparison with the VESA model supports (RESEARCH.md, OQ-4;
+results in PROGRESS.md). `tests/discriminators/oq4_bp_left` separates the
+two, and research/bp-worked-note.md works the fixtures by hand. The counterexample
 above predates the M2 implementation and used its own counting details.

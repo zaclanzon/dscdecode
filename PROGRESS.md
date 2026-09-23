@@ -543,3 +543,47 @@ deterministic smoke executions. No crash, timeout, OOM or leak.
 
 * Gate: `scripts/ci.sh` green (model step SKIP). Fuzz smoke: 684,656
   libFuzzer executions in 61 s, then 680,000 deterministic executions.
+
+## Publication preparation (2026-09-23)
+
+A second pass on m2-work, after the M2 phases above, to prepare the
+repository for publication. Its four steps are numbered P1 to P4 here to
+keep them apart from the M2 phases.
+
+Baseline at 23a0131, before any change. `scripts/ci.sh` green with
+`DSCDECODE_MODEL_BIN` unset (model step SKIP) and with it set to
+`/usr/local/bin/dsc-ref` (self-test match; `oq1` in-flight, `oq2b` lower,
+`oq3` chunk, `oq4` midpoint, `oq2` inconclusive).
+
+| Suite | Result at baseline |
+|---|---|
+| Image fixtures, bit-exact (8 M1 plus 2 BP) | 10 / 10 |
+| CLI checks (`tests/test_cli.py`) | 22 / 22 |
+| Discriminator decodes (`tests/test_discriminators.py`) | 72 / 72 |
+| `test_rc`, `test_predict` | pass, pass |
+| Harness checks with the stand-in model (`tests/test_compare_model.py`) | 10 / 10 |
+| ASan + UBSan suites (`make sanitize`) | pass |
+| Fuzz smoke | 700,973 libFuzzer executions (61 s), then 680,000 deterministic |
+
+### P1: stale M1 text (2026-09-23)
+
+* RESEARCH.md. The September 20 continuation no longer says BP is
+  unsupported, that the checkpoint has no Git metadata, or that Track B is
+  unchanged; its remaining-work paragraph is now dated, followed by the M2
+  status. "Sources" and the model-availability section now point to the
+  2026-09-23 registration instead of saying no form was submitted. The
+  sentence saying no decoder implementation exists is dated 2026-09-16 and
+  points to Track A. The Track A disposition table marks the rows M2 changed
+  (OQ-1, OQ-2, OQ-3, OQ-4, OQ-5, OQ-11, OQ-15), and its closing paragraph is
+  in the past tense. Track B's sections "Status as of 2026-09-16", "Official
+  channel and actual stopping point" and "Decision for this checkpoint" are
+  replaced by a two-entry history: what M1 had on 2026-09-16, and the
+  registration on 2026-09-23. The agreement section no longer calls the
+  package unacquired. The registration record, the provenance paragraph in
+  THIRD_PARTY.md, and the statements that M1 used unofficial copies of the
+  specification and the model are unchanged.
+* `research/prediction-ambiguities.md`: its M2 note said replication is the
+  `bp_left` default. The default has been midpoint since Phase 5.
+* `research/rc-ambiguities.md`: an M2 note maps each uncertainty to its
+  open-question row.
+* Gate: `scripts/ci.sh` green with the model unset and set.

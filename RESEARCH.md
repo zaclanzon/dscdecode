@@ -66,10 +66,12 @@ in `PROGRESS.md`.
 
 ## Continuation — September 20, 2026
 
-**M1 remains incomplete.** This continuation added two nonzero-QP/flatness
-image fixtures, prediction sample traces, and a partial-group syntax-validation
-fix. BP and VBR remain unsupported. The original research and historical
-checkpoint below are preserved; this section records the current state.
+**M1 remained incomplete at this date.** This continuation added two
+nonzero-QP/flatness image fixtures, prediction sample traces, and a
+partial-group syntax-validation fix. BP and VBR were unsupported at this
+point; M2 implemented BP, and VBR is still unsupported. The original research
+and historical checkpoint below are preserved; this section records the state
+on September 20.
 
 ### Recovered inputs and source discipline
 
@@ -83,8 +85,8 @@ The pinned DSC 1.1 PDF was downloaded again from the source listed below;
 its SHA-256 matched `9f5a1a54601bc5ed9f58edd5f8878f1c14114a291ce96ea3629d63e7efb4da65`.
 Sections 6.3--6.8 and 7.1--7.4 supplied the relevant prose checks; Figure 6-8
 (page 81) was visually inspected. No reference-model sources or executables
-were consulted for this continuation. No driver was modified. Track B's
-official acquisition and license-applicability status is unchanged.
+were consulted for this continuation. No driver was modified. Registration
+through the official VESA route followed on 2026-09-23 (see Track B).
 
 ### Implementation and validation changes
 
@@ -129,17 +131,23 @@ table change was needed. The earlier RC-table conclusions are unchanged.
 
 The new fixtures validate the stated two-group/startup interpretation; they do
 not independently settle it. Both flatness overrides occur with QP 8 already
-pending and produce QP 8 for the next calculation, so the unresolved restart
-ordering cannot be distinguished by those fixtures. Exact threshold equality,
-general fractional-rate interoperability, and reference/hardware agreement are
-still open. BP's missing left-boundary sample convention remains documented in
-`research/prediction-ambiguities.md`; no guessed convention was introduced.
-VBR framing and buffer accounting are still unimplemented. These limitations
-prevent an M1 completion or conformance claim.
+pending and produce QP 8 for the next calculation, so the restart ordering
+cannot be distinguished by those fixtures. On September 20, exact threshold
+equality, general fractional-rate interoperability, the BP left-boundary
+sample convention (`research/prediction-ambiguities.md`), agreement with the
+reference model, and VBR were all open, and they prevented an M1 completion
+claim.
 
-The supplied checkpoint has no Git metadata or repository remote, and the local
-workspace is not a Git repository. This continuation is delivered as source
-files and an archive; no upstream repository or PR was created.
+M2 status (2026-09-23): block prediction is implemented, and the decoder has
+been compared with the VESA C model, used as a black box. The current status
+of each question is in the "Open questions" table above; the comparison
+results are in `PROGRESS.md`. VBR framing and buffer accounting are still
+unimplemented, fractional bits_per_pixel rests on less evidence than whole
+rates, and no hardware agreement has been tested.
+
+The September 20 checkpoint was delivered as source files and an archive,
+without Git metadata. In M2 it became the first commit ("M1 baseline") of this
+Git repository, and all later work is recorded as commits on top of it.
 
 ## Sources and immutable revisions
 
@@ -147,10 +155,10 @@ files and an archive; no upstream repository or PR was created.
 - NVIDIA: **61dcc93722ecb418bb5f2e00923f05b4b8051dd1**, release 615.71.09, 2026-09-09. [nvt_dsc_pps.c](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/61dcc93722ecb418bb5f2e00923f05b4b8051dd1/src/common/modeset/timing/nvt_dsc_pps.c). PPS generation, packing, validation, slice selection and lookup matrices inspected.
 - VESA DSC 1.2, 20 January 2016 (unofficial copy; link removed), 146 pages. SHA-256 `6574d6400416da2e714ecdf5de888cf3160a7f6d2340e1bd36ef91b4987ca828`. Sections 4, 6, 7 and Annex E supply syntax, reconstruction, rate control and parameter guidance. Figure 6-18 also inspected as a rendered page.
 - DSC 1.1 PDF and DSC 1.1 E1 errata, together with a copy of the VESA C model, were obtained from an unofficial public mirror (link, mirror revision, and model archive name and hash removed). DSC 1.1 PDF SHA-256 `9f5a1a54601bc5ed9f58edd5f8878f1c14114a291ce96ea3629d63e7efb4da65`.
-- [Official VESA distribution entry](https://vesa.org/vesa-display-compression-codecs/) links a registration form and explicitly lists normative C code. The downloaded copies above are mirrors, not authenticated downloads from VESA. No form was submitted.
+- [Official VESA distribution entry](https://vesa.org/vesa-display-compression-codecs/) links a registration form and explicitly lists normative C code. The downloaded copies above are mirrors, not authenticated downloads from VESA. Registration through this route was completed on 2026-09-23; the record is in Track B.
 - [NVIDIA issue 1039](https://github.com/NVIDIA/open-gpu-kernel-modules/issues/1039) is a report to investigate, not a normative source or proof of causality.
 
-The specification access gate is satisfied. The normative C model includes a decoder (`FUNCTION=2`); therefore the claim that no publicly obtainable software decoder exists is too broad. A small, independently written, conventionally open-source, bounded-input decoder remains useful. No reference-model implementation text has been copied into a new library; no decoder implementation exists yet.
+The specification access gate is satisfied. The normative C model includes a decoder (`FUNCTION=2`); therefore the claim that no publicly obtainable software decoder exists is too broad. A small, independently written, conventionally open-source, bounded-input decoder remains useful. No reference-model implementation text has been copied into this library. This section was written on 2026-09-16, before the implementation; the implementation is described in "Track A implementation checkpoint" below.
 
 ## Follow-up research: model availability, license and reuse decision
 
@@ -158,7 +166,7 @@ Updated 2026-09-16, before implementation or driver edits.
 
 ### Availability and exact terms
 
-**The model is publicly obtainable, not VESA-member-only.** The [official DisplayPort FAQ](https://www.displayport.org/faq/) explicitly answers its membership question by saying that DSC 1.2a, including codec C sources, is freely available from VESA. The [VESA codec page](https://vesa.org/vesa-display-compression-codecs/) leads to [public registration](https://fs16.formsite.com/VESA/form714826558/secure_index.html). That page separates reference downloads from product development: the latter links an implementer agreement. Official availability involves registration; it is not an anonymous ZIP link. No registration or agreement has been submitted on the user's behalf.
+**The model is publicly obtainable, not VESA-member-only.** The [official DisplayPort FAQ](https://www.displayport.org/faq/) explicitly answers its membership question by saying that DSC 1.2a, including codec C sources, is freely available from VESA. The [VESA codec page](https://vesa.org/vesa-display-compression-codecs/) leads to [public registration](https://fs16.formsite.com/VESA/form714826558/secure_index.html). That page separates reference downloads from product development: the latter links an implementer agreement. Official availability involves registration; it is not an anonymous ZIP link. Registration on the product-development path was completed on 2026-09-23 (see Track B).
 
 ## RC parameter guidance
 
@@ -287,32 +295,38 @@ contains no reference-model code or binary.
   syntax transcripts, provenance/hashes, CLI verification and arithmetic RC tests.
 * `fuzz/fuzz_decode.c`: libFuzzer entry added with the initial decoder;
   `afl_main.c` adapts the same entry for AFL; `smoke.c` supplies a deterministic
-  sanitizer campaign. No reference-model differential harness has run.
+  sanitizer campaign. No reference-model differential harness had run at
+  this checkpoint; M2 added `tools/compare_model`.
 * `README.md`, `LICENSE`, `THIRD_PARTY.md`: build, scope, licenses and attribution.
 
 ### Specification ambiguities and disposition
 
 The detailed logs are [RC ambiguities](research/rc-ambiguities.md) and
 [prediction ambiguities](research/prediction-ambiguities.md). The following
-are important release qualifications:
+were the M1 release qualifications. Rows marked "M2" were changed later; the
+current disposition of every question is in the "Open questions" table at
+the top.
 
 | Item | Prose/errata evidence and current disposition |
 |---|---|
 | Line storage rounding overflow | DSC1.1 §6.3 includes saturation omitted by §7.4. Prediction/reconstruction must agree with encoder (§7.5), so use the explicit saturating §6.3 rule. Resolved without model. |
 | BP SAD final reduction | DSC1.2a E1, SCR adopted2017-08-03, proposed change §6.4.4.1 removes the erroneous combined clamp; DSC1.2b carries the corrected equation. This resolves the reduction contradiction from errata prose. |
-| BP samples left of slice | Prose does not settle reference samples at negative x during search. The ambiguity can affect selected BP vectors; the boundary counterexample is in the prediction log. Speculative BP code was removed. Both decode APIs return UNSUPPORTED for BP-enabled PPS. |
-| RC increment comparison | Follow DSC1.1 Fig6-13's printed `curQp < prev2Qp`; do not apply the Phase0 model-derived opposite branch. No checked prose erratum corrects this direction. |
-| RC latency | Rendered DSC1.1 Fig6-8 and DSC1.2 Fig6-13 label group0 metrics → entropy QP for group2. The implementation queues the result accordingly. Stage-level wording permits another reading; independent dynamic-stream validation remains necessary. |
-| Flatness scheduling | §6.6.3 explicitly signals a supergroup beginning two groups after its flag, with metadata in the intervening group. Parser follows this advance timing. Interaction between overridden QP and a pending RC result is unresolved. |
-| Fractional drain, partial groups, thresholds | Follow printed actual-pixel drain, three-pixel target, mathematical floor and strict threshold comparison. Hand arithmetic tests cover selected cases, not all normative boundary behavior. |
+| BP samples left of slice | Prose does not settle reference samples at negative x during search. The ambiguity can affect selected BP vectors; the boundary counterexample is in the prediction log. Speculative BP code was removed. Both decode APIs return UNSUPPORTED for BP-enabled PPS. M2: BP is implemented, with this question as OQ-4 (`bp_left`). |
+| RC increment comparison | Follow DSC1.1 Fig6-13's printed `curQp < prev2Qp`; do not apply the Phase0 model-derived opposite branch. No checked prose erratum corrects this direction. M2: OQ-5 (`incr_order`); the default changed after black-box comparison. |
+| RC latency | Rendered DSC1.1 Fig6-8 and DSC1.2 Fig6-13 label group0 metrics → entropy QP for group2. The implementation queues the result accordingly. Stage-level wording permits another reading; independent dynamic-stream validation remains necessary. M2: OQ-11 (`rc_pipeline`); the default changed after black-box comparison. |
+| Flatness scheduling | §6.6.3 explicitly signals a supergroup beginning two groups after its flag, with metadata in the intervening group. Parser follows this advance timing. Interaction between overridden QP and a pending RC result is unresolved. M2: OQ-1 (`flat_restart`); the default changed after black-box comparison. |
+| Fractional drain, partial groups, thresholds | Follow printed actual-pixel drain, three-pixel target, mathematical floor and strict threshold comparison. Hand arithmetic tests cover selected cases, not all normative boundary behavior. M2: OQ-2, OQ-3 and OQ-15; the partial-group target default changed after black-box comparison. |
 | Narrow ICH neighbor window | Widths below7 cannot supply the specified seven previous-line pixels. Such neighbor references are rejected; valid P/history references remain usable. |
 | Offline error behavior | Returns an error rather than manufacturing unspecified concealment pixels. A failed slice does not leak state into independently decoded slices. |
 
-These limitations mean **M1 is not complete**. This checkpoint executes the
-requested core pipeline and synthetic tests, but BP/VBR and general RC
-interoperability are outstanding. It is not an offline conformance oracle yet.
-Track B has not blocked writing, building, fuzzing or shipping this checkpoint;
-the limitations arise from the permitted evidence and actual implemented scope.
+These limitations meant **M1 was not complete**. The checkpoint executed the
+requested core pipeline and synthetic tests; BP, VBR and general RC
+interoperability were outstanding at that date. M2 implemented BP and compared
+the decoder with the reference model (see "Continuation" above and
+`PROGRESS.md`); VBR is still outstanding. The decoder is not an offline
+conformance oracle. Track B did not block writing, building, fuzzing or
+shipping this checkpoint; the limitations arose from the permitted evidence
+and the implemented scope.
 
 ### Validation results
 
@@ -354,7 +368,7 @@ libc only. Final strict C11 build uses `-Wall -Wextra -Wpedantic -Wshadow
 Upstream freshness: the pre-validation remote-master recheck still returned
 `9b87fdc9af2fbfcdb5c24a64139685ef80f6573f`; neither requested DSC source file
 changed. The vendored header was byte-compared with that checkout.
-## Track B — official VESA acquisition, 2026-09-16
+## Track B — official VESA acquisition
 
 ### Registration record, 2026-09-23
 
@@ -366,17 +380,21 @@ changed. The vendored header was byte-compared with that checkout.
 * The archive, the specification, and the reference model are not in this
   repository. The reference model is used only as a black box.
 
-### Status as of 2026-09-16, superseded by the registration record above
+### History
 
-**Status: pending official acquisition; redistribution coverage not established. Track A is not blocked.** No official codec archive was acquired in this attempt, no agreement submitted, and no reference model was run or consulted for implementation. This is an unresolved acquisition/licensing branch, not a finding that VESA prohibits redistribution.
-
-### Official channel and actual stopping point
-
-VESA's official [Display Compression Codecs page](https://vesa.org/vesa-display-compression-codecs/) advertises free standards and normative C code. Its Download Now link leads to [Public Standards Download Registration](https://fs16.formsite.com/VESA/form714826558/secure_index.html). The registration page displays standards selection (including DSC), first name, last name, company, country, and email. It distinguishes reference-only downloads from product development and links the latter to the [Standards Implementer License Agreement form](https://fs16.formsite.com/VESA/teamftyax1/index).
-
-The public pages and agreement were successfully retrieved through web lookup. A subsequent read-only browser inspection of the implementer form stalled and was cancelled; no submission or download followed. There is no basis to claim that the final official package has the same notices as the previously examined mirror.
-
-A truthful registration email and the user's intended registrant/company capacity have not been supplied for this acquisition. They must not be invented. The agreement says form submission creates the binding agreement and represents authority to bind an entity if one is named. The browser's control-browser skill additionally requires confirmation at action time before accepting a legally binding agreement, even where ordinary downloading is authorized. Consequently the acquisition is not complete; the form was not submitted. No email was sent to VESA.
+* 2026-09-16 (M1). The official route was known: VESA's
+  [Display Compression Codecs page](https://vesa.org/vesa-display-compression-codecs/)
+  leads to a public registration form, which separates reference-only
+  downloads from product development and links an implementer license
+  agreement for the latter. The published agreement had been read (next
+  section). M1 had no officially obtained archive. It worked from unofficial
+  copies of the DSC 1.1 specification, the E1 errata and the C model (see
+  "Sources" and `THIRD_PARTY.md`), and it recorded no comparison against the
+  model.
+* 2026-09-23 (M2). Registration completed on the product-development path,
+  under the Implementer's License Agreement (record above). From M2 onward the
+  officially obtained model is used only as a black box; comparison results
+  are in `PROGRESS.md`.
 
 ### Published agreement: exact location and meaning
 
@@ -386,10 +404,4 @@ Section 1 makes (a) applicable to text, makes (b) applicable to Software include
 
 Section 1(b) includes this condition: **“Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.”** It also requires corresponding notices/conditions/disclaimer in materials accompanying binary redistribution and prohibits endorsement using copyright-holder/contributor names without written permission. It identifies its license as copyright-only and refers patent terms to Policy 200D. Section 2 disclaims warranties and liability. Section 4 provides breach notice and a 30-day cure mechanism (with an exception for incurable breaches); Section 6 warrants registration accuracy.
 
-Crucially, the PDF has the placeholder `Copyright <year> All Rights Reserved` and does **not** contain the familiar explicit BSD grant permitting redistribution and use with or without modification. Its conditions contemplate redistribution, but it is not safe to label this document an exact BSD-3-Clause license or replace its language with that license. The text available here is not evidence identifying which files in an as-yet-unacquired package constitute the licensed Software, or reconciling third-party contribution notices inside those files.
-
-### Decision for this checkpoint
-
-Do not enable the model encoder as a vector generator or decoder as an oracle yet. The user's permitted-redistribution branch is not established. Keep the fresh implementation and synthetic/fuzz work independent; record no differential-test results. Once official acquisition is completed, record archive URL, version, hash, actual package notices and their scope, and the agreement accepted for that acquisition before deciding whether the model can be used under the user's strategy.
-
-The user can complete the verified official registration route independently and supply the downloaded archive plus the terms accepted, or supply accurate registration details and approve agreement submission at the final action. This is a Track B continuation only and does not suspend Track A.
+Crucially, the PDF has the placeholder `Copyright <year> All Rights Reserved` and does **not** contain the familiar explicit BSD grant permitting redistribution and use with or without modification. Its conditions contemplate redistribution, but it is not safe to label this document an exact BSD-3-Clause license or replace its language with that license. The agreement text alone does not identify which files in the package constitute the licensed Software, or reconcile third-party contribution notices inside those files.
