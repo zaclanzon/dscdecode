@@ -68,3 +68,23 @@ the tree before any commit. Later runs write only to `~/dsc-runs/`.
   Track B section of RESEARCH.md and a new final paragraph of
   THIRD_PARTY.md. The provenance paragraph was not changed.
 * Gate: `make test` and `make sanitize` green, same counts as the baseline.
+
+## Phase 1: repo hygiene (2026-09-23)
+
+* README: fixed "at most255" and "at4096", added the motivation paragraph at
+  the top, pointed the libFuzzer example at a writable `fuzz-corpus/` instead
+  of the tracked seed directory, and replaced the stale "complete PPS map"
+  reference.
+* `scripts/ci.sh` runs build (warnings are errors), the test suites, fixture
+  reproducibility (generators must recreate every committed fixture byte for
+  byte), the ASan/UBSan suites, and a fuzz smoke step (60 s libFuzzer, then
+  the deterministic GCC smoke campaign). `.github/workflows/ci.yml` calls the
+  same script step by step. It has not run, since the repository is not on
+  GitHub.
+* Sanitizer builds were made stricter. `make sanitize`, `make fuzz`, and
+  `make fuzz-smoke` now pass `-fno-sanitize-recover=undefined`. Without it,
+  UBSan prints a report and the process exits 0, so neither the test run nor
+  libFuzzer would have failed on undefined behavior. Leak detection is now on
+  by default.
+* Gate: `scripts/ci.sh` green. Fuzz smoke: 1,760,114 libFuzzer executions in
+  61 s (28,854 exec/s), then 400,000 deterministic executions, no findings.

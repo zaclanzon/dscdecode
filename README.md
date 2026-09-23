@@ -1,5 +1,10 @@
 # dscdecode — experimental DSC software decoder
 
+Why this exists: while debugging NVIDIA display driver bugs on Linux,
+each experiment cost a reboot and the only check was looking at the
+monitor. This decoder is one piece of tooling for testing the display
+path in software instead.
+
 Plain C11, libc-only library plus CLI for inspecting DSC 1.1, 8-bit RGB 4:4:4
 CBR streams. MIT licensed; kernel DSC definitions retain their Intel notice.
 
@@ -23,6 +28,7 @@ make
 ./dscdecode --slice picture.pps one-slice.bin slice.ppm
 make test
 make sanitize
+scripts/ci.sh      # everything CI runs: build, suites, sanitizers, fuzz smoke
 ```
 
 The PPS file must be exactly 128 bytes. `compressed.bin` contains raw picture
@@ -41,7 +47,7 @@ must be removed upstream. No hardware access occurs.
 also parses 1.2 PPS fields, but the decoder accepts only the 1.1 profile above.
 Thresholds retain PPS units and signed BPG offsets retain six-bit encoding.
 
-Limits: 16,777,216 pixels for both a frame and an individual slice; at most255
+Limits: 16,777,216 pixels for both a frame and an individual slice; at most 255
 horizontal slices in the reused configuration representation; 256MiB CLI
 input limit. Size mismatches, invalid syntax, invalid history references,
 and detected RC violations return errors. A failure may leave library output
@@ -62,17 +68,18 @@ transition/padding fixtures with `python3 tests/make_transition_vectors.py`.
 ```sh
 python3 tests/make_corpus.py
 make fuzz                        # requires Clang with libFuzzer
-ASAN_OPTIONS=detect_leaks=0 ./fuzz_decode tests/corpus -max_len=65536 -timeout=2
+mkdir -p fuzz-corpus               # writable corpus; tests/corpus is read-only seeds
+./fuzz_decode fuzz-corpus tests/corpus -max_len=65536 -timeout=2
 make afl                         # requires afl-clang-fast / AFL++
 afl-fuzz -i tests/corpus -o afl-results -- ./fuzz_afl
 make fuzz-smoke                   # deterministic mutation, GCC or Clang
 ```
 
 The shared entry exercises both frame and single-slice APIs and caps per-input
-pixels at4096. The deterministic sanitizer smoke campaign is **not** a
-coverage-guided fuzz result. LeakSanitizer is disabled for the execution
-container, which does not support its tracing requirements; address and
-undefined-behavior checks remain active.
+pixels at 4096. The deterministic sanitizer smoke campaign is **not** a
+coverage-guided fuzz result. Sanitizer builds treat undefined behavior as
+fatal and report leaks; on a host where LeakSanitizer cannot run, set
+`ASAN_OPTIONS=detect_leaks=0`.
 
 ## Remaining correctness work
 
@@ -87,6 +94,6 @@ undefined-behavior checks remain active.
   No reference model is included or used as an oracle in this checkpoint.
   Differential testing is conditional on establishing the requested terms.
 
-See `RESEARCH.md` for pinned Linux/NVIDIA/specification sources, the complete
-PPS map, caller survey, RC-table adjudication, licensing evidence, and the
+See `RESEARCH.md` for pinned Linux/NVIDIA/specification sources, PPS field notes,
+caller survey, RC-table adjudication, licensing evidence, and the
 current verification report. No driver patches are part of this project.

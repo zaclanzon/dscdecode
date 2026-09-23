@@ -22,21 +22,28 @@ test: all test_rc test_predict
 	./test_predict
 	python3 tests/test_cli.py ./dscdecode
 fuzz:
-	clang $(CPPFLAGS) -Isrc -std=c11 -g -O1 -fno-omit-frame-pointer -fsanitize=fuzzer,address,undefined $(LIBSRC) fuzz/fuzz_decode.c -o fuzz_decode
+	clang $(CPPFLAGS) -Isrc -std=c11 -g -O1 -fno-omit-frame-pointer -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=undefined $(LIBSRC) fuzz/fuzz_decode.c -o fuzz_decode
+# UBSan must abort, not print and continue, or a finding would not fail the
+# run. Leak detection is on by default; hosts where LeakSanitizer cannot run
+# (see RESEARCH.md, M1 container) can set ASAN_OPTIONS=detect_leaks=0.
+SANFLAGS = -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=undefined
+ASAN_OPTIONS ?= detect_leaks=1
+UBSAN_OPTIONS ?= halt_on_error=1:print_stacktrace=1
+export ASAN_OPTIONS UBSAN_OPTIONS
 sanitize:
 	$(MAKE) clean
-	$(MAKE) CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined' all
-	ASAN_OPTIONS=detect_leaks=0 python3 tests/test_cli.py ./dscdecode
-	$(MAKE) CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined' test_rc
-	ASAN_OPTIONS=detect_leaks=0 ./test_rc
-	$(MAKE) CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined' test_predict
-	ASAN_OPTIONS=detect_leaks=0 ./test_predict
+	$(MAKE) CFLAGS='$(SANFLAGS)' all
+	python3 tests/test_cli.py ./dscdecode
+	$(MAKE) CFLAGS='$(SANFLAGS)' test_rc
+	./test_rc
+	$(MAKE) CFLAGS='$(SANFLAGS)' test_predict
+	./test_predict
 clean:
 	rm -f $(OBJ) src/main.o libdsc.a dscdecode fuzz_decode fuzz_smoke fuzz_afl test_rc test_predict
 .PHONY: fuzz-smoke afl
 fuzz-smoke:
-	$(CC) $(CPPFLAGS) -Isrc -std=c11 -g -O1 -fno-omit-frame-pointer -fsanitize=address,undefined $(LIBSRC) fuzz/fuzz_decode.c fuzz/smoke.c -o fuzz_smoke
+	$(CC) $(CPPFLAGS) -Isrc $(SANFLAGS) -std=c11 $(LIBSRC) fuzz/fuzz_decode.c fuzz/smoke.c -o fuzz_smoke
 	python3 tests/make_corpus.py
-	ASAN_OPTIONS=detect_leaks=0 ./fuzz_smoke tests/corpus/*
+	./fuzz_smoke tests/corpus/*
 afl:
 	afl-clang-fast $(CPPFLAGS) -Isrc -std=c11 -g -O1 $(LIBSRC) fuzz/fuzz_decode.c fuzz/afl_main.c -o fuzz_afl

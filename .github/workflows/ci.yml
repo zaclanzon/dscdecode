@@ -1,0 +1,40 @@
+# Mirrors scripts/ci.sh step for step. Each step calls the script, so the
+# commands exist in one place.
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  ci:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc make python3 clang-18 libclang-rt-18-dev
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+          cc --version && clang --version && python3 --version
+      - name: Build (warnings are errors)
+        run: scripts/ci.sh build
+      - name: Test suites
+        run: scripts/ci.sh test
+      - name: Fixture reproducibility
+        run: scripts/ci.sh fixtures
+      - name: ASan and UBSan suites
+        run: scripts/ci.sh sanitize
+      - name: Fuzz smoke (libFuzzer 60 s, then deterministic GCC smoke)
+        env:
+          CI_FUZZ_SECONDS: "60"
+          CI_FUZZ_DIR: ${{ runner.temp }}/fuzz
+        run: scripts/ci.sh fuzz
+      - name: Keep fuzz crash inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: ${{ runner.temp }}/fuzz/crash-*
+          if-no-files-found: ignore
