@@ -230,3 +230,23 @@ discriminator predictions are fixed before any model output exists.
   follows in part 2.
 * Gate: `scripts/ci.sh` green (model step SKIP). Fuzz smoke: 779,414
   libFuzzer executions in 61 s, then 640,000 deterministic executions.
+
+## Phase 2, part 2: fuzzing the BP path (2026-09-23)
+
+* libFuzzer on the BP-enabled decoder, same settings as Phase 4 except
+  `-seed=20260924`. It started from Phase 4's final corpus plus the 16
+  tracked seeds. Run 2026-09-23T18:55:21Z to 19:25:24Z.
+
+  | Measure | Result |
+  |---|---|
+  | Wall time | 1,802 s (30 min), 6 worker processes |
+  | Executions | 56,073,894 (fewer than Phase 4: the BP search and a third decode per input) |
+  | Crashes / timeouts / OOMs / leaks | 0 / 0 / 0 / 0 (no artifacts written) |
+  | libFuzzer coverage (fork mode) | cov 483, ft 2,879 (Phase 4: 428, 2,467) |
+  | Source coverage of final corpus plus seeds (llvm-cov) | lines 97.3% (655/673), branches 82.9% (711/858); `predict.c` lines 100%, branches 87.9% |
+
+* No crash, so no regression inputs were added. Fuzz executions so far this
+  session: 123,075,596 (Phase 4) + 56,073,894 (this run) + 958,981 (BP
+  precheck) + the 60-second CI smoke runs listed in each phase.
+* Gate: `scripts/ci.sh` green (model step SKIP). Fuzz smoke: 826,572
+  libFuzzer executions in 61 s, then 640,000 deterministic executions.
