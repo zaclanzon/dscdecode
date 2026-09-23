@@ -13,3 +13,9 @@ formats, and factual parameter comparisons are documented in RESEARCH.md.
 Research included earlier model inspection; this is not a claim of formal
 clean-room isolation. Track A implementation used specification prose and
 errata, with model-only resolutions deliberately excluded.
+
+Provenance of the M1 research. On September 16, 2026, the M1 research
+downloaded the VESA DSC C reference model from an unofficial GitHub mirror and
+read its source. No model code was copied into dscdecode. From M2 onward, any
+comparison against the model uses the officially licensed model as a black
+box only.
