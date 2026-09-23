@@ -1,0 +1,27 @@
+make: Entering directory '/workspace/scratch/996bc95a3188/dsc-decoder'
+make clean
+make[1]: Entering directory '/workspace/scratch/996bc95a3188/dsc-decoder'
+rm -f src/pps.o src/decode.o src/predict.o src/rate_control.o src/main.o libdsc.a dscdecode fuzz_decode fuzz_smoke fuzz_afl test_rc
+make[1]: Leaving directory '/workspace/scratch/996bc95a3188/dsc-decoder'
+make CFLAGS='-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined' all
+make[1]: Entering directory '/workspace/scratch/996bc95a3188/dsc-decoder'
+cc -Iinclude -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/pps.c -o src/pps.o
+cc -Iinclude -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/decode.c -o src/decode.o
+cc -Iinclude -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/predict.c -o src/predict.o
+cc -Iinclude -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/rate_control.c -o src/rate_control.o
+ar rcs libdsc.a src/pps.o src/decode.o src/predict.o src/rate_control.o
+cc -Iinclude -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/main.c -o src/main.o
+cc -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined src/main.o libdsc.a -o dscdecode
+make[1]: Leaving directory '/workspace/scratch/996bc95a3188/dsc-decoder'
+ASAN_OPTIONS=detect_leaks=0 python3 tests/test_cli.py ./dscdecode
+PASS flat: exact expected PPM
+PASS gradient: exact expected PPM
+PASS checker: exact expected PPM
+PASS mpp: exact expected PPM
+PASS ich: exact expected PPM
+PASS color_crop: exact expected PPM
+PASS independent first checker slice
+PASS six truncated frame payloads rejected
+PASS short PPS rejected
+14 checks passed
+make: Leaving directory '/workspace/scratch/996bc95a3188/dsc-decoder'

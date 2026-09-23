@@ -1,0 +1,146 @@
+{
+  "flat": {
+    "width": 96,
+    "height": 3,
+    "slices": 1,
+    "details": [
+      {
+        "slice": 0,
+        "mux_bits": 432,
+        "syntax_bits": [
+          96,
+          96,
+          96
+        ]
+      }
+    ],
+    "payload_sha256": "6e92d436adcdeffb2099f14b2655033792f85e062db0a1a94f7febe8d8ec82d5",
+    "expected_sha256": "aa73b696b13408b7c119398c19c37f876d06a82650ed6f5ccf86291afa58d479"
+  },
+  "gradient": {
+    "width": 96,
+    "height": 3,
+    "slices": 1,
+    "details": [
+      {
+        "slice": 0,
+        "mux_bits": 1056,
+        "syntax_bits": [
+          699,
+          96,
+          96
+        ]
+      }
+    ],
+    "payload_sha256": "eb707bdb2920c546f8765413899ac0ae6d3aaf1be2c0eb8aef7393fe5ee4c74a",
+    "expected_sha256": "6e10455816c24e46fcfdc8809b2c432fd7621b615d49d84375dc06e8ac122e12"
+  },
+  "checker": {
+    "width": 192,
+    "height": 3,
+    "slices": 2,
+    "details": [
+      {
+        "slice": 0,
+        "mux_bits": 2016,
+        "syntax_bits": [
+          1696,
+          96,
+          96
+        ]
+      },
+      {
+        "slice": 1,
+        "mux_bits": 2016,
+        "syntax_bits": [
+          1696,
+          96,
+          96
+        ]
+      }
+    ],
+    "payload_sha256": "0fa08113d716a7a3ef4ca85d07ebbc48a3fc1c70045b1f5cbf59f2f5ce8e7848",
+    "expected_sha256": "d8258a14df6847c621407d50ad43ee5ba9455548322f17dd14f44d78ee577f8c"
+  },
+  "mpp": {
+    "width": 96,
+    "height": 3,
+    "slices": 1,
+    "details": [
+      {
+        "slice": 0,
+        "mux_bits": 576,
+        "syntax_bits": [
+          227,
+          96,
+          96
+        ]
+      }
+    ],
+    "payload_sha256": "f0911b1a1bcd657dd2af432e32eeb624ca6ca9155a02a229fd5c5893afdcc403",
+    "expected_sha256": "451750a89e878c5542d751a0335240384837348d216230716a09101338aa4c7c"
+  },
+  "ich": {
+    "width": 96,
+    "height": 3,
+    "slices": 1,
+    "details": [
+      {
+        "slice": 0,
+        "mux_bits": 1680,
+        "syntax_bits": [
+          579,
+          476,
+          476
+        ]
+      }
+    ],
+    "payload_sha256": "d6d42f265667c775bb75370ac21e85959b5c599c618fd246ceea8f2a5c20eb50",
+    "expected_sha256": "aa73b696b13408b7c119398c19c37f876d06a82650ed6f5ccf86291afa58d479"
+  },
+  "color_crop": {
+    "width": 187,
+    "height": 5,
+    "slices": 4,
+    "details": [
+      {
+        "slice": 0,
+        "mux_bits": 768,
+        "syntax_bits": [
+          198,
+          281,
+          156
+        ]
+      },
+      {
+        "slice": 1,
+        "mux_bits": 816,
+        "syntax_bits": [
+          187,
+          280,
+          163
+        ]
+      },
+      {
+        "slice": 2,
+        "mux_bits": 768,
+        "syntax_bits": [
+          165,
+          281,
+          145
+        ]
+      },
+      {
+        "slice": 3,
+        "mux_bits": 768,
+        "syntax_bits": [
+          173,
+          280,
+          145
+        ]
+      }
+    ],
+    "payload_sha256": "4fcb45940e174780e5faa944d8cabec5b448b67d208c98997c7b0b3c1df3df3e",
+    "expected_sha256": "5d3f5cbf8e78a432f1dd909a1b2038235da4b0b4867984d466d67465d79ca05f"
+  }
+}

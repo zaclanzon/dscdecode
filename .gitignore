@@ -1,0 +1,25 @@
+# Build output
+*.o
+*.a
+/dscdecode
+/fuzz_decode
+/fuzz_afl
+/fuzz_smoke
+/test_rc
+/test_predict
+/build/
+
+# VESA material, the reference model and archives never enter this repository
+vesa/
+model/
+*.zip
+
+# Fuzzing work products (the seed corpus in tests/corpus is tracked)
+/fuzz-corpus/
+/fuzz/corpus/
+/afl-results/
+crash-*
+leak-*
+timeout-*
+oom-*
+slow-unit-*

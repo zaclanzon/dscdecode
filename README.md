@@ -1,0 +1,92 @@
+# dscdecode — experimental DSC software decoder
+
+Plain C11, libc-only library plus CLI for inspecting DSC 1.1, 8-bit RGB 4:4:4
+CBR streams. MIT licensed; kernel DSC definitions retain their Intel notice.
+
+**Status: a working, tested implementation checkpoint, not a completed or
+conformance-validated M1.** Hand-derived vectors pass; general dynamic-QP/RC
+interoperability remains unverified. Block prediction and VBR are explicitly
+unsupported. Do not use a successful decode as proof that hardware encoder
+programming conforms to DSC until those remaining validation gaps are closed.
+
+September 20 continuation: eight exact-image fixtures now include QP transitions
+and both flatness types under the documented timing interpretation. Eighteen CLI
+checks, RC traces, and line-buffer/history tests pass. Noncanonical partial-group
+padding is now rejected. See the dated continuation in `RESEARCH.md` for results
+and remaining blockers.
+
+## Build and use
+
+```sh
+make
+./dscdecode picture.pps compressed.bin output.ppm
+./dscdecode --slice picture.pps one-slice.bin slice.ppm
+make test
+make sanitize
+```
+
+The PPS file must be exactly 128 bytes. `compressed.bin` contains raw picture
+payload without a container header: for each vertical slice row, concatenate
+one `slice_chunk_size`-byte chunk from each horizontal slice, for each of the
+`slice_height` scanlines. Edge slices retain their padded dimensions in the
+compressed input and are cropped in the output. `--slice` instead takes one
+contiguous independently decodable slice and outputs its entire dimensions.
+
+A VESA-model `.dsc` container, DisplayPort SDP packet, HDMI transport packet,
+or captured link-symbol stream is **not** a raw input for this CLI. Framing
+must be removed upstream. No hardware access occurs.
+
+`include/dsc.h` exposes `dsc_parse_pps`, `dsc_decode_slice`, and
+`dsc_decode_frame`. The parser uses the kernel's `struct drm_dsc_config` and
+also parses 1.2 PPS fields, but the decoder accepts only the 1.1 profile above.
+Thresholds retain PPS units and signed BPG offsets retain six-bit encoding.
+
+Limits: 16,777,216 pixels for both a frame and an individual slice; at most255
+horizontal slices in the reused configuration representation; 256MiB CLI
+input limit. Size mismatches, invalid syntax, invalid history references,
+and detected RC violations return errors. A failure may leave library output
+partially written; the CLI opens its output only after a successful decode.
+The offline API returns errors rather than implementing unspecified sink
+error-concealment pixels. Allocation failures never terminate the caller.
+
+## Verification and fuzzing
+
+`tests/VECTORS.md` gives the independent expected-pixel derivation and exact
+bit construction for each fixture. `tests/make_vectors.py` is a narrowly
+scoped fixture constructor, not a general DSC encoder. Tests are Python3;
+the production library and CLI have no Python dependency.
+
+Regenerate the original fixtures with `python3 tests/make_vectors.py` and the
+transition/padding fixtures with `python3 tests/make_transition_vectors.py`.
+
+```sh
+python3 tests/make_corpus.py
+make fuzz                        # requires Clang with libFuzzer
+ASAN_OPTIONS=detect_leaks=0 ./fuzz_decode tests/corpus -max_len=65536 -timeout=2
+make afl                         # requires afl-clang-fast / AFL++
+afl-fuzz -i tests/corpus -o afl-results -- ./fuzz_afl
+make fuzz-smoke                   # deterministic mutation, GCC or Clang
+```
+
+The shared entry exercises both frame and single-slice APIs and caps per-input
+pixels at4096. The deterministic sanitizer smoke campaign is **not** a
+coverage-guided fuzz result. LeakSanitizer is disabled for the execution
+container, which does not support its tracing requirements; address and
+undefined-behavior checks remain active.
+
+## Remaining correctness work
+
+* Resolve block-prediction left-boundary references from authorized evidence.
+  This implementation rejects BP-enabled PPS before decoding.
+* Establish interoperability for dynamic RC/QP and flatness timing, exact threshold equality,
+  fractional-bpp chunk boundaries, and varying line-buffer precision with
+  independent traces. Current interpretations and uncertainties are explicit
+  in `research/rc-ambiguities.md`, not hidden behind the synthetic results.
+* VBR framing and buffer handling are not implemented.
+* Official VESA acquisition/license verification is a separate track.
+  No reference model is included or used as an oracle in this checkpoint.
+  Differential testing is conditional on establishing the requested terms.
+
+See `RESEARCH.md` for pinned Linux/NVIDIA/specification sources, the complete
+PPS map, caller survey, RC-table adjudication, licensing evidence, and the
+current verification report. No driver patches are part of this project.

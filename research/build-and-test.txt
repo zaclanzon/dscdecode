@@ -1,0 +1,23 @@
+make: Entering directory '/workspace/scratch/996bc95a3188/dsc-decoder'
+cc -Iinclude -O2 -g -Werror -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/pps.c -o src/pps.o
+cc -Iinclude -O2 -g -Werror -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/decode.c -o src/decode.o
+cc -Iinclude -O2 -g -Werror -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/predict.c -o src/predict.o
+cc -Iinclude -O2 -g -Werror -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/rate_control.c -o src/rate_control.o
+ar rcs libdsc.a src/pps.o src/decode.o src/predict.o src/rate_control.o
+cc -Iinclude -O2 -g -Werror -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -c src/main.c -o src/main.o
+cc -O2 -g -Werror src/main.o libdsc.a -o dscdecode
+cc -Iinclude -Isrc -O2 -g -Werror -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion src/rate_control.c tests/test_rc.c -o test_rc
+./test_rc
+RC hand-calculated traces passed (not a conformance oracle)
+python3 tests/test_cli.py ./dscdecode
+PASS flat: exact expected PPM
+PASS gradient: exact expected PPM
+PASS checker: exact expected PPM
+PASS mpp: exact expected PPM
+PASS ich: exact expected PPM
+PASS color_crop: exact expected PPM
+PASS independent first checker slice
+PASS six truncated frame payloads rejected
+PASS short PPS rejected
+14 checks passed
+make: Leaving directory '/workspace/scratch/996bc95a3188/dsc-decoder'

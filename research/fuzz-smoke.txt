@@ -1,0 +1,6 @@
+make: Entering directory '/workspace/scratch/996bc95a3188/dsc-decoder'
+cc -Iinclude -Isrc -std=c11 -g -O1 -fno-omit-frame-pointer -fsanitize=address,undefined src/pps.c src/decode.c src/predict.c src/rate_control.c fuzz/fuzz_decode.c fuzz/smoke.c -o fuzz_smoke
+python3 tests/make_corpus.py
+ASAN_OPTIONS=detect_leaks=0 ./fuzz_smoke tests/corpus/*
+240000 deterministic mutated-input executions completed
+make: Leaving directory '/workspace/scratch/996bc95a3188/dsc-decoder'
