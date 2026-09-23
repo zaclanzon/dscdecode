@@ -29,9 +29,9 @@ struct dsc_rc {
     struct dsc_rc_drain shadow;                          /* the other OQ-3 reading */
     uint32_t scale, scale_clock;
     unsigned qp, pending_qp, last_qp, penultimate_qp, previous_ideal, used_qp;
-    unsigned range;
+    unsigned range, lag_range;   /* range used; range computed last step (OQ-11) */
     struct dsc_rc_inputs last_inputs;
-    int have_inputs, clamp_offset, increasing, increase_next, failed, flat_override;
+    int have_inputs, have_lag, clamp_offset, increasing, increase_next, failed, flat_override;
 };
 /* Defaults for every open-question switch; see dsc_options_init(). */
 int dsc_rc_init(struct dsc_rc *, const struct drm_dsc_config *);

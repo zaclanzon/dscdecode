@@ -6,13 +6,16 @@ block-prediction one. For one open question in
 RESEARCH.md, the two readings decode it to different pixels. Each file below
 states which reading predicts which output. The predictions were written and
 committed before the VESA reference model decoded any of these inputs
-(OQ-1 to OQ-3 in Phase 3, OQ-4 in Phase 2).
+(OQ-1 to OQ-3 in Phase 3, OQ-4 in Phase 2, `oq2b` in Phase 5).
 
 `python3 tests/make_discriminators.py` rebuilds every file here except this
 README. The generator contains a rate-control model written separately from
 the decoder. For every combination of the decoder's reading switches
 (OQ-1, OQ-2, OQ-3, OQ-12: 16 combinations; for the BP input, OQ-4, OQ-10,
-OQ-13: 8 combinations), it checks three things:
+OQ-13: 8 combinations), it checks three things. The readings of the other
+rate-control questions (OQ-5, OQ-11, OQ-14 to OQ-18) are fixed per input and
+listed as `assumes` in `manifest.json`: the M1 readings for `oq1` to `oq3`,
+the readings the decoder now defaults to for `oq2b`.
 
 1. The entropy parse, meaning every bit of every group, is identical.
 2. The output depends only on the reading of the discriminator's own question.
@@ -101,6 +104,41 @@ Switch: `--reading threshold_eq=lower|upper`.
 | lower | 8 | (152,168,120) (128,112,160) (144,144,144) | `522adaa166d082b0…` |
 | upper | 0 | (132,132,131) (129,128,130) (130,130,130) | `20657883ee83d170…` |
 
+## oq2b_threshold_equality — OQ-2 under the current pipeline readings
+
+Switch: `--reading threshold_eq=lower|upper`.
+
+The same question as `oq2_threshold_equality`, built assuming the readings
+the decoder defaults to since Phase 5 instead of the M1 ones. Only two of
+them matter to a one-line, full-group, scale-8 input without flatness
+signals: OQ-11 range-lag and OQ-5 swapped. No group here takes the increment
+branch, so only range-lag changes the design. Under range-lag the
+short-term RC run after group N uses the range selected after group N − 1,
+and range 0 before group 0.
+
+* 8 bpp, `initial_xmit_delay` 128, the same thresholds as `oq2`. Range 0 and
+  ranges 6–14 have minQp = maxQp = 0; ranges 1–5 have minQp = maxQp = 8.
+  Pinning range 0 to QP 0 makes the lagged first step choose the same QP as
+  the others. `initial_offset` is 5721.
+* rcModelFullness starts at 5721 − 8192 = −2471 and changes by (coded
+  bits − 24) per group. Group 0 codes 15 bits (−2480); groups 1–27 code 12
+  bits each (−2804 after group 27, range 6). Group 28 codes 12 bits:
+  **−2816, exactly threshold 5**, one group earlier than in `oq2`.
+* Group 29 codes 12 bits (−2828, range 5 under both readings). It is below
+  target, so the decrement branch gives MAX(prevQp − 1, minQp), with minQp
+  from the range selected after group 28. That QP decodes group 31.
+* **lower**: the range after group 28 is 5, minQp 8. Group 31 decodes at
+  **QP 8**.
+* **upper**: the range after group 28 is 6, minQp 0. Group 31 decodes at
+  **QP 0**.
+
+| Reading | Group 31 QP | RGB at x = 93, 94, 95 | SHA-256 of expected PPM |
+|---|---|---|---|
+| lower | 8 | (152,168,120) (128,112,160) (144,144,144) | `522adaa166d082b0…` |
+| upper | 0 | (132,132,131) (129,128,130) (130,130,130) | `20657883ee83d170…` |
+
+The expected pictures are identical to `oq2`'s; the PPS and payload are not.
+
 ## oq3_fractional_bpp — OQ-3, fractional bits per pixel
 
 Switch: `--reading frac_reset=chunk|literal`.
@@ -167,4 +205,9 @@ the decisive groups are in `manifest.json`.
 
 `tools/compare_model bitstream tests/discriminators/NAME.pps
 tests/discriminators/NAME.bin` has the model decode the input and compares
-the result with each expected PPM. Results are recorded in PROGRESS.md only.
+the result with each expected PPM. `tools/compare_model discriminators` does
+this for every input. It fails if the model matches both predictions, or
+neither; an input whose `assumes` differ from the decoder's current defaults
+that matches neither is reported as inconclusive instead, since its
+predictions were conditional on those readings. Results are recorded in
+PROGRESS.md only.

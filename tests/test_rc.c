@@ -163,6 +163,7 @@ static void threshold_equality(int reading, unsigned range)
     struct dsc_rc r;
     dsc_options_init(&o);
     o.threshold_eq = reading;
+    o.rc_pipeline = DSC_RC_PIPELINE_SAME_GROUP;   /* range of this step itself */
     o.stats = &st;
     assert(dsc_rc_init(&r, &c) == 0);
     dsc_rc_set_options(&r, &o);
@@ -221,6 +222,136 @@ static void delay_boundary(int reading, int64_t offset)
     assert(r.fullness == 56);
 }
 
+/* OQ-5. Every range allows QP 8..15. Group 0 codes 100 bits: target 24,
+ * so the increment branch runs with curQp = MAX(8, 0) = 8 against
+ * prev2Qp 0, and the edge test fails (no previous group). Printed: curQp is
+ * not below prev2Qp, so only curQp < limit1 (11) is needed: 8 + 38 capped at
+ * 15. Swapped: curQp above prev2Qp needs the edge test: stays 8. */
+static void increment_order(int reading, unsigned queued)
+{
+    struct drm_dsc_config c = settings();
+    struct dsc_options o;
+    struct dsc_rc r;
+    unsigned i;
+    for (i = 0; i < 15; ++i) c.rc_range_params[i].range_max_qp = 15;
+    dsc_options_init(&o);
+    o.incr_order = reading;
+    assert(dsc_rc_init(&r, &c) == 0);
+    dsc_rc_set_options(&r, &o);
+    assert(dsc_rc_step(&r, 0, 0, 3, 100, 100) == 0);
+    assert(r.pending_qp == queued);
+}
+
+/* OQ-11. Range i pins QP i. Group 0 codes 250 bits: rcModelFullness
+ * -2048 + 250 - 24 = -1822, range 12. Same-group: the increment branch starts
+ * from minQp 12 and range 12 caps it at 12. Range-lag: there is no earlier
+ * step, so range 0 applies and the result is QP 0. */
+static void range_pipeline(int reading, unsigned queued)
+{
+    struct drm_dsc_config c = settings();
+    struct dsc_options o;
+    struct dsc_stats st = {0};
+    struct dsc_rc r;
+    unsigned i;
+    for (i = 0; i < 15; ++i) {
+        c.rc_range_params[i].range_min_qp = (u8)i;
+        c.rc_range_params[i].range_max_qp = (u8)(i < 14 ? i : 15);
+    }
+    dsc_options_init(&o);
+    o.rc_pipeline = reading;
+    o.stats = &st;
+    assert(dsc_rc_init(&r, &c) == 0);
+    dsc_rc_set_options(&r, &o);
+    assert(dsc_rc_step(&r, 0, 0, 3, 250, 250) == 0);
+    assert(r.last_inputs.model == -1822 && r.pending_qp == queued);
+    assert(st.range_lag_differs == (reading == DSC_RC_PIPELINE_RANGE_LAG));
+}
+
+/* OQ-14. Initial scale 12 (1.5), decrement interval 2. Counting from group 1
+ * the scale drops after groups 2 and 4; counting from group 0, after groups
+ * 1 and 3. */
+static void scale_decrement(int reading, const unsigned expect[5])
+{
+    struct drm_dsc_config c = settings();
+    struct dsc_options o;
+    struct dsc_rc r;
+    unsigned g;
+    c.initial_scale_value = 12;
+    c.scale_decrement_interval = 2;
+    dsc_options_init(&o);
+    o.scale_dec = reading;
+    assert(dsc_rc_init(&r, &c) == 0);
+    dsc_rc_set_options(&r, &o);
+    for (g = 0; g < 5; ++g) {
+        assert(dsc_rc_step(&r, 0, g, 3, 24, 24) == 0);
+        assert(r.scale == expect[g]);
+    }
+}
+
+/* OQ-15. Width 7: the third group of a line has one pixel. At 8 bpp and zero
+ * BPG offsets, its target is 24 (three samples) or 8 (one pixel). */
+static void partial_target(int reading, int64_t target)
+{
+    struct drm_dsc_config c = settings();
+    struct dsc_options o;
+    struct dsc_rc r;
+    c.slice_width = 7;
+    c.slice_chunk_size = 7;
+    dsc_options_init(&o);
+    o.partial_target = reading;
+    o.rc_pipeline = DSC_RC_PIPELINE_SAME_GROUP;
+    assert(dsc_rc_init(&r, &c) == 0);
+    dsc_rc_set_options(&r, &o);
+    assert(dsc_rc_step(&r, 0, 0, 3, 24, 24) == 0);
+    assert(dsc_rc_step(&r, 0, 1, 3, 24, 24) == 0);
+    assert(r.last_inputs.target == 24);
+    assert(dsc_rc_step(&r, 0, 2, 1, 8, 8) == 0);
+    assert(r.last_inputs.target == target);
+}
+
+/* OQ-16. A very-flat signal on a group whose own QP is `own`, after a group
+ * decoded at `previous`. Demoted to somewhat flat it gives own - 4; kept very
+ * flat it gives QP 1. Group-qp tests own < 7, previous-qp tests previous < 7,
+ * as-signaled never demotes. */
+static void very_flat_type(int reading, unsigned own, unsigned previous, unsigned qp)
+{
+    struct drm_dsc_config c = settings();
+    struct dsc_options o;
+    struct dsc_stats st = {0};
+    struct dsc_rc r;
+    dsc_options_init(&o);
+    o.very_flat = reading;
+    o.stats = &st;
+    assert(dsc_rc_init(&r, &c) == 0);
+    dsc_rc_set_options(&r, &o);
+    r.qp = own;
+    r.used_qp = previous;
+    assert(dsc_rc_apply_flat(&r, 1, 1) == 0);
+    assert(dsc_rc_qp(&r) == qp && st.very_flat_low_qp == 1);
+}
+
+/* OQ-18. A somewhat-flat signal where one of the flagged group's own QP and
+ * the previous group's QP is range 14's maximum (15 in settings()) and the
+ * other is not. The override applies (QP - 4) only when the QP the reading
+ * checks is below that maximum. */
+static void flat_max_qp(int reading, unsigned own, unsigned previous, unsigned qp)
+{
+    struct drm_dsc_config c = settings();
+    struct dsc_options o;
+    struct dsc_stats st = {0};
+    struct dsc_rc r;
+    assert(c.rc_range_params[14].range_max_qp == 15);
+    dsc_options_init(&o);
+    o.flat_max_qp = reading;
+    o.stats = &st;
+    assert(dsc_rc_init(&r, &c) == 0);
+    dsc_rc_set_options(&r, &o);
+    r.qp = own;
+    r.used_qp = previous;
+    assert(dsc_rc_apply_flat(&r, 1, 0) == 0);
+    assert(dsc_rc_qp(&r) == qp && st.flat_max_qp_differs == 1);
+}
+
 int main(void)
 {
     qp_trace();
@@ -234,6 +365,27 @@ int main(void)
     fractional_literal();
     delay_boundary(DSC_DELAY_OFFSET_INCLUSIVE, -2048 - 32);
     delay_boundary(DSC_DELAY_OFFSET_EXCLUSIVE, -2048 - 24);
+    increment_order(DSC_INCR_ORDER_PRINTED, 15);
+    increment_order(DSC_INCR_ORDER_SWAPPED, 8);
+    range_pipeline(DSC_RC_PIPELINE_SAME_GROUP, 12);
+    range_pipeline(DSC_RC_PIPELINE_RANGE_LAG, 0);
+    {
+        static const unsigned from1[5] = {12, 12, 11, 11, 10}, from0[5] = {12, 11, 11, 10, 10};
+        scale_decrement(DSC_SCALE_DEC_FROM_GROUP_1, from1);
+        scale_decrement(DSC_SCALE_DEC_FROM_GROUP_0, from0);
+    }
+    partial_target(DSC_PARTIAL_TARGET_THREE, 24);
+    partial_target(DSC_PARTIAL_TARGET_PIXELS, 8);
+    very_flat_type(DSC_VERY_FLAT_GROUP_QP, 6, 7, 2);
+    very_flat_type(DSC_VERY_FLAT_AS_SIGNALED, 6, 7, 1);
+    very_flat_type(DSC_VERY_FLAT_PREVIOUS_QP, 6, 7, 1);
+    very_flat_type(DSC_VERY_FLAT_GROUP_QP, 8, 6, 1);
+    very_flat_type(DSC_VERY_FLAT_AS_SIGNALED, 8, 6, 1);
+    very_flat_type(DSC_VERY_FLAT_PREVIOUS_QP, 8, 6, 4);
+    flat_max_qp(DSC_FLAT_MAX_QP_OWN, 15, 11, 15);
+    flat_max_qp(DSC_FLAT_MAX_QP_PREVIOUS, 15, 11, 11);
+    flat_max_qp(DSC_FLAT_MAX_QP_OWN, 12, 15, 8);
+    flat_max_qp(DSC_FLAT_MAX_QP_PREVIOUS, 12, 15, 12);
     puts("RC hand-calculated traces passed (not a conformance oracle)");
     return 0;
 }

@@ -178,7 +178,9 @@ int dsc_predict_group(struct dsc_predict *p, unsigned x, unsigned y,
         }
     }
     if (ich) {
-        for (j=0; j<3; ++j) {
+        /* Only real pixels are looked up; a partial group's padding index
+         * produces no pixel and, as a last group, updates no history. */
+        for (j=0; j<n; ++j) {
             if (index[j]>=32) return -1;
             if (index[j]<capacity) {
                 if (index[j]>=p->valid) return -1;

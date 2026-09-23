@@ -2,7 +2,8 @@
  * Original implementation of DSC 1.1 sections 6.8 and 7.3.
  * Prose-only timing interpretation is recorded in research/rc-ambiguities.md.
  * Where the text supports two readings, both are implemented and selected by
- * struct dsc_options (RESEARCH.md, open questions OQ-1, OQ-2, OQ-3, OQ-12).
+ * struct dsc_options (RESEARCH.md, open questions OQ-1 to OQ-3, OQ-5, OQ-11,
+ * OQ-12, OQ-14 to OQ-16).
  */
 #include "rate_control.h"
 #include <string.h>
@@ -47,10 +48,20 @@ void dsc_rc_set_options(struct dsc_rc *s, const struct dsc_options *o)
 unsigned dsc_rc_qp(const struct dsc_rc *s) { return s->qp; }
 unsigned dsc_rc_primary_qp(const struct dsc_rc *s) { return s->qp; }
 
+/* Figure 6-13's permission test. OQ-5: the figure prints the rc_quant_incr_limit0
+ * branch for curQp < prev2Qp; the swapped reading takes it for curQp > prev2Qp. */
+static int permit_increment(const struct drm_dsc_config *c, unsigned cur, unsigned prev2,
+                            int edge, int swapped)
+{
+    if (cur == prev2) return edge;
+    if (swapped ? cur > prev2 : cur < prev2) return edge && cur < c->rc_quant_incr_limit0;
+    return cur < c->rc_quant_incr_limit1;
+}
+
 /* Figure 6-12 and Figure 6-13 for one set of inputs. prev and prev2 are the
  * prevQp and prev2Qp of §6.8.4. */
 static unsigned short_term(const struct drm_dsc_config *c, const struct dsc_rc_inputs *in,
-                           unsigned prev, unsigned prev2)
+                           unsigned prev, unsigned prev2, const struct dsc_options *o)
 {
     int64_t low = in->target - c->rc_tgt_offset_low;
     int64_t high = in->target + c->rc_tgt_offset_high, increment;
@@ -62,10 +73,11 @@ static unsigned short_term(const struct drm_dsc_config *c, const struct dsc_rc_i
     if ((int64_t)in->actual > high && in->fullness >= 64) {
         cur = umax(in->min_qp, prev);
         edge = in->ideal * 2 < in->previous_ideal * c->rc_edge_factor;
-        /* Follow Figure 6-13's printed '<' direction exactly (OQ-5). */
-        permit = cur == prev2 ? edge :
-                 cur < prev2 ? edge && cur < c->rc_quant_incr_limit0 :
-                               cur < c->rc_quant_incr_limit1;
+        permit = (unsigned)permit_increment(c, cur, prev2, (int)edge,
+                                            o->incr_order == DSC_INCR_ORDER_SWAPPED);
+        if (o->stats && (int)permit != permit_increment(c, cur, prev2, (int)edge,
+                                            o->incr_order != DSC_INCR_ORDER_SWAPPED))
+            ++o->stats->incr_order_differs;
         next = cur;
         increment = floor_div((int64_t)in->actual - in->target, 2);
         if (permit) next = increment + cur > in->max_qp ? in->max_qp : (unsigned)(increment + cur);
@@ -75,12 +87,25 @@ static unsigned short_term(const struct drm_dsc_config *c, const struct dsc_rc_i
 
 int dsc_rc_apply_flat(struct dsc_rc *s, int flat, int very_flat)
 {
-    unsigned q, master, redo;
+    unsigned q, master, redo, top;
+    int demote;
     if (!s || s->failed) return -1;
     s->flat_override = 0;
     q = s->qp;
-    if (!flat || q == s->cfg->rc_range_params[14].range_max_qp) return 0;
-    master = (!very_flat || q < 7) ? (q > 4 ? q - 4 : 0) : 1;
+    if (!flat) return 0;
+    /* OQ-18: §6.8.5.2 skips the override when the current QP is range
+     * 14's maximum, the same wording as the OQ-16 note below. */
+    top = s->cfg->rc_range_params[14].range_max_qp;
+    if (s->opt.stats && (q == top) != (s->used_qp == top)) ++s->opt.stats->flat_max_qp_differs;
+    if ((s->opt.flat_max_qp == DSC_FLAT_MAX_QP_PREVIOUS ? s->used_qp : q) == top) return 0;
+    /* OQ-16: the type bit is only sent when the signaling group's QP is at
+     * least 7 (§4.5). §6.8.5.2 demotes very flat to somewhat flat when the
+     * current QP is below 7 without saying which group's QP that is. At
+     * apply time used_qp is the QP that decoded the previous group. */
+    if (s->opt.stats && very_flat && (q < 7 || s->used_qp < 7)) ++s->opt.stats->very_flat_low_qp;
+    demote = s->opt.very_flat == DSC_VERY_FLAT_GROUP_QP ? q < 7 :
+             s->opt.very_flat == DSC_VERY_FLAT_PREVIOUS_QP ? s->used_qp < 7 : 0;
+    master = (!very_flat || demote) ? (q > 4 ? q - 4 : 0) : 1;
     /* Section 6.8.5.2 restarts short-term RC only when the override
      * actually changes masterQp. */
     if (master == q) return 0;
@@ -88,7 +113,7 @@ int dsc_rc_apply_flat(struct dsc_rc *s, int flat, int very_flat)
     s->flat_override = 1;
     /* OQ-1: the cycle already run for the next group, re-run from the
      * overridden QP. prev2Qp is the QP that decoded the previous group. */
-    redo = s->have_inputs ? short_term(s->cfg, &s->last_inputs, master, s->used_qp)
+    redo = s->have_inputs ? short_term(s->cfg, &s->last_inputs, master, s->used_qp, &s->opt)
                           : s->pending_qp;
     if (s->opt.stats) {
         ++s->opt.stats->flat_overrides;
@@ -183,7 +208,8 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum,
             s->scale_clock = 0;
             ++s->scale;
         }
-    } else if (s->groups && s->scale > 8) {
+    } else if ((s->groups || s->opt.scale_dec == DSC_SCALE_DEC_FROM_GROUP_0) && s->scale > 8) {
+        /* OQ-14: whether the first decrement interval counts group 0. */
         if (++s->scale_clock >= c->scale_decrement_interval) {
             s->scale_clock = 0;
             --s->scale;
@@ -231,11 +257,25 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum,
                 ++s->opt.stats->threshold_equal;
                 break;
             }
+    /* OQ-11: Figure 6-8 runs the long-term RC (range selection) one group
+     * behind. In the range-lag reading the short-term RC uses the range from
+     * the previous step. Before any group there is no previous step; the
+     * reference model behaves as if that range were range 0 (PROGRESS.md). */
+    if (s->opt.rc_pipeline == DSC_RC_PIPELINE_RANGE_LAG) {
+        unsigned current = range;
+        range = s->have_lag ? s->lag_range : 0;
+        if (s->opt.stats && range != current) ++s->opt.stats->range_lag_differs;
+        s->lag_range = current;
+        s->have_lag = 1;
+    }
     s->range = range;
     signed_bpg = c->rc_range_params[range].range_bpg_offset & 63;
     if (signed_bpg & 32) signed_bpg -= 64;
-    /* Section 6.8.4 specifies three samples even for a partial group. */
-    target = ((int64_t)3 * c->bits_per_pixel + 8) / 16 + signed_bpg +
+    /* OQ-15: §6.8.4 prints three samples; §6.8.1 removes bits for the pixels
+     * actually present. The pixels reading uses the latter for partial groups. */
+    if (s->opt.stats && n < 3) ++s->opt.stats->partial_groups;
+    target = ((int64_t)(s->opt.partial_target == DSC_PARTIAL_TARGET_PIXELS ? n : 3) *
+              c->bits_per_pixel + 8) / 16 + signed_bpg +
              (y ? -(int64_t)(c->nfl_bpg_offset / 2048) : c->first_line_bpg_offset) -
              c->slice_bpg_offset / 2048;
     in.fullness = s->fullness;
@@ -246,7 +286,7 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum,
     in.previous_ideal = s->previous_ideal;
     in.min_qp = c->rc_range_params[range].range_min_qp;
     in.max_qp = c->rc_range_params[range].range_max_qp;
-    next = short_term(c, &in, s->last_qp, s->penultimate_qp);
+    next = short_term(c, &in, s->last_qp, s->penultimate_qp, &s->opt);
     if (next > 15) return fail(s);
     s->last_inputs = in;
     s->have_inputs = 1;

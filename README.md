@@ -11,15 +11,16 @@ CBR streams. MIT licensed; kernel DSC definitions retain their Intel notice.
 **Status: a working, tested implementation checkpoint, not a completed or
 conformance-validated M1.** Hand-derived vectors pass; general dynamic-QP/RC
 interoperability remains unverified. VBR is explicitly unsupported. Block
-prediction is implemented, but how its search treats samples left of the
-slice is an open question with a switch (`bp_left`). Do not use a successful decode as proof that hardware encoder
-programming conforms to DSC until those remaining validation gaps are closed.
+prediction is implemented. Where the specification text reads two ways, each
+reading is a runtime switch (see "Open questions" in `RESEARCH.md`). Do not
+use a successful decode as proof that hardware encoder programming conforms to
+DSC until those remaining validation gaps are closed.
 
-September 20 continuation: eight exact-image fixtures now include QP transitions
-and both flatness types under the documented timing interpretation. Eighteen CLI
-checks, RC traces, and line-buffer/history tests pass. Noncanonical partial-group
-padding is now rejected. See the dated continuation in `RESEARCH.md` for results
-and remaining blockers.
+M2 checkpoint (September 23): ten exact-image fixtures (including block
+prediction), 22 CLI checks, RC and prediction traces, and 72 discriminator
+decodes pass. Partial-group padding is parsed but not checked by default
+(`--reading partial_padding=reject` enforces DSC 1.1 §6.6). Comparison runs
+against the VESA model are recorded in `PROGRESS.md`.
 
 ## Build and use
 
@@ -90,12 +91,12 @@ fatal and report leaks; on a host where LeakSanitizer cannot run, set
 
 ## Remaining correctness work
 
-* Resolve the block-prediction left-boundary and edge-counter questions
-  (OQ-4, OQ-13 in `RESEARCH.md`) from black-box evidence.
-* Establish interoperability for dynamic RC/QP and flatness timing, exact threshold equality,
-  fractional-bpp chunk boundaries, and varying line-buffer precision with
-  independent traces. Current interpretations and uncertainties are explicit
-  in `research/rc-ambiguities.md`, not hidden behind the synthetic results.
+* The status of every open rate-control and prediction question, and the
+  evidence behind each default, is in the "Open questions" table in
+  `RESEARCH.md`. Two remain open: OQ-7 (DSC 1.2 only) and OQ-9 (encoder only).
+* Only DSC 1.1, 8 bits per component, RGB 4:4:4 is decoded. Fractional
+  bits_per_pixel has been exercised only by a discriminator, not by
+  model-encoded pictures.
 * VBR framing and buffer handling are not implemented.
 * The licensed VESA reference model is not included. `tools/compare_model`
   drives it as a black box when `DSCDECODE_MODEL_BIN` points at it, and

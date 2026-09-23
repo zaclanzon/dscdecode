@@ -39,6 +39,13 @@ static int *delay_offset(struct dsc_options *o){return &o->delay_offset;}
 static int *bp_left(struct dsc_options *o){return &o->bp_left;}
 static int *bp_edge(struct dsc_options *o){return &o->bp_edge;}
 static int *bp_sad(struct dsc_options *o){return &o->bp_sad;}
+static int *incr_order(struct dsc_options *o){return &o->incr_order;}
+static int *rc_pipeline(struct dsc_options *o){return &o->rc_pipeline;}
+static int *scale_dec(struct dsc_options *o){return &o->scale_dec;}
+static int *partial_target(struct dsc_options *o){return &o->partial_target;}
+static int *very_flat(struct dsc_options *o){return &o->very_flat;}
+static int *partial_padding(struct dsc_options *o){return &o->partial_padding;}
+static int *flat_max_qp(struct dsc_options *o){return &o->flat_max_qp;}
 static const struct reading readings[]={
  {"flat_restart","next-cycle",flat_restart,DSC_FLAT_RESTART_NEXT_CYCLE},
  {"flat_restart","in-flight",flat_restart,DSC_FLAT_RESTART_IN_FLIGHT},
@@ -54,6 +61,21 @@ static const struct reading readings[]={
  {"bp_edge","before",bp_edge,DSC_BP_EDGE_BEFORE},
  {"bp_sad","shift",bp_sad,DSC_BP_SAD_SHIFT},
  {"bp_sad","clip",bp_sad,DSC_BP_SAD_CLIP},
+ {"incr_order","printed",incr_order,DSC_INCR_ORDER_PRINTED},
+ {"incr_order","swapped",incr_order,DSC_INCR_ORDER_SWAPPED},
+ {"rc_pipeline","same-group",rc_pipeline,DSC_RC_PIPELINE_SAME_GROUP},
+ {"rc_pipeline","range-lag",rc_pipeline,DSC_RC_PIPELINE_RANGE_LAG},
+ {"scale_dec","from-group-1",scale_dec,DSC_SCALE_DEC_FROM_GROUP_1},
+ {"scale_dec","from-group-0",scale_dec,DSC_SCALE_DEC_FROM_GROUP_0},
+ {"partial_target","three",partial_target,DSC_PARTIAL_TARGET_THREE},
+ {"partial_target","pixels",partial_target,DSC_PARTIAL_TARGET_PIXELS},
+ {"very_flat","group-qp",very_flat,DSC_VERY_FLAT_GROUP_QP},
+ {"very_flat","as-signaled",very_flat,DSC_VERY_FLAT_AS_SIGNALED},
+ {"very_flat","previous-qp",very_flat,DSC_VERY_FLAT_PREVIOUS_QP},
+ {"partial_padding","reject",partial_padding,DSC_PARTIAL_PADDING_REJECT},
+ {"partial_padding","accept",partial_padding,DSC_PARTIAL_PADDING_ACCEPT},
+ {"flat_max_qp","own",flat_max_qp,DSC_FLAT_MAX_QP_OWN},
+ {"flat_max_qp","previous",flat_max_qp,DSC_FLAT_MAX_QP_PREVIOUS},
 };
 static const struct reading *find_reading(const char *name,const char *value)
 {
@@ -129,9 +151,12 @@ int main(int argc,char **argv)
  input=read_file(argv[off+1],256u*1024u*1024u,&n);if(!input)goto done;
  rgb=malloc(cap);if(!rgb)goto done;
  status=single?dsc_decode_slice_ex(&c,&opt,input,n,rgb,cap):dsc_decode_frame_ex(&c,&opt,input,n,rgb,cap);
- if(want_stats)fprintf(stderr,"stats: groups=%lu threshold_equal=%lu flat_overrides=%lu flat_queue_differs=%lu frac_differs=%lu bp_groups=%lu bp_left_differs=%lu\n",
+ if(want_stats)fprintf(stderr,"stats: groups=%lu threshold_equal=%lu flat_overrides=%lu flat_queue_differs=%lu frac_differs=%lu bp_groups=%lu bp_left_differs=%lu"
+  " incr_order_differs=%lu range_lag_differs=%lu partial_groups=%lu very_flat_low_qp=%lu padding_nonzero=%lu"
+  " flat_max_qp_differs=%lu\n",
   stats.groups,stats.threshold_equal,stats.flat_overrides,stats.flat_queue_differs,stats.frac_differs,
-  stats.bp_groups,stats.bp_left_differs);
+  stats.bp_groups,stats.bp_left_differs,stats.incr_order_differs,stats.range_lag_differs,
+  stats.partial_groups,stats.very_flat_low_qp,stats.padding_nonzero,stats.flat_max_qp_differs);
  if(status){fprintf(stderr,"decode: %s\n",dsc_strerror(status));goto done;}
  /* Only open output after successful validation and decoding. */
  output=fopen(argv[off+2],"wb");if(!output){perror(argv[off+2]);goto done;}

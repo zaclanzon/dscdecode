@@ -33,6 +33,20 @@ QLEVEL_Y = (0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 5, 6, 7)
 QLEVEL_C = (0, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 8, 8, 8)
 DEPTH = (8, 9, 9)  # Y, Co, Cg sample bits for 8 bpc RGB (§6.1)
 
+# Readings assumed for the rate-control questions a discriminator does not
+# vary (RESEARCH.md OQ-5, OQ-11, OQ-14 to OQ-18); the tests apply them.
+# M1_TIMING was the decoder's behavior when oq1-oq3 were made. MODEL_TIMING is
+# the set the Phase 5 stream comparison supports; oq2b is built under it.
+# This model implements both readings of OQ-5 and OQ-11. It implements only
+# the M1 readings of the others, so a discriminator assuming anything else
+# must avoid them: a scale of 8, no partial groups, no flatness signal.
+M1_TIMING = {'incr_order': 'printed', 'rc_pipeline': 'same-group', 'scale_dec': 'from-group-1',
+             'partial_target': 'three', 'very_flat': 'group-qp', 'partial_padding': 'reject',
+             'flat_max_qp': 'own'}
+MODEL_TIMING = {'incr_order': 'swapped', 'rc_pipeline': 'range-lag', 'scale_dec': 'from-group-0',
+                'partial_target': 'pixels', 'very_flat': 'previous-qp', 'partial_padding': 'accept',
+                'flat_max_qp': 'previous'}
+
 # Every switch the decoder offers for a rate-control question.
 READINGS = {
     'flat_restart': ('next-cycle', 'in-flight'),
@@ -128,6 +142,7 @@ class Model:
         self.predicted, self.last_level = [0, 0, 0], [0, 0, 0]
         self.flag = 0
         self.flat_group, self.flat_type = None, 0
+        self.lag_range = None
         self.recon = []
         self.log = []
 
@@ -144,9 +159,10 @@ class Model:
         if inp['actual'] > hi and inp['fullness'] >= 64:
             cur = max(inp['min'], prev)
             edge = inp['ideal'] * 2 < inp['prev_ideal'] * p.edge_factor
+            swapped = self.r['incr_order'] == 'swapped'
             if cur == prev2:
                 permit = edge
-            elif cur < prev2:
+            elif (cur > prev2) if swapped else (cur < prev2):
                 permit = edge and cur < p.limit0
             else:
                 permit = cur < p.limit1
@@ -155,6 +171,8 @@ class Model:
 
     # --- §6.8.5.2 flatness override with the OQ-1 readings -------------
     def flatness(self):
+        assert self.r['very_flat'] == 'group-qp' and self.r['flat_max_qp'] == 'own', \
+            'only the M1 flatness readings are modeled'
         q = self.qp
         if q == self.p.ranges[14][1]:
             return
@@ -191,6 +209,7 @@ class Model:
 
     def rc_step(self, g, n, actual, ideal):
         p = self.p
+        assert n == 3 or self.r['partial_target'] == 'three', 'partial groups: M1 reading only'
         self.fullness += actual
         assert self.fullness <= (p.xmit_delay + p.dec_delay) * p.bpp16 // 16
         before = self.pixels
@@ -212,14 +231,23 @@ class Model:
             rng = sum(model >= b for b in bounds)
         else:
             rng = sum(model > b for b in bounds)
-        lo, hi, off = p.ranges[rng]
+        # OQ-11: with range-lag, the short-term RC uses the range selected in
+        # the previous step, and range 0 before the first one.
+        used = rng
+        if self.r['rc_pipeline'] == 'range-lag':
+            used = 0 if self.lag_range is None else self.lag_range
+            self.lag_range = rng
+        lo, hi, off = p.ranges[used]
         inp = dict(fullness=self.fullness, model=model, actual=actual, ideal=ideal,
                    target=(3 * p.bpp16 + 8) // 16 + off, prev_ideal=self.prev_ideal,
                    min=lo, max=hi)
         nxt = self.short_term(inp, self.prev, self.prev2)
-        self.log.append(dict(group=g, qp=self.qp, actual=actual, ideal=ideal,
-                             fullness=self.fullness, model=model, range=rng,
-                             on_threshold=model in bounds, generated=nxt))
+        row = dict(group=g, qp=self.qp, actual=actual, ideal=ideal,
+                   fullness=self.fullness, model=model, range=rng,
+                   on_threshold=model in bounds, generated=nxt)
+        if used != rng:
+            row['range_used'] = used
+        self.log.append(row)
         self.saved, self.used = inp, self.qp
         self.prev2, self.prev, self.prev_ideal = self.prev, nxt, ideal
         self.qp, self.queued = self.queued, nxt
@@ -287,7 +315,7 @@ class Model:
 
 
 def simulate(p, groups, readings):
-    m = Model(p, readings)
+    m = Model(p, {**M1_TIMING, **readings})
     units = [m.group(g, s) for g, s in enumerate(groups)]
     return m, units
 
@@ -330,6 +358,31 @@ def oq2_threshold_equality():
                                     frac_reset='chunk', delay_offset='inclusive'))
     p.initial_offset += (84 * 64 - p.model_size) - m.log[29]['model']
     return 'oq2_threshold_equality', 'threshold_eq', p, groups
+
+
+def oq2b_threshold_equality():
+    """OQ-2 again, built under MODEL_TIMING (range-lag, OQ-11).
+
+    oq2_threshold_equality assumes the M1 same-group pipeline. Under range-lag
+    the short-term RC run after group N uses the range selected after group
+    N-1, and range 0 before group 0, so the equality has to fall one group
+    earlier: rcModelFullness lands on threshold 5 exactly after group 28, and
+    the step after group 29 uses that range. Group 29 is small, so the
+    decrement branch returns MAX(prevQp-1, minQp): QP 0 in range 6 (equality
+    counts as the upper range) or QP 8 in range 5 (lower). That QP decodes
+    group 31. Range 0 also pins QP 0, so the lagged first step decides the
+    same QP as the others. Ranges 1-5 pin QP 8; ranges 6-14 pin QP 0.
+    """
+    p = Params(bpp16=128, xmit_delay=128,
+               ranges=((0, 0, 0),) + ((8, 8, 0),) * 5 + ((0, 0, 0),) * 9)
+    groups = [small(+1 if g % 2 == 0 else -1) for g in range(30)]
+    groups.append(Group(((0, 0, 0),) * 3))  # predicted size 0 for group 31
+    groups.append(LAST)
+    readings = dict(MODEL_TIMING, flat_restart='next-cycle', threshold_eq='lower',
+                    frac_reset='chunk', delay_offset='inclusive')
+    m, _ = simulate(p, groups, readings)
+    p.initial_offset += (84 * 64 - p.model_size) - m.log[28]['model']
+    return 'oq2b_threshold_equality', 'threshold_eq', p, groups
 
 
 def oq3_fractional_bpp():
@@ -410,11 +463,11 @@ def oq1_flat_restart():
     return 'oq1_flat_restart', 'flat_restart', p, groups
 
 
-def build(name, question, p, groups):
+def build(name, question, p, groups, assumes=M1_TIMING, decisive=(29, 30, 31)):
     results = {}
     reference = None
     for readings in all_readings():
-        m, units = simulate(p, groups, readings)
+        m, units = simulate(p, groups, {**assumes, **readings})
         if reference is None:
             reference = units
         assert units == reference, (name, 'parse depends on readings', readings)
@@ -430,7 +483,8 @@ def build(name, question, p, groups):
     (OUT / f'{name}.pps').write_bytes(p.pps())
     (OUT / f'{name}.bin').write_bytes(payload)
     (OUT / f'{name}.syntax.txt').write_text(''.join(' '.join(u) + '\n' for u in reference))
-    entry = dict(question=question, vary=list(READINGS), width=p.width, height=1, mux_bits=used,
+    entry = dict(question=question, vary=list(READINGS), assumes=assumes, width=p.width,
+                 height=1, mux_bits=used,
                  payload_bits=8 * p.chunk, initial_offset=p.initial_offset,
                  pps_sha256=hashlib.sha256(p.pps()).hexdigest(),
                  payload_sha256=hashlib.sha256(payload).hexdigest(), readings={})
@@ -442,7 +496,7 @@ def build(name, question, p, groups):
             expected_sha256=hashlib.sha256(ppm).hexdigest(),
             qp_schedule=[row['qp'] for row in m.log],
             last_group_rgb=[list(m.rgb()[3 * x:3 * x + 3]) for x in range(p.width - 3, p.width)],
-            decisive=[m.log[g] for g in (29, 30, 31)])
+            decisive=[m.log[g] for g in decisive])
     return entry
 
 
@@ -451,6 +505,8 @@ def main():
     for make in (oq1_flat_restart, oq2_threshold_equality, oq3_fractional_bpp):
         name, question, p, groups = make()
         manifest[name] = build(name, question, p, groups)
+    name, question, p, groups = oq2b_threshold_equality()
+    manifest[name] = build(name, question, p, groups, MODEL_TIMING, (28, 29, 30, 31))
     # OQ-4 (block prediction) is built by the BP constructor.
     manifest['oq4_bp_left'] = make_bp_vectors.oq4_bp_left(OUT)
     (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=1) + '\n')

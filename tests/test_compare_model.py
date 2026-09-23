@@ -107,10 +107,15 @@ def main():
                          ROOT / 'tests/fixtures/qp_flatness.pps',
                          ROOT / 'tests/fixtures/qp_flatness.bin'], **fake)
         assert code == 0 and out.count('match (bit-exact)') == 16, out
-        code, out = run(['bitstream', '--all-readings', ROOT / 'tests/fixtures/bp_left_edge.pps',
+        code, out = run(['bitstream', '--all-readings', '--vary',
+                         'bp_left,bp_edge,bp_sad,incr_order,rc_pipeline,scale_dec,partial_target',
+                         ROOT / 'tests/fixtures/bp_left_edge.pps',
                          ROOT / 'tests/fixtures/bp_left_edge.bin'], **fake)
         assert code == 0 and out.count('match (bit-exact)') == 128, out
-        print('PASS --all-readings: 16 and 128 decodes')
+        code, out = run(['bitstream', '--all-readings', ROOT / 'tests/fixtures/flat.pps',
+                         ROOT / 'tests/fixtures/flat.bin'], **fake)
+        assert code == 2 and 'choose switches with --vary' in out, out
+        print('PASS --all-readings: 16 and 128 decodes; unbounded product refused')
         # Image mode needs a config template; this minimal one is the test's own.
         cfg = Path(tmp) / 'cfg'
         cfg.mkdir()
@@ -127,16 +132,36 @@ def main():
         assert 'SLICE_WIDTH 2' in written and 'FUNCTION 1' in written, written
         assert written.index('INCLUDE rc_8bpc_8bpp.cfg') < written.index('BITS_PER_PIXEL 8'), written
         print('PASS image mode: config, encode, split, both decodes')
-        code, out = run(['discriminators'], **fake)
-        # The stub decodes with dscdecode's defaults, so each discriminator
-        # must report exactly its default reading.
+        code, out = run(['--self-test'], DSCDECODE_MODEL_CFG_DIR=str(cfg),
+                        **{k: v for k, v in fake.items() if k != 'DSCDECODE_MODEL_CFG_DIR'})
+        assert code == 0 and 'match (bit-exact)' in out, out
+        print('PASS --self-test with a model configured')
+        # The stub decodes with one chosen reading per question, which must be
+        # the one reported. With the M1 pipeline readings, every input built
+        # under them gets a verdict, and oq2b, built under the decoder's
+        # current defaults, matches neither: a failure.
+        m1 = ('incr_order=printed rc_pipeline=same-group scale_dec=from-group-1 '
+              'partial_target=three very_flat=group-qp partial_padding=reject flat_max_qp=own')
+        chosen = 'flat_restart=next-cycle threshold_eq=lower frac_reset=chunk bp_left=replicate '
+        code, out = run(['discriminators'], FAKE_MODEL_READINGS=chosen + m1, **fake)
         for line in ('oq1_flat_restart (flat_restart): model output matches next-cycle',
                      'oq2_threshold_equality (threshold_eq): model output matches lower',
+                     'oq2b_threshold_equality (threshold_eq): model output matches NEITHER',
                      'oq3_fractional_bpp (frac_reset): model output matches chunk',
                      'oq4_bp_left (bp_left): model output matches replicate'):
             assert line in out, out
+        assert 'inconclusive' not in out and code == 1, out
+        # With the default pipeline readings, oq2b gets the verdict and oq2,
+        # built under the M1 readings, is inconclusive, which is not a failure.
+        code, out = run(['discriminators'], FAKE_MODEL_READINGS=chosen, **fake)
+        for line in ('oq2b_threshold_equality (threshold_eq): model output matches lower',
+                     'oq3_fractional_bpp (frac_reset): model output matches chunk',
+                     'oq4_bp_left (bp_left): model output matches replicate'):
+            assert line in out, out
+        assert 'oq2_threshold_equality (threshold_eq): model output matches NEITHER' in out, out
+        assert 'inconclusive: built assuming incr_order=printed' in out, out
         assert code == 0, out
-        print('PASS discriminators mode: verdict per prediction')
+        print('PASS discriminators mode: verdict per prediction; stale assumptions inconclusive')
         corpus_checks(tmp, fake)
     print('compare_model harness checks passed (fake model; not a model comparison)')
 

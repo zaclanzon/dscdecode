@@ -250,3 +250,253 @@ discriminator predictions are fixed before any model output exists.
   precheck) + the 60-second CI smoke runs listed in each phase.
 * Gate: `scripts/ci.sh` green (model step SKIP). Fuzz smoke: 826,572
   libFuzzer executions in 61 s, then 640,000 deterministic executions.
+
+## Phase 5, part 1: comparison with the VESA model (2026-09-23)
+
+Setup. `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref`, driven only through
+`tools/compare_model`. The model's interface came from its README.TXT, its
+.cfg files and the files it writes. Encoder configurations start from
+`test_dsc_1_1.cfg`: DSC 1.1, 8 bpc, RGB 4:4:4, CBR, with the matching
+`rc_8bpc_<bpp>bpp.cfg`. The model's `.dsc` files follow DSC 1.1 Annex A
+("DSCF", the 128-byte PPS, then the payload). Each check has the model
+encode a picture, then the model and dscdecode both decode the model's
+bitstream, and the two outputs are compared bit for bit. All model input,
+output and logs are under `~/dsc-runs/` (phase5-*).
+
+`~/vesa-corpus/` does not exist, so the corpus step (every corpus image at
+8 bpp, BP on and off, 1/2/4 slices per line) was skipped. The same settings
+were run on seven synthetic pictures made for this phase instead (below).
+
+### How the model's behavior was found
+
+The first comparisons diverged from the M1 readings within the first
+groups. The per-group QP the model used was recovered from its decoded
+pixels: a scratch build (outside the repository) decodes with a forced QP
+per group and keeps the QP that reproduces the model's pixels. Candidate
+readings were then fitted against the recovered QP sequences, and each fit
+was checked by full bit-exact decodes. This gave rule-7 switches for
+questions that the M1 code had fixed silently, each with the model's
+reading as the default and the M1 reading kept:
+
+| Switch (question) | M1 behavior | Model behavior, now the default |
+|---|---|---|
+| `incr_order` (OQ-5) | `printed` | `swapped` |
+| `rc_pipeline` (OQ-11) | `same-group` | `range-lag`: the short-term RC uses the previous step's range, and range 0 before the first group |
+| `scale_dec` (OQ-14) | `from-group-1` | `from-group-0` |
+| `partial_target` (OQ-15) | `three` | `pixels` |
+| `very_flat` (OQ-16) | `group-qp` | `previous-qp` (a third reading, added this phase, see below) |
+| `partial_padding` (OQ-17) | `reject` | `accept` |
+| `flat_max_qp` (OQ-18) | `own` | `previous` |
+
+Existing switches whose default changed: `flat_restart` to `in-flight`
+(OQ-1) and `bp_left` to `midpoint` (OQ-4). New `--stats` counters:
+`incr_order_differs`, `range_lag_differs`, `partial_groups`,
+`very_flat_low_qp`, `padding_nonzero`, `flat_max_qp_differs`. Each new
+switch has a hand-calculated case in `tests/test_rc.c`, and the fuzz target
+varies all of them.
+
+### Fixtures
+
+The model decoded each fixture's bitstream. Its output equals both the
+hand-derived expected image and dscdecode's output.
+
+| Fixture | model vs hand-derived expected | model vs dscdecode (defaults) |
+|---|---|---|
+| flat | match (bit-exact) | match (bit-exact) |
+| gradient | match (bit-exact) | match (bit-exact) |
+| checker | match (bit-exact) | match (bit-exact) |
+| mpp | match (bit-exact) | match (bit-exact) |
+| ich | match (bit-exact) | match (bit-exact) |
+| color_crop | match (bit-exact) | match (bit-exact) |
+| qp_transition | match (bit-exact) | match (bit-exact) |
+| qp_flatness | match (bit-exact) | match (bit-exact) |
+| bp_left_edge | match (bit-exact) | match (bit-exact) |
+| bp_slice_boundary | match (bit-exact) | match (bit-exact) |
+
+The model also decoded `invalid_partial_residual` and `invalid_partial_ich`
+(nonzero padding residuals; an unreplicated padding ICH index) without an
+error. Its output matches dscdecode under `partial_padding=accept`;
+`reject` refuses both. This is the OQ-17 evidence. The model's encoder wrote
+canonical padding in all 38,034 partial groups of the stream set below, so
+its streams alone cannot separate the two readings.
+
+### Synthetic pictures, 8 bpp
+
+Seven 8-bit pictures, 640×216 except s06 (637×125): a smooth gradient,
+uniform noise, text-like strokes, flat blocks, sine waves, an odd-size
+picture, and a mix. Slices are 108 lines high (s06: 108 lines, so the second
+slice row is cropped).
+
+First run, with the defaults at that point (`very_flat=as-signaled`,
+`flat_max_qp=own`): 34 of 42 matched. The other 8 failed to decode
+("invalid compressed slice"), all with 2 or 4 slices per line. The CLI writes
+no output on a decode error. The first differing sample below comes from a
+scratch build that keeps decoding after the error; values are model/dscdecode.
+
+| Picture | BP | Slices/line | Decode error at | First differing sample | Cause |
+|---|---|---|---|---|---|
+| s02_noise | off | 2 | slice 3, group 1712 (an ICH index to an invalidated history entry) | (638,123) R 233/129 | OQ-18: the flatness override at slice 3 group 1711 was skipped because that group's own QP was 13, range 14's maximum. The model checks the previous group's QP (11) and applies it (QP 13 → 9). Forcing QP 9 for that one group reproduces the whole picture. |
+| s05_waves | off | 2 | slice 2, group 214 | (24,109) R 226/227 | OQ-16: a very-flat signal at slice 2 group 115 (QP 4, previous group QP 5). The model demotes it to somewhat flat. |
+| s05_waves | off | 4 | slice 4, group 270 | (344,110) G 44/43 (slice 6) | OQ-16, three events in slices 4 and 6 |
+| s05_waves | on | 2 | slice 2, group 214 | (24,109) R 226/227 | OQ-16 |
+| s05_waves | on | 4 | slice 4, group 270 | (344,110) G 44/43 (slice 6) | OQ-16 |
+| s06_odd_size | off | 2 | slice 1, group 429 | (319,3) R 197/221 | OQ-16 |
+| s06_odd_size | on | 2 | slice 1, group 429 | (319,3) R 197/221 | OQ-16 |
+| s07_mixed | off | 2 | slice 3, group 1712 | (638,123) R 233/129 | OQ-18, the same event as s02 |
+
+OQ-16. §6.8.5.2 demotes a very-flat signal when the current masterQp is
+below 7 and does not say which group's QP that is. Neither existing reading
+fit: `group-qp` fixed s05 and s06 with 2 slices per line but broke 7
+streams that had matched (s05 with 1 slice, s06 with 4, s07 with 2 and 4).
+Deciding each very-flat event with a flagged-group QP other than 5 (where
+both results are QP 1) separately, by the choice that keeps the decode
+matching the model longest, gave 14 decisive events in 9 streams. The model
+demoted 6 of them; in all 6 the group before the flagged group was decoded
+at QP 4 to 6. It kept the other 8; in all 8 that group was at QP 7. The
+same below-7 test on the flagged group's own QP, on the QP queued for the
+next group, or on the QP of the group that sent the flag does not separate
+the two sets. This is a third reading, `very_flat=previous-qp`,
+now the default. OQ-18 is the same unspecified "current masterQp" in the
+same section, for the range-14 maximum. It got its own switch,
+`flat_max_qp`, since the two uses could in principle differ. Both are in
+RESEARCH.md.
+
+Final run, current defaults (`~/dsc-runs/phase5-r3`):
+
+| Picture | bpp | BP | Slices/line | Result | First differing sample | Diff count |
+|---|---|---|---|---|---|---|
+| s01_gradient | 8 | off | 1 | match | | 0 |
+| s01_gradient | 8 | off | 2 | match | | 0 |
+| s01_gradient | 8 | off | 4 | match | | 0 |
+| s01_gradient | 8 | on | 1 | match | | 0 |
+| s01_gradient | 8 | on | 2 | match | | 0 |
+| s01_gradient | 8 | on | 4 | match | | 0 |
+| s02_noise | 8 | off | 1 | match | | 0 |
+| s02_noise | 8 | off | 2 | match | | 0 |
+| s02_noise | 8 | off | 4 | match | | 0 |
+| s02_noise | 8 | on | 1 | match | | 0 |
+| s02_noise | 8 | on | 2 | match | | 0 |
+| s02_noise | 8 | on | 4 | match | | 0 |
+| s03_text | 8 | off | 1 | match | | 0 |
+| s03_text | 8 | off | 2 | match | | 0 |
+| s03_text | 8 | off | 4 | match | | 0 |
+| s03_text | 8 | on | 1 | match | | 0 |
+| s03_text | 8 | on | 2 | match | | 0 |
+| s03_text | 8 | on | 4 | match | | 0 |
+| s04_flat_blocks | 8 | off | 1 | match | | 0 |
+| s04_flat_blocks | 8 | off | 2 | match | | 0 |
+| s04_flat_blocks | 8 | off | 4 | match | | 0 |
+| s04_flat_blocks | 8 | on | 1 | match | | 0 |
+| s04_flat_blocks | 8 | on | 2 | match | | 0 |
+| s04_flat_blocks | 8 | on | 4 | match | | 0 |
+| s05_waves | 8 | off | 1 | match | | 0 |
+| s05_waves | 8 | off | 2 | match | | 0 |
+| s05_waves | 8 | off | 4 | match | | 0 |
+| s05_waves | 8 | on | 1 | match | | 0 |
+| s05_waves | 8 | on | 2 | match | | 0 |
+| s05_waves | 8 | on | 4 | match | | 0 |
+| s06_odd_size | 8 | off | 1 | match | | 0 |
+| s06_odd_size | 8 | off | 2 | match | | 0 |
+| s06_odd_size | 8 | off | 4 | match | | 0 |
+| s06_odd_size | 8 | on | 1 | match | | 0 |
+| s06_odd_size | 8 | on | 2 | match | | 0 |
+| s06_odd_size | 8 | on | 4 | match | | 0 |
+| s07_mixed | 8 | off | 1 | match | | 0 |
+| s07_mixed | 8 | off | 2 | match | | 0 |
+| s07_mixed | 8 | off | 4 | match | | 0 |
+| s07_mixed | 8 | on | 1 | match | | 0 |
+| s07_mixed | 8 | on | 2 | match | | 0 |
+| s07_mixed | 8 | on | 4 | match | | 0 |
+
+With BP on, only s02, s03, s06 and s07 contain BP groups.
+
+### Flatness pictures (OQ-16, OQ-18)
+
+Five pictures built to put flatness signals next to QP changes and the
+range-14 maximum: noise at four amplitudes with flat patches or stripes,
+640×216, and one 637×125. Each was encoded at 6 and 8 bpp with 1, 2 and 4
+slices per line (30 streams), BP off, and decoded under each reading:
+
+| Reading | Streams matching the model | Diverging |
+|---|---|---|
+| defaults (`very_flat=previous-qp`, `flat_max_qp=previous`) | 30 | 0 |
+| `very_flat=group-qp` | 8 | 22 |
+| `very_flat=as-signaled` | 9 | 21 |
+| `flat_max_qp=own` | 2 | 28 |
+
+### Every switch flipped, on every model stream
+
+The stream set is the 92 streams the model decoded in this phase: the 42
+matrix streams, the 30 flatness streams, 7 earlier validation encodes of the
+synthetic pictures (8 bpp, one slice per line), 3 ramps 108 lines high and
+190, 191 and 192 pixels wide (partial last groups), and the 10 fixtures. Each was decoded with the
+defaults, then once per alternative reading with everything else default.
+Defaults match the model on 92 of 92.
+
+| Alternative reading | Streams still matching | Diverging (of which decode errors) | Events in the stream set (`--stats`, defaults) |
+|---|---|---|---|
+| `flat_restart=next-cycle` | 28 | 64 (52) | 57,464 flatness overrides whose queued QP differs, in 72 streams |
+| `threshold_eq=upper` | 23 | 69 (58) | 16,777 exact threshold equalities, in 84 streams |
+| `frac_reset=literal` | 92 | 0 (0) | none: every stream uses whole-number bpp |
+| `delay_offset=exclusive` | 20 | 72 (56) | |
+| `bp_left=replicate` | 83 | 9 (0) | 622 BP decisions that differ, in 12 streams |
+| `bp_edge=before` | 82 | 10 (0) | BP used in 14 streams (145,125 groups) |
+| `bp_sad=clip` | 83 | 9 (0) | |
+| `incr_order=printed` | 12 | 80 (59) | 69,629 increments permitted differently, in 82 streams |
+| `rc_pipeline=same-group` | 16 | 76 (59) | 179,017 groups whose ranges differ, in 92 streams |
+| `scale_dec=from-group-1` | 20 | 72 (56) | |
+| `partial_target=three` | 19 | 73 (56) | 38,034 partial groups, in 83 streams |
+| `very_flat=group-qp` | 59 | 33 (28) | 257 very-flat signals where the readings can differ, in 40 streams |
+| `very_flat=as-signaled` | 65 | 27 (26) | |
+| `partial_padding=reject` | 92 | 0 (0) | none: no noncanonical padding |
+| `flat_max_qp=own` | 62 | 30 (27) | 4,509 flatness signals treated differently, in 30 streams |
+
+Questions without a switch, tested with a scratch build outside the
+repository:
+
+* OQ-6: flooring a zero-residual group's decrement at minQp instead of
+  minQp/2 diverges on 59 of the 92 streams.
+* OQ-8: the saturation matters only below a 9-bit line buffer. The 12
+  pictures above (7 synthetic, 5 flatness), encoded at 8 bpp with
+  `line_buf_depth` 8 and 1 and 2 slices per line (24 streams), all match
+  with the defaults. Without the clamp, 12 of them diverge.
+
+### Discriminators
+
+| Discriminator | Question | Model output matches |
+|---|---|---|
+| `oq1_flat_restart` | OQ-1 | in-flight (next-cycle differs at x = 93) |
+| `oq2_threshold_equality` | OQ-2 | neither; inconclusive (see below) |
+| `oq3_fractional_bpp` | OQ-3 | chunk (literal differs at x = 93) |
+| `oq4_bp_left` | OQ-4 | midpoint (replicate differs at x = 15, y = 1) |
+
+`oq2_threshold_equality` was built under the M1 readings of OQ-5, OQ-11 and
+OQ-14 to OQ-18. Under the model's range-lag pipeline its QP schedule
+changes from group 2, so neither prediction applies; the model's output
+differs from both from x = 6. dscdecode with the current defaults reports
+"truncated input" on it at group 23, while the model outputs a picture
+without reporting an error. `oq2b_threshold_equality` asks OQ-2 again under
+the current readings. It is added in this part with its predictions in
+`tests/discriminators/README.md`; the model has not decoded it yet. OQ-2 is
+resolved by the stream set regardless (table above).
+
+Harness change: `tools/compare_model discriminators` now reads the
+decoder's defaults. An input that matches neither prediction fails the run
+unless its manifest `assumes` differ from those defaults, in which case it
+is reported as inconclusive. A model decode failure counts as matching
+neither. `tests/test_compare_model.py` checks both outcomes with the fake
+model.
+
+### Tests and gate
+
+* `test_rc`: new cases for the third OQ-16 reading and for OQ-18
+  (`very_flat_type`, 6 cases; `flat_max_qp`, 4 cases).
+* CLI checks: 20 → 22 (the padding fixtures under the default `accept`,
+  in addition to the `reject` checks).
+* Discriminator decodes: 56 → 72 (`oq2b`, 16 combinations).
+* RESEARCH.md: open-questions table rewritten. OQ-1 to OQ-6, OQ-8 and
+  OQ-10 to OQ-18 are marked resolved by black-box comparison with the VESA C
+  model; OQ-7 (DSC 1.2 only) and OQ-9 (encoder only) stay open.
+* The fuzz seed corpus gains the `oq2b` input (16 → 17 seeds).
+* Gate: `scripts/ci.sh` green (model step SKIP). Fuzz smoke: 628,564
+  libFuzzer executions in 61 s, then 680,000 deterministic executions.

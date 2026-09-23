@@ -42,6 +42,35 @@ enum dsc_bp_sad {              /* OQ-10, DSC 1.1 §6.4.4.1, DSC 1.2b §6.4.4.1 *
  DSC_BP_SAD_SHIFT = 0,            /* sum of 3x1 SADs (each clamped to 511), three LSBs dropped */
  DSC_BP_SAD_CLIP = 1              /* DSC 1.1's printed formula: MIN(511, sum) */
 };
+enum dsc_incr_order {          /* OQ-5, DSC 1.1 §6.8.4, Figure 6-13 */
+ DSC_INCR_ORDER_PRINTED = 0,      /* limit0 branch when curQp < prev2Qp, as printed */
+ DSC_INCR_ORDER_SWAPPED = 1       /* limit0 branch when curQp > prev2Qp */
+};
+enum dsc_rc_pipeline {         /* OQ-11, DSC 1.1 Figure 6-8, §7.3 */
+ DSC_RC_PIPELINE_SAME_GROUP = 0,  /* range and short-term RC both use the group just decoded */
+ DSC_RC_PIPELINE_RANGE_LAG = 1    /* range (minQp, maxQp, bpgOffset) is one group older */
+};
+enum dsc_scale_dec {           /* OQ-14, DSC 1.1 §6.8.2 */
+ DSC_SCALE_DEC_FROM_GROUP_1 = 0,  /* decrement interval counted from the second group */
+ DSC_SCALE_DEC_FROM_GROUP_0 = 1   /* ... counted from the first group of the slice */
+};
+enum dsc_partial_target {      /* OQ-15, DSC 1.1 §6.8.1, §6.8.4 */
+ DSC_PARTIAL_TARGET_THREE = 0,    /* rcTgtBitsGroup uses 3 x bits_per_pixel for every group */
+ DSC_PARTIAL_TARGET_PIXELS = 1    /* ... uses the pixels actually in the group */
+};
+enum dsc_very_flat {           /* OQ-16, DSC 1.1 §6.8.5.2, §6.6.3 */
+ DSC_VERY_FLAT_GROUP_QP = 0,      /* very flat demoted when the flagged group's own QP is below 7 */
+ DSC_VERY_FLAT_AS_SIGNALED = 1,   /* the type decoded with the flag applies unchanged */
+ DSC_VERY_FLAT_PREVIOUS_QP = 2    /* ... demoted when the group before the flagged one used QP below 7 */
+};
+enum dsc_flat_max_qp {         /* OQ-18, DSC 1.1 §6.8.5.2 */
+ DSC_FLAT_MAX_QP_OWN = 0,         /* no override when the flagged group's own QP is range 14's maximum */
+ DSC_FLAT_MAX_QP_PREVIOUS = 1     /* ... when the group before the flagged one used that maximum */
+};
+enum dsc_partial_padding {     /* OQ-17, DSC 1.1 §6.6, §7.8 */
+ DSC_PARTIAL_PADDING_REJECT = 0,  /* nonzero padding residuals or unreplicated indices are errors */
+ DSC_PARTIAL_PADDING_ACCEPT = 1   /* padding is parsed (and feeds size prediction) but not checked */
+};
 
 /* Counts of events where the readings above can disagree. Accumulated. */
 struct dsc_stats {
@@ -52,6 +81,12 @@ struct dsc_stats {
  unsigned long frac_differs;      /* groups where the OQ-3 readings disagree on fullness */
  unsigned long bp_groups;         /* groups predicted by BP */
  unsigned long bp_left_differs;   /* groups whose BP decision depends on the OQ-4 reading */
+ unsigned long incr_order_differs;/* increments the two OQ-5 readings permit differently */
+ unsigned long range_lag_differs; /* groups whose lagged and current ranges differ (OQ-11) */
+ unsigned long partial_groups;    /* partial groups, where the OQ-15 targets differ */
+ unsigned long very_flat_low_qp;  /* very-flat overrides where the OQ-16 readings can differ */
+ unsigned long padding_nonzero;   /* partial groups with noncanonical padding (OQ-17) */
+ unsigned long flat_max_qp_differs;/* flat signals the two OQ-18 readings treat differently */
 };
 
 /* One record per decoded group, after its rate-control step. */
@@ -65,6 +100,7 @@ typedef void (*dsc_trace_fn)(void *context, const struct dsc_group_trace *);
 struct dsc_options {
  int flat_restart, threshold_eq, frac_reset, delay_offset;
  int bp_left, bp_edge, bp_sad;
+ int incr_order, rc_pipeline, scale_dec, partial_target, very_flat, partial_padding, flat_max_qp;
  struct dsc_stats *stats;         /* optional */
  dsc_trace_fn trace;              /* optional */
  void *trace_context;

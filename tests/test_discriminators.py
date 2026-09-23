@@ -33,9 +33,9 @@ EXERCISED = {
 }
 
 
-def decode(name, readings, out):
+def decode(name, readings, out, assumes):
     args = [str(EXE), '--stats']
-    for key, value in readings.items():
+    for key, value in {**assumes, **readings}.items():
         args += ['--reading', f'{key}={value}']
     args += [ROOT / f'{name}.pps', ROOT / f'{name}.bin', out]
     p = subprocess.run(list(map(str, args)), capture_output=True, text=True, timeout=10)
@@ -55,7 +55,7 @@ def main():
             vary = entry['vary']
             for values in product(*(READINGS[k] for k in vary)):
                 readings = dict(zip(vary, values))
-                stats = decode(name, readings, out)
+                stats = decode(name, readings, out, entry.get('assumes', {}))
                 assert stats[EXERCISED[question]] > 0, (name, stats)
                 own = readings[question]
                 expected = (ROOT / f'{name}.{own}.expected.ppm').read_bytes()

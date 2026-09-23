@@ -164,14 +164,20 @@ static int decode_slice(const struct drm_dsc_config *c,const struct dsc_options 
   if(syntax(&s,c,g,qp,level,res,mpp,&ich,idx,&actual,&ideal)) {
    status=DSC_BITSTREAM;goto done;
   }
-  /* Section 6.6: partial groups carry zero residuals or repeat the
-   * rightmost real ICH index. These bits affect entropy state even though
-   * they do not produce pixels, so validate them before reconstruction. */
+  /* Section 6.6: encoders clear a partial group's padding residuals and
+   * repeat its rightmost real ICH index. The padding still feeds size
+   * prediction. OQ-17: whether a decoder rejects other padding. The
+   * reference model's decoder does not, so by default the padding is not
+   * checked; the reject reading enforces §6.6. */
   for(k=count;k<3;k++) {
-   if(ich) {
-    if(idx[k]!=idx[count-1]){status=DSC_BITSTREAM;goto done;}
-   } else for(j=0;j<3;j++)
-    if(res[j][k]){status=DSC_BITSTREAM;goto done;}
+   int noncanonical=0;
+   if(ich) noncanonical=idx[k]!=idx[count-1];
+   else for(j=0;j<3;j++) if(res[j][k]) noncanonical=1;
+   if(noncanonical) {
+    if(opt->stats) ++opt->stats->padding_nonzero;
+    if(opt->partial_padding==DSC_PARTIAL_PADDING_REJECT){status=DSC_BITSTREAM;goto done;}
+    break;
+   }
   }
   if(dsc_predict_group(pred,x,y,level,(const int (*)[3])res,mpp,ich,idx,pixel)) {status=DSC_BITSTREAM;goto done;}
   for(k=0;k<count;k++) {

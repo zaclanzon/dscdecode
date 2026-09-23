@@ -21,7 +21,10 @@ chunk per horizontal slice. That is the same order dscdecode reads.
 Every run happens in a fresh directory under ~/dsc-runs/compare (override
 with DSCDECODE_RUNS). Model output never enters the repository.
 
-Exit status: 0 match, 1 mismatch, 2 error, 77 SKIP.
+Exit status: 0 match, 1 mismatch, 2 error, 77 SKIP. In discriminators mode,
+an input the model matches to neither prediction counts as a mismatch unless
+it was built assuming readings (manifest `assumes`) that the decoder no
+longer defaults to; it is then reported as inconclusive.
 """
 import argparse
 import datetime
@@ -44,6 +47,13 @@ READINGS = {
     'bp_left': ('replicate', 'midpoint'),
     'bp_edge': ('window', 'before'),
     'bp_sad': ('shift', 'clip'),
+    'incr_order': ('printed', 'swapped'),
+    'rc_pipeline': ('same-group', 'range-lag'),
+    'scale_dec': ('from-group-1', 'from-group-0'),
+    'partial_target': ('three', 'pixels'),
+    'very_flat': ('group-qp', 'as-signaled', 'previous-qp'),
+    'partial_padding': ('reject', 'accept'),
+    'flat_max_qp': ('own', 'previous'),
 }
 RC_FILES = {6: 'rc_8bpc_6bpp.cfg', 8: 'rc_8bpc_8bpp.cfg', 10: 'rc_8bpc_10bpp.cfg',
             12: 'rc_8bpc_12bpp.cfg', 15: 'rc_8bpc_15bpp.cfg'}
@@ -107,6 +117,10 @@ def compare_images(expected_path, actual_path):
 
 
 def describe(result):
+    if 'model_error' in result:
+        return result['model_error']
+    if 'error' in result:
+        return 'dscdecode error: ' + result['error'].strip().splitlines()[-1]
     if result.get('size_mismatch'):
         return 'size mismatch: model {}x{}, dscdecode {}x{}'.format(*result['size_mismatch'])
     if result['match']:
@@ -229,6 +243,19 @@ def dscdecode(pps, payload, out, readings=None, extra=()):
     return p.returncode, p.stderr.strip(), stats
 
 
+def decoder_defaults():
+    """The reading each switch defaults to, from dscdecode's usage listing."""
+    exe = os.environ.get('DSCDECODE_BIN', str(REPO / 'dscdecode'))
+    p = subprocess.run([exe], capture_output=True, text=True, timeout=60)
+    defaults = {}
+    for line in p.stderr.splitlines():
+        line = line.strip()
+        if line.endswith(' (default)') and '=' in line:
+            name, value = line[:-len(' (default)')].split('=', 1)
+            defaults[name] = value
+    return defaults
+
+
 def reading_sets(all_readings, fixed, vary=None):
     """One reading set, or every combination of the switches in vary."""
     if not all_readings:
@@ -237,6 +264,8 @@ def reading_sets(all_readings, fixed, vary=None):
     for name in names:
         if name not in READINGS:
             raise HarnessError(f'unknown switch {name}')
+    if 2 ** len(names) > 256:
+        raise HarnessError(f'{2 ** len(names)} combinations; choose switches with --vary')
     return [dict(fixed, **dict(zip(names, v)))
             for v in itertools.product(*(READINGS[n] for n in names))]
 
@@ -341,23 +370,40 @@ def mode_discriminators(a):
     manifest = json.loads((root / 'manifest.json').read_text())
     names = a.names or list(manifest)
     status, summary = 0, {}
+    # A prediction holds only under the readings the input was built with
+    # (`assumes`). Where those differ from the decoder's defaults, which
+    # follow the model comparisons, a verdict of neither is inconclusive.
+    defaults = decoder_defaults()
     for name in names:
         run_dir = new_run_dir(name)
         model = Model(run_dir)
-        model_out = wrap_and_decode(root / f'{name}.pps', root / f'{name}.bin', run_dir, model)
         entry = manifest[name]
         verdicts = {}
-        for reading in READINGS[entry['question']]:
-            verdicts[reading] = compare_images(model_out, root / f'{name}.{reading}.expected.ppm')
+        try:
+            model_out = wrap_and_decode(root / f'{name}.pps', root / f'{name}.bin', run_dir, model)
+        except HarnessError as e:
+            # The model rejected the input: a verdict of neither.
+            reason = (str(e).strip().splitlines() or ['no message'])[-1][:200]
+            verdicts = {r: dict(match=False, model_error=f'model decode failed: {reason}')
+                        for r in READINGS[entry['question']]}
+        else:
+            for reading in READINGS[entry['question']]:
+                verdicts[reading] = compare_images(model_out, root / f'{name}.{reading}.expected.ppm')
         supported = [r for r, v in verdicts.items() if v['match']]
+        stale = {k: v for k, v in entry.get('assumes', {}).items() if defaults.get(k) != v}
         summary[name] = dict(question=entry['question'], supported=supported,
-                             verdicts=verdicts, run_dir=str(run_dir))
+                             verdicts=verdicts, run_dir=str(run_dir), stale_assumptions=stale)
         print(f"{name} ({entry['question']}): model output matches "
               f"{', '.join(supported) if supported else 'NEITHER prediction'}  [{run_dir}]")
         for reading, v in verdicts.items():
             print(f'  prediction {reading}: {describe(v)}')
         if len(supported) != 1:
-            status = 1
+            if stale and not supported:
+                print('  inconclusive: built assuming ' +
+                      ', '.join(f'{k}={v}' for k, v in stale.items()) +
+                      ', which the decoder defaults no longer use')
+            else:
+                status = 1
     if a.json:
         print(json.dumps(summary, indent=1))
     return status
@@ -375,7 +421,7 @@ def mode_self_test(a):
         v for y in range(h) for x in range(w)
         for v in ((x * 4 + y) % 256, (y * 2 + x // 3) % 256, (255 - x) % 256)))
     args = argparse.Namespace(image=str(image), bpp=8.0, slices=1, slice_height=108, bp=False,
-                              line_buffer=9, reading=[], all_readings=False,
+                              line_buffer=9, reading=[], all_readings=False, vary=None,
                               run_dir=str(run_dir / 'run'), json=False)
     return mode_image(args)
 

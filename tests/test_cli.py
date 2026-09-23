@@ -63,13 +63,23 @@ def main():
         invoke([bad,FIXTURES/'flat.bin',tmp/'bad.ppm'],False)
         count += 1
         print('PASS short PPS rejected')
+        # §6.6 padding: the reject reading (OQ-17) enforces it; these fixtures
+        # were written for that reading.
         for name in ('invalid_partial_residual', 'invalid_partial_ich'):
             out = tmp/f'{name}.ppm'
             out.write_bytes(b'previous output must survive a failed decode')
-            invoke([FIXTURES/f'{name}.pps',FIXTURES/f'{name}.bin',out], False)
+            invoke(['--reading','partial_padding=reject',FIXTURES/f'{name}.pps',FIXTURES/f'{name}.bin',out], False)
             assert out.read_bytes() == b'previous output must survive a failed decode'
             count += 1
-            print(f'PASS {name}: rejected without overwriting output')
+            print(f'PASS {name}: rejected without overwriting output (partial_padding=reject)')
+        # The default accept reading decodes them; the padding produces no
+        # pixel, so both are uniform gray 128 at 95x3.
+        for name in ('invalid_partial_residual', 'invalid_partial_ich'):
+            out = tmp/f'{name}.ppm'
+            invoke([FIXTURES/f'{name}.pps',FIXTURES/f'{name}.bin',out])
+            assert out.read_bytes() == b'P6\n95 3\n255\n' + bytes([128]) * (95*3*3), name
+            count += 1
+            print(f'PASS {name}: padding ignored under the default partial_padding=accept')
     print(f'{count} checks passed')
 
 

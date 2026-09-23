@@ -4,7 +4,8 @@
 It accepts the model's command line (-F CONFIG) and file conventions but does
 no DSC work of its own. FUNCTION 1 writes FAKE_MODEL_FIXTURE's PPS and payload
 as NAME.dsc, whatever the image. FUNCTION 2 decodes NAME.dsc with dscdecode
-into NAME.out.ppm, then applies FAKE_MODEL_CORRUPT="x,y,component,delta" if set.
+(readings from FAKE_MODEL_READINGS, space-separated NAME=VALUE) into
+NAME.out.ppm, then applies FAKE_MODEL_CORRUPT="x,y,component,delta" if set.
 """
 import os
 from pathlib import Path
@@ -38,7 +39,9 @@ def main():
             Path('fake.pps').write_bytes(data[4:132])
             Path('fake.bin').write_bytes(data[132:])
             exe = os.environ.get('DSCDECODE_BIN', str(ROOT / 'dscdecode'))
-            subprocess.run([exe, 'fake.pps', 'fake.bin', stem + '.out.ppm'], check=True)
+            readings = [a for r in os.environ.get('FAKE_MODEL_READINGS', '').split()
+                        for a in ('--reading', r)]
+            subprocess.run([exe, *readings, 'fake.pps', 'fake.bin', stem + '.out.ppm'], check=True)
             corrupt = os.environ.get('FAKE_MODEL_CORRUPT')
             if corrupt:
                 x, y, c, delta = (int(v) for v in corrupt.split(','))

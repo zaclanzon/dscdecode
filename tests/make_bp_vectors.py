@@ -346,7 +346,7 @@ def oq4_bp_left(out_dir):
     (out_dir / 'oq4_bp_left.pps').write_bytes(header)
     (out_dir / 'oq4_bp_left.bin').write_bytes(payload)
     (out_dir / 'oq4_bp_left.syntax.txt').write_text(''.join(' '.join(u) + '\n' for u in units))
-    entry = dict(question='bp_left', vary=list(BP_READINGS), width=30, height=2,
+    entry = dict(question='bp_left', vary=list(BP_READINGS), assumes={}, width=30, height=2,
                  mux_bits=used, payload_bits=8 * chunk * 2, seed=OQ4_SEED,
                  line0_luma=[p[0] for p in img[0]],
                  pps_sha256=hashlib.sha256(header).hexdigest(),
