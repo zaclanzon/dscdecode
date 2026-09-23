@@ -695,3 +695,11 @@ Baseline at 23a0131, before any change. `scripts/ci.sh` green with
 | s07_mixed | 9.3125 | on | 2 | match | decode error (invalid compressed slice) |  |
 
 * Gate: `scripts/ci.sh` green with the model unset and set.
+
+### P3: corpus comparison, skipped (2026-09-23)
+
+`~/vesa-corpus/` does not exist, so `tools/run_corpus` had no images to run
+and no corpus table was made. The 7.5 bpp column that P2 made possible was
+not run either. No code or test changed in this step.
+
+* Gate: `scripts/ci.sh` green with the model unset and set.
