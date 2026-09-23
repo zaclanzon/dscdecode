@@ -1,6 +1,12 @@
 {
  "oq1_flat_restart": {
   "question": "flat_restart",
+  "vary": [
+   "flat_restart",
+   "threshold_eq",
+   "frac_reset",
+   "delay_offset"
+  ],
   "width": 96,
   "height": 1,
   "mux_bits": 576,
@@ -191,6 +197,12 @@
  },
  "oq2_threshold_equality": {
   "question": "threshold_eq",
+  "vary": [
+   "flat_restart",
+   "threshold_eq",
+   "frac_reset",
+   "delay_offset"
+  ],
   "width": 96,
   "height": 1,
   "mux_bits": 576,
@@ -381,6 +393,12 @@
  },
  "oq3_fractional_bpp": {
   "question": "frac_reset",
+  "vary": [
+   "flat_restart",
+   "threshold_eq",
+   "frac_reset",
+   "delay_offset"
+  ],
   "width": 96,
   "height": 1,
   "mux_bits": 768,
@@ -565,6 +583,185 @@
       "on_threshold": false,
       "generated": 7
      }
+    ]
+   }
+  }
+ },
+ "oq4_bp_left": {
+  "question": "bp_left",
+  "vary": [
+   "bp_left",
+   "bp_edge",
+   "bp_sad"
+  ],
+  "width": 30,
+  "height": 2,
+  "mux_bits": 720,
+  "payload_bits": 1440,
+  "seed": 17,
+  "line0_luma": [
+   16,
+   82,
+   17,
+   149,
+   180,
+   212,
+   156,
+   1,
+   21,
+   80,
+   184,
+   70,
+   227,
+   13,
+   135,
+   153,
+   144,
+   105,
+   84,
+   36,
+   222,
+   253,
+   208,
+   112,
+   16,
+   146,
+   28,
+   182,
+   29,
+   168
+  ],
+  "pps_sha256": "33ed8713049d21b08228a6f3a95c93fbe7d4cd3d5e898a9519523c9d2eb3dbfe",
+  "payload_sha256": "04a6d8c395b7d6688d7b484a052732d8e17f47c6bbba20f66008885b52fdda6a",
+  "readings": {
+   "replicate": {
+    "expected_sha256": "4dd233c60e81300175a8bc40edc4adfbbb57dd79a22446ae797280c8ae438813",
+    "line1_decisions": [
+     [
+      0,
+      -3,
+      0,
+      false
+     ],
+     [
+      3,
+      -1,
+      0,
+      false
+     ],
+     [
+      6,
+      -1,
+      0,
+      false
+     ],
+     [
+      9,
+      -1,
+      0,
+      false
+     ],
+     [
+      12,
+      -8,
+      1,
+      false
+     ],
+     [
+      15,
+      -6,
+      2,
+      false
+     ],
+     [
+      18,
+      -6,
+      3,
+      true
+     ],
+     [
+      21,
+      -1,
+      0,
+      false
+     ],
+     [
+      24,
+      -8,
+      1,
+      false
+     ],
+     [
+      27,
+      -9,
+      2,
+      false
+     ]
+    ]
+   },
+   "midpoint": {
+    "expected_sha256": "cfee1190a838072fdee2e60bc14c4f8ee0532944b59f326c041af628ccde8962",
+    "line1_decisions": [
+     [
+      0,
+      -1,
+      0,
+      false
+     ],
+     [
+      3,
+      -1,
+      0,
+      false
+     ],
+     [
+      6,
+      -7,
+      0,
+      false
+     ],
+     [
+      9,
+      -7,
+      1,
+      false
+     ],
+     [
+      12,
+      -8,
+      2,
+      false
+     ],
+     [
+      15,
+      -6,
+      3,
+      true
+     ],
+     [
+      18,
+      -6,
+      4,
+      true
+     ],
+     [
+      21,
+      -1,
+      0,
+      false
+     ],
+     [
+      24,
+      -8,
+      1,
+      false
+     ],
+     [
+      27,
+      -9,
+      2,
+      false
+     ]
     ]
    }
   }

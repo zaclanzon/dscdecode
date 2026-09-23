@@ -191,3 +191,42 @@ discriminator predictions are fixed before any model output exists.
   llvm-cov figures above are the comparable measure.
 * Gate: `scripts/ci.sh` green (model step SKIP). Fuzz smoke: 1,276,188
   libFuzzer executions in 61 s, then 520,000 deterministic executions.
+
+## Phase 2, part 1: block prediction (2026-09-23)
+
+* BP implemented in `src/predict.c` from DSC 1.1 §6.4.2, §6.4.4.1 and
+  §7.5.2.1, with the bpSad equation as corrected in DSC 1.2b §6.4.4.1.
+  BP-enabled PPS are now decoded rather than rejected. `dsc_options_init`
+  moved to `src/options.c` so the predictor and RC tests can both link it.
+* Rule 7 switches:
+  * `bp_left` (OQ-4, the question the brief names): `replicate`, the default
+    by analogy with §6.4.1's rule for previous-line samples outside the
+    slice, or `midpoint`.
+  * `bp_edge` (OQ-13, new): which previous-line sample `lastEdgeCount` is
+    read at, `window` (hPos+2, default) or `before` (hPos−1).
+  * `bp_sad` (OQ-10): `shift` (1.1 prose and 1.2b, default) or `clip` (1.1's
+    printed formula).
+
+  Recorded in RESEARCH.md. `--stats` gains `bp_groups` and
+  `bp_left_differs`.
+* Fixtures `bp_left_edge` (BP from hPos 15, the earliest possible group) and
+  `bp_slice_boundary` (two slices; BP just right of the slice boundary; a
+  partial last group that must not use BP). Expected pixels are derived by
+  hand in `research/bp-worked-note.md`. `tests/make_bp_vectors.py` builds the
+  bitstreams: a lossless QP-0 constructor with its own BP search. Both
+  fixtures decode bit-exact under all 8 BP reading combinations (CLI checks:
+  18 → 20).
+* Prediction trace suite (`test_predict`): hand-derived BP cases for the
+  hPos 9 counting rule, the copy from |vector| pixels left, BP disabled, the
+  partial-group rule, the edge gate, and both left-boundary readings,
+  including the statistics.
+* Discriminator `tests/discriminators/oq4_bp_left`: a 30×2 input where the
+  first BP group is hPos 15 under `midpoint` and hPos 18 under `replicate`.
+  Its predictions are in the README, committed before any model run on it.
+  Discriminator decodes: 48 → 56.
+* The fuzz target also varies the BP switches. BP fixtures and the OQ-4 input
+  are seeds (16 total). A 2-minute libFuzzer precheck of the BP path in a
+  scratch copy ran 958,981 executions with no finding. The 30-minute run
+  follows in part 2.
+* Gate: `scripts/ci.sh` green (model step SKIP). Fuzz smoke: 779,414
+  libFuzzer executions in 61 s, then 640,000 deterministic executions.

@@ -20,12 +20,16 @@ READINGS = {
     'threshold_eq': ('lower', 'upper'),
     'frac_reset': ('chunk', 'literal'),
     'delay_offset': ('inclusive', 'exclusive'),
+    'bp_left': ('replicate', 'midpoint'),
+    'bp_edge': ('window', 'before'),
+    'bp_sad': ('shift', 'clip'),
 }
 # The statistic that shows each question's condition occurred.
 EXERCISED = {
     'flat_restart': 'flat_queue_differs',
     'threshold_eq': 'threshold_equal',
     'frac_reset': 'frac_differs',
+    'bp_left': 'bp_left_differs',
 }
 
 
@@ -48,8 +52,9 @@ def main():
         for name, entry in manifest.items():
             question = entry['question']
             outputs = {}
-            for values in product(*READINGS.values()):
-                readings = dict(zip(READINGS, values))
+            vary = entry['vary']
+            for values in product(*(READINGS[k] for k in vary)):
+                readings = dict(zip(vary, values))
                 stats = decode(name, readings, out)
                 assert stats[EXERCISED[question]] > 0, (name, stats)
                 own = readings[question]
@@ -58,8 +63,9 @@ def main():
                 outputs[own] = expected
                 count += 1
             assert len(set(outputs.values())) == 2, name
+            combos = len(list(product(*(READINGS[k] for k in vary))))
             print(f'PASS {name}: {question} readings give their predicted, '
-                  f'different outputs under all 16 combinations')
+                  f'different outputs under all {combos} combinations')
     print(f'{count} discriminator decodes passed')
 
 

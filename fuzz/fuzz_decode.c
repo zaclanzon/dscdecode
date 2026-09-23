@@ -24,6 +24,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data,size_t size)
  dsc_options_init(&opt);
  opt.flat_restart=mix&1;opt.threshold_eq=(mix>>1)&1;
  opt.frac_reset=(mix>>2)&1;opt.delay_offset=(mix>>3)&1;
+ opt.bp_left=(mix>>4)&1;opt.bp_edge=(mix>>5)&1;opt.bp_sad=(mix>>6)&1;
  opt.stats=&stats;opt.trace=ignore_trace;
  dsc_decode_frame_ex(&c,&opt,data+128,size-128,out,4096*3);
  free(out);return 0;

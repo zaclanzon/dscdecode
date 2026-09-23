@@ -14,16 +14,6 @@ static int64_t floor_div(int64_t value, int64_t divisor)
 static unsigned umax(unsigned a, unsigned b) { return a > b ? a : b; }
 static int fail(struct dsc_rc *s) { s->failed = 1; return -1; }
 
-void dsc_options_init(struct dsc_options *o)
-{
-    if (!o) return;
-    memset(o, 0, sizeof(*o));
-    o->flat_restart = DSC_FLAT_RESTART_NEXT_CYCLE;
-    o->threshold_eq = DSC_THRESHOLD_EQ_LOWER;
-    o->frac_reset = DSC_FRAC_RESET_CHUNK;
-    o->delay_offset = DSC_DELAY_OFFSET_INCLUSIVE;
-}
-
 int dsc_rc_init(struct dsc_rc *s, const struct drm_dsc_config *c)
 {
     unsigned i;

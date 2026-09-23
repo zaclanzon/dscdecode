@@ -41,6 +41,9 @@ READINGS = {
     'threshold_eq': ('lower', 'upper'),
     'frac_reset': ('chunk', 'literal'),
     'delay_offset': ('inclusive', 'exclusive'),
+    'bp_left': ('replicate', 'midpoint'),
+    'bp_edge': ('window', 'before'),
+    'bp_sad': ('shift', 'clip'),
 }
 RC_FILES = {6: 'rc_8bpc_6bpp.cfg', 8: 'rc_8bpc_8bpp.cfg', 10: 'rc_8bpc_10bpp.cfg',
             12: 'rc_8bpc_12bpp.cfg', 15: 'rc_8bpc_15bpp.cfg'}
@@ -226,11 +229,16 @@ def dscdecode(pps, payload, out, readings=None, extra=()):
     return p.returncode, p.stderr.strip(), stats
 
 
-def reading_sets(all_readings, fixed):
+def reading_sets(all_readings, fixed, vary=None):
+    """One reading set, or every combination of the switches in vary."""
     if not all_readings:
         return [dict(fixed)]
-    names = list(READINGS)
-    return [dict(zip(names, v)) for v in itertools.product(*READINGS.values())]
+    names = vary or list(READINGS)
+    for name in names:
+        if name not in READINGS:
+            raise HarnessError(f'unknown switch {name}')
+    return [dict(fixed, **dict(zip(names, v)))
+            for v in itertools.product(*(READINGS[n] for n in names))]
 
 
 def compare_decodes(run_dir, pps, payload, model_out, readings_list):
@@ -296,7 +304,7 @@ def run_image(image, bpp=8.0, slices=1, slice_height=None, bp=False, line_buffer
 
 def mode_image(a):
     summary = run_image(a.image, a.bpp, a.slices, a.slice_height, a.bp, a.line_buffer,
-                        reading_sets(a.all_readings, parse_readings(a.reading)), a.run_dir)
+                        reading_sets(a.all_readings, parse_readings(a.reading), a.vary), a.run_dir)
     results, run_dir = summary['results'], summary['run_dir']
     if not a.json:
         print(f'{a.image}: bpp {a.bpp:g}, {a.slices} slice(s)/line, BP {int(a.bp)}  [{run_dir}]')
@@ -318,7 +326,7 @@ def mode_bitstream(a):
     model = Model(run_dir)
     model_out = wrap_and_decode(a.pps, a.payload, run_dir, model)
     results = compare_decodes(run_dir, a.pps, a.payload, model_out,
-                              reading_sets(a.all_readings, parse_readings(a.reading)))
+                              reading_sets(a.all_readings, parse_readings(a.reading), a.vary))
     (run_dir / 'result.json').write_text(json.dumps(dict(mode='bitstream', pps=str(a.pps),
                                                          payload=str(a.payload),
                                                          results=results), indent=1))
@@ -380,7 +388,9 @@ def main():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument('--reading', action='append', metavar='NAME=VALUE')
     common.add_argument('--all-readings', action='store_true',
-                        help='decode with all 16 reading combinations')
+                        help='decode with every combination of the switches in --vary')
+    common.add_argument('--vary', type=lambda s: s.split(','), default=None,
+                        metavar='NAME,...', help='switches --all-readings varies (default: all)')
     common.add_argument('--run-dir')
     common.add_argument('--json', action='store_true')
     im = sub.add_parser('image', parents=[common])

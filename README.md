@@ -10,8 +10,9 @@ CBR streams. MIT licensed; kernel DSC definitions retain their Intel notice.
 
 **Status: a working, tested implementation checkpoint, not a completed or
 conformance-validated M1.** Hand-derived vectors pass; general dynamic-QP/RC
-interoperability remains unverified. Block prediction and VBR are explicitly
-unsupported. Do not use a successful decode as proof that hardware encoder
+interoperability remains unverified. VBR is explicitly unsupported. Block
+prediction is implemented, but how its search treats samples left of the
+slice is an open question with a switch (`bp_left`). Do not use a successful decode as proof that hardware encoder
 programming conforms to DSC until those remaining validation gaps are closed.
 
 September 20 continuation: eight exact-image fixtures now include QP transitions
@@ -31,8 +32,8 @@ make sanitize
 scripts/ci.sh      # everything CI runs: build, suites, sanitizers, fuzz smoke
 ```
 
-Options: `--reading NAME=VALUE` selects one reading of a rate-control
-question the specification text leaves open (see "Open questions" in
+Options: `--reading NAME=VALUE` selects one reading of a rate-control or
+block-prediction question the text leaves open (see "Open questions" in
 `RESEARCH.md`; `dscdecode` with no arguments lists them and the defaults),
 `--stats` prints how often those questions arose, and `--trace FILE.csv`
 writes per-group QP, bit counts and buffer fullness.
@@ -89,8 +90,8 @@ fatal and report leaks; on a host where LeakSanitizer cannot run, set
 
 ## Remaining correctness work
 
-* Resolve block-prediction left-boundary references from authorized evidence.
-  This implementation rejects BP-enabled PPS before decoding.
+* Resolve the block-prediction left-boundary and edge-counter questions
+  (OQ-4, OQ-13 in `RESEARCH.md`) from black-box evidence.
 * Establish interoperability for dynamic RC/QP and flatness timing, exact threshold equality,
   fractional-bpp chunk boundaries, and varying line-buffer precision with
   independent traces. Current interpretations and uncertainties are explicit

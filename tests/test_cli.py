@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compare decoder output to independently specified fixture pixels."""
 from pathlib import Path
+import itertools
 import subprocess
 import sys
 import tempfile
@@ -30,6 +31,19 @@ def main():
             assert actual == expected, f'{name}: pixels/header mismatch'
             count += 1
             print(f'PASS {name}: exact expected PPM')
+        # Block prediction (research/bp-worked-note.md): the expected image
+        # must come out under every BP reading, since the fixtures avoid the
+        # open BP questions.
+        for name in ('bp_left_edge', 'bp_slice_boundary'):
+            expected = (FIXTURES/f'{name}.expected.ppm').read_bytes()
+            for left, edge, sad in itertools.product(('replicate','midpoint'),
+                                                     ('window','before'), ('shift','clip')):
+                out = tmp/f'{name}.ppm'
+                invoke(['--reading',f'bp_left={left}','--reading',f'bp_edge={edge}',
+                        '--reading',f'bp_sad={sad}',FIXTURES/f'{name}.pps',FIXTURES/f'{name}.bin',out])
+                assert out.read_bytes() == expected, f'{name}: {left} {edge} {sad}'
+            count += 1
+            print(f'PASS {name}: exact expected PPM under all 8 BP readings')
         out = tmp/'slice.ppm'
         invoke(['--slice',FIXTURES/'checker.pps',FIXTURES/'checker.slice0.bin',out])
         expected = b'P6\n96 3\n255\n'+bytes(

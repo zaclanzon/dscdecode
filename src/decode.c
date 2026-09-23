@@ -19,7 +19,7 @@ static int validate(const struct drm_dsc_config *c)
 {
  unsigned i;
  if(!c)return DSC_INVALID;
- if(c->dsc_version_major!=1 || c->dsc_version_minor!=1 || c->bits_per_component!=8 || c->vbr_enable || c->block_pred_enable ||
+ if(c->dsc_version_major!=1 || c->dsc_version_minor!=1 || c->bits_per_component!=8 || c->vbr_enable ||
     !c->convert_rgb || c->simple_422 || c->native_422 || c->native_420)return DSC_UNSUPPORTED;
  if(!c->slice_width || !c->slice_height || !c->pic_width || !c->pic_height ||
     !c->slice_chunk_size || !c->bits_per_pixel || c->bits_per_pixel>384 ||
@@ -153,6 +153,7 @@ static int decode_slice(const struct drm_dsc_config *c,const struct dsc_options 
  pred=dsc_predict_create(c->slice_width,c->slice_height,c->line_buf_depth,c->block_pred_enable,
                         c->pic_width!=c->slice_width);
  if(!pred)return DSC_NOMEM;
+ dsc_predict_set_options(pred,opt);
  s.flat_group=(size_t)-1;
  for(y=0;y<c->slice_height;y++)for(x=0;x<c->slice_width;x+=3,g++) {
   unsigned count=c->slice_width-x<3?c->slice_width-x:3;

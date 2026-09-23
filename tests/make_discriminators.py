@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Discriminator inputs for open questions OQ-1, OQ-2 and OQ-3.
+"""Discriminator inputs for open questions OQ-1, OQ-2 and OQ-3 (and OQ-4).
 
 Each discriminator is a PPS plus a one-line, one-slice payload. Its entropy
 parse is identical under every reading of every rate-control question this
@@ -15,7 +15,7 @@ supports only the first line of a slice, P-mode MMAP groups with explicit
 residuals, flatness signaling, a scale of 8, and zero BPG offsets.
 
 python3 tests/make_discriminators.py rewrites tests/discriminators/*, except
-the hand-written README.md.
+the hand-written README.md. The OQ-4 input comes from make_bp_vectors.py.
 """
 from dataclasses import dataclass
 from itertools import product
@@ -24,6 +24,7 @@ import hashlib
 import json
 
 from make_vectors import multiplex
+import make_bp_vectors
 
 OUT = Path(__file__).parent / 'discriminators'
 
@@ -429,7 +430,7 @@ def build(name, question, p, groups):
     (OUT / f'{name}.pps').write_bytes(p.pps())
     (OUT / f'{name}.bin').write_bytes(payload)
     (OUT / f'{name}.syntax.txt').write_text(''.join(' '.join(u) + '\n' for u in reference))
-    entry = dict(question=question, width=p.width, height=1, mux_bits=used,
+    entry = dict(question=question, vary=list(READINGS), width=p.width, height=1, mux_bits=used,
                  payload_bits=8 * p.chunk, initial_offset=p.initial_offset,
                  pps_sha256=hashlib.sha256(p.pps()).hexdigest(),
                  payload_sha256=hashlib.sha256(payload).hexdigest(), readings={})
@@ -450,6 +451,8 @@ def main():
     for make in (oq1_flat_restart, oq2_threshold_equality, oq3_fractional_bpp):
         name, question, p, groups = make()
         manifest[name] = build(name, question, p, groups)
+    # OQ-4 (block prediction) is built by the BP constructor.
+    manifest['oq4_bp_left'] = make_bp_vectors.oq4_bp_left(OUT)
     (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=1) + '\n')
     print(json.dumps(manifest, indent=1))
 

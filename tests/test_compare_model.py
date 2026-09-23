@@ -102,10 +102,15 @@ def main():
         assert code == 1 and 'MISMATCH first at x=5 y=2 G' in out, out
         assert '1 samples in 1 pixels differ' in out, out
         print('PASS mismatch: first differing pixel and diff count reported, exit 1')
-        code, out = run(['bitstream', '--all-readings', ROOT / 'tests/fixtures/qp_flatness.pps',
+        code, out = run(['bitstream', '--all-readings', '--vary',
+                         'flat_restart,threshold_eq,frac_reset,delay_offset',
+                         ROOT / 'tests/fixtures/qp_flatness.pps',
                          ROOT / 'tests/fixtures/qp_flatness.bin'], **fake)
         assert code == 0 and out.count('match (bit-exact)') == 16, out
-        print('PASS --all-readings: 16 decodes')
+        code, out = run(['bitstream', '--all-readings', ROOT / 'tests/fixtures/bp_left_edge.pps',
+                         ROOT / 'tests/fixtures/bp_left_edge.bin'], **fake)
+        assert code == 0 and out.count('match (bit-exact)') == 128, out
+        print('PASS --all-readings: 16 and 128 decodes')
         # Image mode needs a config template; this minimal one is the test's own.
         cfg = Path(tmp) / 'cfg'
         cfg.mkdir()
@@ -127,7 +132,8 @@ def main():
         # must report exactly its default reading.
         for line in ('oq1_flat_restart (flat_restart): model output matches next-cycle',
                      'oq2_threshold_equality (threshold_eq): model output matches lower',
-                     'oq3_fractional_bpp (frac_reset): model output matches chunk'):
+                     'oq3_fractional_bpp (frac_reset): model output matches chunk',
+                     'oq4_bp_left (bp_left): model output matches replicate'):
             assert line in out, out
         assert code == 0, out
         print('PASS discriminators mode: verdict per prediction')

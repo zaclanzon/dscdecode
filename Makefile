@@ -3,7 +3,7 @@ AR ?= ar
 CFLAGS ?= -O2 -g
 CPPFLAGS += -Iinclude
 WARN = -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion
-LIBSRC = src/pps.c src/decode.c src/predict.c src/rate_control.c
+LIBSRC = src/pps.c src/decode.c src/predict.c src/rate_control.c src/options.c
 OBJ = $(LIBSRC:.c=.o)
 .PHONY: all clean test fuzz sanitize
 all: libdsc.a dscdecode
@@ -13,9 +13,9 @@ dscdecode: src/main.o libdsc.a
 	$(CC) $(CFLAGS) $^ -o $@
 %.o: %.c include/dsc.h include/drm/display/drm_dsc.h src/predict.h src/rate_control.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -c $< -o $@
-test_rc: src/rate_control.c tests/test_rc.c
+test_rc: src/rate_control.c src/options.c tests/test_rc.c
 	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(WARN) $^ -o $@
-test_predict: src/predict.c tests/test_predict.c
+test_predict: src/predict.c src/options.c tests/test_predict.c
 	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(WARN) $^ -o $@
 test: all test_rc test_predict
 	./test_rc

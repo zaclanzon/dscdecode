@@ -36,6 +36,9 @@ static int *flat_restart(struct dsc_options *o){return &o->flat_restart;}
 static int *threshold_eq(struct dsc_options *o){return &o->threshold_eq;}
 static int *frac_reset(struct dsc_options *o){return &o->frac_reset;}
 static int *delay_offset(struct dsc_options *o){return &o->delay_offset;}
+static int *bp_left(struct dsc_options *o){return &o->bp_left;}
+static int *bp_edge(struct dsc_options *o){return &o->bp_edge;}
+static int *bp_sad(struct dsc_options *o){return &o->bp_sad;}
 static const struct reading readings[]={
  {"flat_restart","next-cycle",flat_restart,DSC_FLAT_RESTART_NEXT_CYCLE},
  {"flat_restart","in-flight",flat_restart,DSC_FLAT_RESTART_IN_FLIGHT},
@@ -45,6 +48,12 @@ static const struct reading readings[]={
  {"frac_reset","literal",frac_reset,DSC_FRAC_RESET_LITERAL},
  {"delay_offset","inclusive",delay_offset,DSC_DELAY_OFFSET_INCLUSIVE},
  {"delay_offset","exclusive",delay_offset,DSC_DELAY_OFFSET_EXCLUSIVE},
+ {"bp_left","replicate",bp_left,DSC_BP_LEFT_REPLICATE},
+ {"bp_left","midpoint",bp_left,DSC_BP_LEFT_MIDPOINT},
+ {"bp_edge","window",bp_edge,DSC_BP_EDGE_WINDOW},
+ {"bp_edge","before",bp_edge,DSC_BP_EDGE_BEFORE},
+ {"bp_sad","shift",bp_sad,DSC_BP_SAD_SHIFT},
+ {"bp_sad","clip",bp_sad,DSC_BP_SAD_CLIP},
 };
 static const struct reading *find_reading(const char *name,const char *value)
 {
@@ -120,8 +129,9 @@ int main(int argc,char **argv)
  input=read_file(argv[off+1],256u*1024u*1024u,&n);if(!input)goto done;
  rgb=malloc(cap);if(!rgb)goto done;
  status=single?dsc_decode_slice_ex(&c,&opt,input,n,rgb,cap):dsc_decode_frame_ex(&c,&opt,input,n,rgb,cap);
- if(want_stats)fprintf(stderr,"stats: groups=%lu threshold_equal=%lu flat_overrides=%lu flat_queue_differs=%lu frac_differs=%lu\n",
-  stats.groups,stats.threshold_equal,stats.flat_overrides,stats.flat_queue_differs,stats.frac_differs);
+ if(want_stats)fprintf(stderr,"stats: groups=%lu threshold_equal=%lu flat_overrides=%lu flat_queue_differs=%lu frac_differs=%lu bp_groups=%lu bp_left_differs=%lu\n",
+  stats.groups,stats.threshold_equal,stats.flat_overrides,stats.flat_queue_differs,stats.frac_differs,
+  stats.bp_groups,stats.bp_left_differs);
  if(status){fprintf(stderr,"decode: %s\n",dsc_strerror(status));goto done;}
  /* Only open output after successful validation and decoding. */
  output=fopen(argv[off+2],"wb");if(!output){perror(argv[off+2]);goto done;}

@@ -1,22 +1,25 @@
 # Discriminator inputs
 
 Each input here is a DSC 1.1 PPS (`NAME.pps`) plus a one-slice payload
-(`NAME.bin`) for a 96×1 RGB picture at 8 bpc. For one open question in
+(`NAME.bin`), 8 bpc RGB: 96×1 for the rate-control questions, 30×2 for the
+block-prediction one. For one open question in
 RESEARCH.md, the two readings decode it to different pixels. Each file below
 states which reading predicts which output. The predictions were written and
-committed before the VESA reference model decoded any of these inputs.
+committed before the VESA reference model decoded any of these inputs
+(OQ-1 to OQ-3 in Phase 3, OQ-4 in Phase 2).
 
 `python3 tests/make_discriminators.py` rebuilds every file here except this
 README. The generator contains a rate-control model written separately from
 the decoder. For every combination of the decoder's reading switches
-(OQ-1, OQ-2, OQ-3, OQ-12; 16 combinations), it checks three things:
+(OQ-1, OQ-2, OQ-3, OQ-12: 16 combinations; for the BP input, OQ-4, OQ-10,
+OQ-13: 8 combinations), it checks three things:
 
 1. The entropy parse, meaning every bit of every group, is identical.
 2. The output depends only on the reading of the discriminator's own question.
 3. The two readings of that question give different outputs.
 
 `tests/test_discriminators.py` then checks that dscdecode reproduces each
-predicted output under all 16 combinations. It also checks that the
+predicted output under all of those combinations. It also checks that the
 decoder's `--stats` counters show the question's condition occurred.
 
 ## Common design
@@ -125,8 +128,40 @@ Switch: `--reading frac_reset=chunk|literal`.
 | chunk | 0 | (183,183,182) (180,179,181) (181,181,181) | `2a396faec9e2ddf3…` |
 | literal | 8 | (203,219,171) (179,163,211) (195,195,195) | `b01d1ab1910bc984…` |
 
-Full hashes, QP schedules and per-group buffer values for the decisive
-groups are in `manifest.json`.
+## oq4_bp_left — OQ-4, BP samples left of the slice
+
+Switch: `--reading bp_left=replicate|midpoint`.
+
+Built by `tests/make_bp_vectors.py`, not by the rate-control generator. BP
+is enabled and every RC range pins QP 0, so no rate-control reading can
+matter. The block-prediction search (§6.4.4.1) compares previous-line
+samples out to 16 positions left of the group. For the groups at hPos 0–15
+some of those positions lie left of the slice, and the text does not say
+what they hold.
+
+* 30×2, one slice, gray (Co = Cg = 256). Line 0 is the fixed sequence in the
+  generator. It was found by a seeded search that requires the property
+  below.
+* Line 1 is coded losslessly under the replicate reading. The same bits are
+  then decoded under the other reading. The entropy parse does not depend on
+  the predictor (§7.5.2.2: only DSU-VLC sizes select MPP), so the syntax is
+  identical and only the prediction changes.
+* **replicate** (samples left of the slice repeat sample 0): the search at
+  hPos 9 picks vector −1, which resets bpCount. bpCount is 1 at hPos 12 and
+  2 at 15, and first reaches 3 at hPos 18. The group at hPos 15 uses MMAP.
+* **midpoint** (those samples are 128): the search at hPos 9 picks −7, which
+  reaches four positions left of the slice. bpCount is 3 at hPos 15, so that
+  group uses **BP with vector −6**.
+* Both readings give the same decisions under both edge-counter readings
+  (OQ-13) and both SAD readings (OQ-10). The generator checks this.
+
+| Reading | Group at hPos 15 | SHA-256 of expected PPM |
+|---|---|---|
+| replicate | MMAP | `4dd233c60e813001…` |
+| midpoint | BP, vector −6 | `cfee1190a838072f…` |
+
+Full hashes, QP schedules, BP decisions and per-group buffer values for
+the decisive groups are in `manifest.json`.
 
 ## Running against the reference model
 
