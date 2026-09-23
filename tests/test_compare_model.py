@@ -139,29 +139,43 @@ def main():
         # The stub decodes with one chosen reading per question, which must be
         # the one reported. With the M1 pipeline readings, every input built
         # under them gets a verdict, and oq2b, built under the decoder's
-        # current defaults, matches neither: a failure.
+        # current defaults, matches neither: a failure. oq2 is superseded by
+        # oq2b: its match is printed for the record and never counted.
         m1 = ('incr_order=printed rc_pipeline=same-group scale_dec=from-group-1 '
               'partial_target=three very_flat=group-qp partial_padding=reject flat_max_qp=own')
         chosen = 'flat_restart=next-cycle threshold_eq=lower frac_reset=chunk bp_left=replicate '
+        superseded = ('oq2_threshold_equality (threshold_eq): SUPERSEDED by '
+                      'oq2b_threshold_equality; not part of the verdict')
         code, out = run(['discriminators'], FAKE_MODEL_READINGS=chosen + m1, **fake)
         for line in ('oq1_flat_restart (flat_restart): model output matches next-cycle',
-                     'oq2_threshold_equality (threshold_eq): model output matches lower',
+                     superseded, 'for the record, model output matches lower',
                      'oq2b_threshold_equality (threshold_eq): model output matches NEITHER',
                      'oq3_fractional_bpp (frac_reset): model output matches chunk',
                      'oq4_bp_left (bp_left): model output matches replicate'):
             assert line in out, out
+        assert 'oq2_threshold_equality (threshold_eq): model output matches' not in out, out
         assert 'inconclusive' not in out and code == 1, out
-        # With the default pipeline readings, oq2b gets the verdict and oq2,
-        # built under the M1 readings, is inconclusive, which is not a failure.
+        # With the default pipeline readings, oq2b gets the verdict. oq2
+        # matches neither prediction, which is not a failure: it is superseded.
         code, out = run(['discriminators'], FAKE_MODEL_READINGS=chosen, **fake)
-        for line in ('oq2b_threshold_equality (threshold_eq): model output matches lower',
+        for line in ('oq1_flat_restart (flat_restart): model output matches next-cycle',
+                     'oq2b_threshold_equality (threshold_eq): model output matches lower',
                      'oq3_fractional_bpp (frac_reset): model output matches chunk',
-                     'oq4_bp_left (bp_left): model output matches replicate'):
+                     'oq4_bp_left (bp_left): model output matches replicate',
+                     superseded, 'for the record, model output matches NEITHER prediction'):
             assert line in out, out
-        assert 'oq2_threshold_equality (threshold_eq): model output matches NEITHER' in out, out
-        assert 'inconclusive: built assuming incr_order=printed' in out, out
-        assert code == 0, out
-        print('PASS discriminators mode: verdict per prediction; stale assumptions inconclusive')
+        assert 'inconclusive' not in out and code == 0, out
+        # A stub output that matches no prediction: inputs built under the M1
+        # readings (oq1, oq3) are inconclusive, the others fail the run.
+        code, out = run(['discriminators'], FAKE_MODEL_READINGS=chosen,
+                        FAKE_MODEL_CORRUPT='0,0,0,1', **fake)
+        for name in ('oq1_flat_restart (flat_restart)', 'oq3_fractional_bpp (frac_reset)',
+                     'oq2b_threshold_equality (threshold_eq)', 'oq4_bp_left (bp_left)'):
+            assert f'{name}: model output matches NEITHER' in out, out
+        assert out.count('inconclusive: built assuming incr_order=printed') == 2, out
+        assert superseded in out and code == 1, out
+        print('PASS discriminators mode: verdict per prediction; stale assumptions '
+              'inconclusive; superseded input left out')
         corpus_checks(tmp, fake)
     print('compare_model harness checks passed (fake model; not a model comparison)')
 

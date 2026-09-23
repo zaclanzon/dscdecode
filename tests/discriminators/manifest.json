@@ -206,6 +206,7 @@
  },
  "oq2_threshold_equality": {
   "question": "threshold_eq",
+  "superseded_by": "oq2b_threshold_equality",
   "vary": [
    "flat_restart",
    "threshold_eq",

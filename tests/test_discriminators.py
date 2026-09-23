@@ -64,8 +64,11 @@ def main():
                 count += 1
             assert len(set(outputs.values())) == 2, name
             combos = len(list(product(*(READINGS[k] for k in vary))))
+            # A superseded input stays a decoder test under its own assumptions.
+            note = (f' (superseded by {entry["superseded_by"]}; decoded under the '
+                    f'readings it assumes)' if 'superseded_by' in entry else '')
             print(f'PASS {name}: {question} readings give their predicted, '
-                  f'different outputs under all {combos} combinations')
+                  f'different outputs under all {combos} combinations{note}')
     print(f'{count} discriminator decodes passed')
 
 

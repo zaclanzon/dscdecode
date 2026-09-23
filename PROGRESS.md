@@ -587,3 +587,111 @@ Baseline at 23a0131, before any change. `scripts/ci.sh` green with
 * `research/rc-ambiguities.md`: an M2 note maps each uncertainty to its
   open-question row.
 * Gate: `scripts/ci.sh` green with the model unset and set.
+
+### P2: small fixes and fractional bpp (2026-09-23)
+
+* `oq2_threshold_equality` is marked `superseded_by: oq2b_threshold_equality`
+  in `manifest.json` (written by `tests/make_discriminators.py`, so the
+  fixture reproducibility check still holds) and in
+  `tests/discriminators/README.md`. `tools/compare_model discriminators`
+  still has the model decode it and prints the match for the record, but
+  reports it as SUPERSEDED and leaves it out of the verdict and the exit
+  status. `tests/test_discriminators.py` still decodes it under the 16
+  combinations and the readings it assumes. `tests/test_compare_model.py`
+  checks the SUPERSEDED report under both pipeline settings of the stand-in
+  model, and gains a case (every stub output corrupted) that keeps the
+  inconclusive path covered, since oq2 no longer reaches it.
+* Padding warning. With `partial_padding=accept` (the default), a decode
+  that accepted noncanonical padding prints one line to stderr:
+  `warning: N partial group(s) with nonzero padding accepted (DSC 1.1 section
+  6.6); --reading partial_padding=reject makes this an error`. The exit
+  status does not change. The CLI now always collects the statistics, which
+  do not affect decoding, and prints the `stats:` line only with `--stats`.
+  CLI checks: 22 → 26 (the warning with count 1 on each padding fixture; a
+  two-slice-row stream built from `invalid_partial_residual`, one warning with
+  count 2; none for `color_crop`, whose partial groups carry canonical
+  padding). The eight image-fixture checks and the two `reject` checks now
+  also require that no warning is printed.
+* Fractional bpp. The seven Phase 5 synthetic pictures (still present in
+  `~/dsc-runs/synthetic/`) were encoded by the model at 7.5 and 9.3125 bpp,
+  BP off and on, 1 and 2 slices per line, slice height 108: 56 streams. As
+  in Phase 5, the model and dscdecode each decoded the model's bitstream and
+  the outputs were compared bit for bit; each stream was also decoded with
+  `frac_reset=literal`. Runs: `~/dsc-runs/pub/frac/`.
+  * The model accepts both rates with the installed configs.
+    `tools/compare_model` includes the nearest RC file (`rc_8bpc_8bpp.cfg`
+    for 7.5, `rc_8bpc_10bpp.cfg` for 9.3125) and sets `BITS_PER_PIXEL`
+    after it. The PPS carries bits_per_pixel 120 and 149 (sixteenths) and
+    the RC file's initial_xmit_delay, 512 and 410. Chunk padding per chunk
+    ranges from 0 bits (640-pixel slices) to 7.5 bits (7.5 bpp, 319-pixel
+    slices), so both the no-padding and the padding cases occur.
+  * `frac_reset=chunk` (default): 56 of 56 match the model bit-exactly.
+  * `frac_reset=literal`: 16 match, 11 decode to different pixels, 29 fail
+    to decode (27 "invalid compressed slice", 2 "rate-control buffer
+    violation"). In every stream the two readings disagree on buffer
+    fullness in at least 13,228 groups (`--stats` `frac_differs`); in the 16
+    that match, the difference did not change any decoded pixel.
+  * This supports OQ-3 = chunk, until now resting on `oq3_fractional_bpp`
+    alone. RESEARCH.md cites these streams in the OQ-3 row; no default
+    changed.
+
+| Picture | bpp | BP | Slices/line | `chunk` (default) | `literal` | `literal`: first differing sample, model/dscdecode; samples differing |
+|---|---|---|---|---|---|---|
+| s01_gradient | 7.5 | off | 1 | match | mismatch | (3,97) G 113/112, 226,016 |
+| s01_gradient | 7.5 | off | 2 | match | match |  |
+| s01_gradient | 7.5 | on | 1 | match | mismatch | (3,97) G 113/112, 225,976 |
+| s01_gradient | 7.5 | on | 2 | match | match |  |
+| s01_gradient | 9.3125 | off | 1 | match | match |  |
+| s01_gradient | 9.3125 | off | 2 | match | match |  |
+| s01_gradient | 9.3125 | on | 1 | match | match |  |
+| s01_gradient | 9.3125 | on | 2 | match | match |  |
+| s02_noise | 7.5 | off | 1 | match | decode error (invalid compressed slice) |  |
+| s02_noise | 7.5 | off | 2 | match | decode error (invalid compressed slice) |  |
+| s02_noise | 7.5 | on | 1 | match | decode error (invalid compressed slice) |  |
+| s02_noise | 7.5 | on | 2 | match | decode error (invalid compressed slice) |  |
+| s02_noise | 9.3125 | off | 1 | match | decode error (invalid compressed slice) |  |
+| s02_noise | 9.3125 | off | 2 | match | decode error (invalid compressed slice) |  |
+| s02_noise | 9.3125 | on | 1 | match | decode error (invalid compressed slice) |  |
+| s02_noise | 9.3125 | on | 2 | match | decode error (invalid compressed slice) |  |
+| s03_text | 7.5 | off | 1 | match | mismatch | (6,17) R 235/193, 329,345 |
+| s03_text | 7.5 | off | 2 | match | match |  |
+| s03_text | 7.5 | on | 1 | match | mismatch | (6,17) R 235/193, 329,350 |
+| s03_text | 7.5 | on | 2 | match | match |  |
+| s03_text | 9.3125 | off | 1 | match | match |  |
+| s03_text | 9.3125 | off | 2 | match | match |  |
+| s03_text | 9.3125 | on | 1 | match | match |  |
+| s03_text | 9.3125 | on | 2 | match | match |  |
+| s04_flat_blocks | 7.5 | off | 1 | match | mismatch | (3,23) R 0/180, 161,419 |
+| s04_flat_blocks | 7.5 | off | 2 | match | match |  |
+| s04_flat_blocks | 7.5 | on | 1 | match | mismatch | (3,23) R 0/180, 160,815 |
+| s04_flat_blocks | 7.5 | on | 2 | match | match |  |
+| s04_flat_blocks | 9.3125 | off | 1 | match | decode error (rate-control buffer violation) |  |
+| s04_flat_blocks | 9.3125 | off | 2 | match | match |  |
+| s04_flat_blocks | 9.3125 | on | 1 | match | decode error (rate-control buffer violation) |  |
+| s04_flat_blocks | 9.3125 | on | 2 | match | match |  |
+| s05_waves | 7.5 | off | 1 | match | mismatch | (321,7) G 210/211, 361,591 |
+| s05_waves | 7.5 | off | 2 | match | decode error (invalid compressed slice) |  |
+| s05_waves | 7.5 | on | 1 | match | mismatch | (321,7) G 210/211, 361,756 |
+| s05_waves | 7.5 | on | 2 | match | decode error (invalid compressed slice) |  |
+| s05_waves | 9.3125 | off | 1 | match | mismatch | (327,30) R 164/163, 314,731 |
+| s05_waves | 9.3125 | off | 2 | match | decode error (invalid compressed slice) |  |
+| s05_waves | 9.3125 | on | 1 | match | mismatch | (327,30) R 164/163, 314,712 |
+| s05_waves | 9.3125 | on | 2 | match | decode error (invalid compressed slice) |  |
+| s06_odd_size | 7.5 | off | 1 | match | decode error (invalid compressed slice) |  |
+| s06_odd_size | 7.5 | off | 2 | match | decode error (invalid compressed slice) |  |
+| s06_odd_size | 7.5 | on | 1 | match | decode error (invalid compressed slice) |  |
+| s06_odd_size | 7.5 | on | 2 | match | decode error (invalid compressed slice) |  |
+| s06_odd_size | 9.3125 | off | 1 | match | decode error (invalid compressed slice) |  |
+| s06_odd_size | 9.3125 | off | 2 | match | decode error (invalid compressed slice) |  |
+| s06_odd_size | 9.3125 | on | 1 | match | mismatch | (367,3) R 19/18, 220,245 |
+| s06_odd_size | 9.3125 | on | 2 | match | decode error (invalid compressed slice) |  |
+| s07_mixed | 7.5 | off | 1 | match | decode error (invalid compressed slice) |  |
+| s07_mixed | 7.5 | off | 2 | match | decode error (invalid compressed slice) |  |
+| s07_mixed | 7.5 | on | 1 | match | decode error (invalid compressed slice) |  |
+| s07_mixed | 7.5 | on | 2 | match | decode error (invalid compressed slice) |  |
+| s07_mixed | 9.3125 | off | 1 | match | decode error (invalid compressed slice) |  |
+| s07_mixed | 9.3125 | off | 2 | match | decode error (invalid compressed slice) |  |
+| s07_mixed | 9.3125 | on | 1 | match | decode error (invalid compressed slice) |  |
+| s07_mixed | 9.3125 | on | 2 | match | decode error (invalid compressed slice) |  |
+
+* Gate: `scripts/ci.sh` green with the model unset and set.

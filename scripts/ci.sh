@@ -65,6 +65,7 @@ step_fuzz() {
 # With the model: a small image comparison plus every discriminator, each of
 # which must match exactly one of its two predictions. One built under
 # readings the decoder no longer defaults to may match neither (inconclusive).
+# One the manifest marks superseded is reported but not counted.
 step_model() {
     local status=0
     make CFLAGS='-O2 -g -Werror' all

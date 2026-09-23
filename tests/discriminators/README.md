@@ -78,9 +78,18 @@ B = 200 − 16 = 184, R = 32 + 184 = 216, G = 32 + 200 = 232 (§7.7).
 A third behavior, where the override value simply replaces the queued QP,
 would also give QP 4 here. This file does not separate it from in-flight.
 
-## oq2_threshold_equality — OQ-2, range threshold equality
+## oq2_threshold_equality — OQ-2, range threshold equality (superseded)
 
 Switch: `--reading threshold_eq=lower|upper`.
+
+**Superseded by `oq2b_threshold_equality`.** This input was built under the
+M1 readings of the other rate-control questions (its `assumes` in
+`manifest.json`), and its predictions hold only under them. The decoder
+defaults changed in Phase 5, so it cannot decide OQ-2 against the model;
+`oq2b` asks the same question under the current defaults. The manifest marks
+it `superseded_by`, `tools/compare_model` reports it as SUPERSEDED and leaves
+it out of the verdict, and `tests/test_discriminators.py` still decodes it
+under the readings it assumes.
 
 * 8 bpp, `initial_xmit_delay` 128 (no bits removed). The thresholds are the
   common 8 bpc values, the same as `rc_buf_thresh` in Linux
@@ -108,8 +117,9 @@ Switch: `--reading threshold_eq=lower|upper`.
 
 Switch: `--reading threshold_eq=lower|upper`.
 
-The same question as `oq2_threshold_equality`, built assuming the readings
-the decoder defaults to since Phase 5 instead of the M1 ones. Only two of
+The same question as `oq2_threshold_equality`, which it supersedes, built
+assuming the readings the decoder defaults to since Phase 5 instead of the M1
+ones. Only two of
 them matter to a one-line, full-group, scale-8 input without flatness
 signals: OQ-11 range-lag and OQ-5 swapped. No group here takes the increment
 branch, so only range-lag changes the design. Under range-lag the
@@ -209,5 +219,7 @@ the result with each expected PPM. `tools/compare_model discriminators` does
 this for every input. It fails if the model matches both predictions, or
 neither; an input whose `assumes` differ from the decoder's current defaults
 that matches neither is reported as inconclusive instead, since its
-predictions were conditional on those readings. Results are recorded in
-PROGRESS.md only.
+predictions were conditional on those readings. An input marked
+`superseded_by` in the manifest (`oq2_threshold_equality`) is decoded and
+printed for the record, reported as SUPERSEDED, and left out of the verdict.
+Results are recorded in PROGRESS.md only.

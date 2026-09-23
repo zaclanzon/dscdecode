@@ -24,7 +24,9 @@ with DSCDECODE_RUNS). Model output never enters the repository.
 Exit status: 0 match, 1 mismatch, 2 error, 77 SKIP. In discriminators mode,
 an input the model matches to neither prediction counts as a mismatch unless
 it was built assuming readings (manifest `assumes`) that the decoder no
-longer defaults to; it is then reported as inconclusive.
+longer defaults to; it is then reported as inconclusive. An input the
+manifest marks `superseded_by` another is still decoded, for the record, but
+is reported as SUPERSEDED and left out of the verdict and the exit status.
 """
 import argparse
 import datetime
@@ -391,12 +393,21 @@ def mode_discriminators(a):
                 verdicts[reading] = compare_images(model_out, root / f'{name}.{reading}.expected.ppm')
         supported = [r for r, v in verdicts.items() if v['match']]
         stale = {k: v for k, v in entry.get('assumes', {}).items() if defaults.get(k) != v}
+        superseded = entry.get('superseded_by')
         summary[name] = dict(question=entry['question'], supported=supported,
-                             verdicts=verdicts, run_dir=str(run_dir), stale_assumptions=stale)
-        print(f"{name} ({entry['question']}): model output matches "
-              f"{', '.join(supported) if supported else 'NEITHER prediction'}  [{run_dir}]")
+                             verdicts=verdicts, run_dir=str(run_dir), stale_assumptions=stale,
+                             superseded_by=superseded)
+        matches = ', '.join(supported) if supported else 'NEITHER prediction'
+        if superseded:
+            print(f"{name} ({entry['question']}): SUPERSEDED by {superseded}; "
+                  f"not part of the verdict  [{run_dir}]")
+            print(f'  for the record, model output matches {matches}')
+        else:
+            print(f"{name} ({entry['question']}): model output matches {matches}  [{run_dir}]")
         for reading, v in verdicts.items():
             print(f'  prediction {reading}: {describe(v)}')
+        if superseded:
+            continue
         if len(supported) != 1:
             if stale and not supported:
                 print('  inconclusive: built assuming ' +

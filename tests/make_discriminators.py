@@ -463,6 +463,11 @@ def oq1_flat_restart():
     return 'oq1_flat_restart', 'flat_restart', p, groups
 
 
+# A discriminator replaced by a later one. It stays a decoder-side test under
+# the readings it assumes; tools/compare_model leaves it out of the verdict.
+SUPERSEDED = {'oq2_threshold_equality': 'oq2b_threshold_equality'}
+
+
 def build(name, question, p, groups, assumes=M1_TIMING, decisive=(29, 30, 31)):
     results = {}
     reference = None
@@ -483,7 +488,10 @@ def build(name, question, p, groups, assumes=M1_TIMING, decisive=(29, 30, 31)):
     (OUT / f'{name}.pps').write_bytes(p.pps())
     (OUT / f'{name}.bin').write_bytes(payload)
     (OUT / f'{name}.syntax.txt').write_text(''.join(' '.join(u) + '\n' for u in reference))
-    entry = dict(question=question, vary=list(READINGS), assumes=assumes, width=p.width,
+    entry = dict(question=question)
+    if name in SUPERSEDED:
+        entry['superseded_by'] = SUPERSEDED[name]
+    entry.update(vary=list(READINGS), assumes=assumes, width=p.width,
                  height=1, mux_bits=used,
                  payload_bits=8 * p.chunk, initial_offset=p.initial_offset,
                  pps_sha256=hashlib.sha256(p.pps()).hexdigest(),

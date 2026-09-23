@@ -17,10 +17,12 @@ use a successful decode as proof that hardware encoder programming conforms to
 DSC until those remaining validation gaps are closed.
 
 M2 checkpoint (September 23): ten exact-image fixtures (including block
-prediction), 22 CLI checks, RC and prediction traces, and 72 discriminator
-decodes pass. Partial-group padding is parsed but not checked by default
-(`--reading partial_padding=reject` enforces DSC 1.1 §6.6). Comparison runs
-against the VESA model are recorded in `PROGRESS.md`.
+prediction), 26 CLI checks, RC and prediction traces, and 72 discriminator
+decodes pass. Partial-group padding is parsed but not checked by default; the
+CLI prints a warning with the number of partial groups whose nonzero padding
+it accepted, and `--reading partial_padding=reject` makes that an error
+(DSC 1.1 §6.6). Comparison runs against the VESA model are recorded in
+`PROGRESS.md`.
 
 ## Build and use
 
@@ -95,8 +97,9 @@ fatal and report leaks; on a host where LeakSanitizer cannot run, set
   evidence behind each default, is in the "Open questions" table in
   `RESEARCH.md`. Two remain open: OQ-7 (DSC 1.2 only) and OQ-9 (encoder only).
 * Only DSC 1.1, 8 bits per component, RGB 4:4:4 is decoded. Fractional
-  bits_per_pixel has been exercised only by a discriminator, not by
-  model-encoded pictures.
+  bits_per_pixel has been exercised by a discriminator and by model-encoded
+  pictures at two rates, 7.5 and 9.3125 (`PROGRESS.md`), not across the
+  range.
 * VBR framing and buffer handling are not implemented.
 * The licensed VESA reference model is not included. `tools/compare_model`
   drives it as a black box when `DSCDECODE_MODEL_BIN` points at it, and

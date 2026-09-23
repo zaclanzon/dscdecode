@@ -137,7 +137,8 @@ int main(int argc,char **argv)
   } else {if(trace)fclose(trace);return usage(argv[0]);}
  }
  if(argc-off!=3){if(trace)fclose(trace);return usage(argv[0]);}
- if(want_stats)opt.stats=&stats;
+ /* Always counted: the padding warning below needs the count. */
+ opt.stats=&stats;
  if(trace) {
   fputs("slice,group,x,y,qp,actual,ideal,range,generated_qp,buffer_fullness,model_fullness,ich,flat_override\n",trace);
   opt.trace=trace_csv;opt.trace_context=trace;
@@ -157,6 +158,11 @@ int main(int argc,char **argv)
   stats.groups,stats.threshold_equal,stats.flat_overrides,stats.flat_queue_differs,stats.frac_differs,
   stats.bp_groups,stats.bp_left_differs,stats.incr_order_differs,stats.range_lag_differs,
   stats.partial_groups,stats.very_flat_low_qp,stats.padding_nonzero,stats.flat_max_qp_differs);
+ /* OQ-17: padding the default reading accepts is reported, not hidden. */
+ if(opt.partial_padding==DSC_PARTIAL_PADDING_ACCEPT && stats.padding_nonzero)
+  fprintf(stderr,"warning: %lu partial group%s with nonzero padding accepted (DSC 1.1 section 6.6);"
+   " --reading partial_padding=reject makes this an error\n",
+   stats.padding_nonzero,stats.padding_nonzero==1?"":"s");
  if(status){fprintf(stderr,"decode: %s\n",dsc_strerror(status));goto done;}
  /* Only open output after successful validation and decoding. */
  output=fopen(argv[off+2],"wb");if(!output){perror(argv[off+2]);goto done;}
