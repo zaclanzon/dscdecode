@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT */
+/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 #ifndef DSC_DECODE_H
 #define DSC_DECODE_H
 #include <stddef.h>

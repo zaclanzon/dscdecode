@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT */
+/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 #ifndef DSC_PREDICT_H
 #define DSC_PREDICT_H
 #include <stdint.h>

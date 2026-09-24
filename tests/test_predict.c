@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: BSD-2-Clause-Patent
  * Independent sample expectations from DSC 1.1 sections 6.3--6.5.
  */
 #include "predict.h"

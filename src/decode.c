@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: BSD-2-Clause-Patent
  * DSC 1.1 prose-based decoder. Clause references and unresolved ambiguities
  * are documented in RESEARCH.md. This file contains no reference-model code.
  */

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT */
+/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 #include "dsc.h"
 #include <stdio.h>
 #include <stdlib.h>

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT */
+/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 #include "dsc.h"
 #include <stdlib.h>
 static void ignore_trace(void *context,const struct dsc_group_trace *t){(void)context;(void)t;}

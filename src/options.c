@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: BSD-2-Clause-Patent
  * Defaults for the switches of RESEARCH.md's open questions. Where the VESA
  * reference model, used as a black box, supports one reading, that reading
  * is the default; PROGRESS.md (Phase 5) records the evidence.

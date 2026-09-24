@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: BSD-2-Clause-Patent
  * Deterministic sanitizer smoke campaign, not a coverage-guided fuzzer.
  * Invoke with seed files made by concatenating each PPS and its payload.
  */

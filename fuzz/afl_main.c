@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT */
+/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 #include <stdint.h>
 #include <stdio.h>
 int LLVMFuzzerTestOneInput(const uint8_t *,size_t);

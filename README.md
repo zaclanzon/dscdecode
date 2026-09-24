@@ -5,16 +5,30 @@ each experiment cost a reboot and the only check was looking at the
 monitor. This decoder is one piece of tooling for testing the display
 path in software instead.
 
-Plain C11, libc-only library plus CLI for inspecting DSC 1.1, 8-bit RGB 4:4:4
-CBR streams. MIT licensed; kernel DSC definitions retain their Intel notice.
+An open-source DSC 1.1 decoder, written from the specification with no
+VESA model code, and bit-exact with the VESA C model on 760 test streams.
 
-**Status: a working, tested implementation checkpoint, not a completed or
-conformance-validated M1.** Hand-derived vectors pass; general dynamic-QP/RC
-interoperability remains unverified. VBR is explicitly unsupported. Block
-prediction is implemented. Where the specification text reads two ways, each
-reading is a runtime switch (see "Open questions" in `RESEARCH.md`). Do not
-use a successful decode as proof that hardware encoder programming conforms to
-DSC until those remaining validation gaps are closed.
+BSD-2-Clause-Patent licensed; kernel DSC definitions retain their Intel
+notice and MIT license.
+
+## Status
+
+dscdecode is a working, tested checkpoint for DSC 1.1. It has not been
+through VESA compliance testing.
+
+Agreement with the VESA C model (version 1.67), used only as a black box:
+the model encodes an image, the model and dscdecode both decode the
+model's bitstream, and the two outputs are compared bit for bit. Tested
+with 8 bpc RGB 4:4:4 at constant bit rate.
+
+| Set | Streams | Bit-exact |
+|---|---|---|
+| The 17 VESA 1080p evaluation images: 6, 7.5, 8, 10, 12 and 15 bpp, block prediction off and on, 1, 2 and 4 slices per line | 612 | 612 |
+| Synthetic pictures, hand-derived fixtures and fractional-rate tests | 148 | 148 |
+
+The images, the model and the specification are not in this repository.
+PROGRESS.md has the method and every result. THIRD_PARTY.md has the
+provenance.
 
 M2 checkpoint (September 23): ten exact-image fixtures (including block
 prediction), 26 CLI checks, RC and prediction traces, and 72 discriminator
@@ -110,3 +124,21 @@ fatal and report leaks; on a host where LeakSanitizer cannot run, set
 See `RESEARCH.md` for pinned Linux/NVIDIA/specification sources, PPS field notes,
 caller survey, RC-table adjudication, licensing evidence, and the
 current verification report. No driver patches are part of this project.
+
+## Patents
+
+DSC is a VESA standard. VESA members have declared patents that may apply
+to DSC, with licensing under VESA's intellectual property policy. In the
+patent declarations in VESA's DSC release package, each member that filed
+an IPR response form committed to license its declared patents on RAND
+terms, with the right to charge royalties. The BSD+Patent license covers
+only patents held by this project's contributors. It grants no license to
+anyone else's patents. You alone are responsible for deciding whether your
+use of dscdecode needs other licenses, including patent licenses, and for
+obtaining them. The authors do not obtain such licenses for users and are
+not liable for any fees they require.
+
+## Development
+
+Built with Claude Code as a coding agent. Each commit carries a
+Co-Authored-By trailer.

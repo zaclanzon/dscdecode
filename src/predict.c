@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: BSD-2-Clause-Patent
  * Independently expressed DSC 1.1 sections 6.3--6.5 and 7.4--7.6.
  * Pixels in this module are unsigned internal Y, Co, Cg (8, 9, 9 bits).
  * Block prediction: DSC 1.1 §6.4.2, §6.4.4.1 and §7.5.2.1, with the bpSad

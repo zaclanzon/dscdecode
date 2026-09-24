@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: BSD-2-Clause-Patent
  * Userspace compatibility definitions required by the unmodified drm_dsc.h.
  * This is not the kernel DisplayPort API.
  */

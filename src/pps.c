@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT */
+/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 #include "dsc.h"
 #include <string.h>
 static uint16_t be16(const uint8_t *p) { return (uint16_t)((unsigned)p[0]*256u+p[1]); }

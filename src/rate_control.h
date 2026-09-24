@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT */
+/* SPDX-License-Identifier: BSD-2-Clause-Patent */
 #ifndef DSC_RATE_CONTROL_H
 #define DSC_RATE_CONTROL_H
 #include <stdint.h>

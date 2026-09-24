@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: BSD-2-Clause-Patent
  * Hand-calculated RC traces from DSC 1.1 section 6.8. These are unit tests,
  * not compressed-stream interoperability vectors. See rc-ambiguities.md.
  */

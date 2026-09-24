@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT
+/* SPDX-License-Identifier: BSD-2-Clause-Patent
  * Original implementation of DSC 1.1 sections 6.8 and 7.3.
  * Prose-only timing interpretation is recorded in research/rc-ambiguities.md.
  * Where the text supports two readings, both are implemented and selected by
