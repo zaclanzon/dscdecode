@@ -14,7 +14,7 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parent / 'discriminators'
-EXE = Path(sys.argv[1] if len(sys.argv) > 1 else './dscdecode').resolve()
+EXE = Path(sys.argv[1] if len(sys.argv) > 1 else 'build/release/dscdecode').resolve()
 READINGS = {
     'flat_restart': ('next-cycle', 'in-flight'),
     'threshold_eq': ('lower', 'upper'),

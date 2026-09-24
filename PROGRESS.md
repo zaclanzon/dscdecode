@@ -988,3 +988,67 @@ make sure the release build was measured, `dscdecode` was built with a plain
 
 The 34-run 1.1 regression check used at the end of each M3 phase
 (`--bpp 8 --bp 0 1 --slices 2`) is a subset of these runs: 34 of 34 match.
+
+## Phase 1: separate build directories (2026-09-24)
+
+* `Makefile`: each flavor builds in its own directory, `build/release`
+  (`make`, `make test`; `CFLAGS`, default `-O2 -g`), `build/sanitize`
+  (`make sanitize`), `build/fuzz` (`make fuzz`), `build/fuzz-smoke`
+  (`make fuzz-smoke`) and `build/afl` (`make afl`). A stamp,
+  `build/<flavor>/.flags`, holds the compiler's version line, the compiler and
+  the flags. A forced rule rewrites it only when that text changes, and every
+  object and program of the flavor depends on it, so a change of compiler or
+  flags rebuilds the flavor and nothing else. Checked: `make`, then `make`
+  (nothing rebuilt), `make CFLAGS=-O2` (all 8 compile and link steps rerun),
+  `make CFLAGS=-O2` (nothing), `make` (all 8 again). `make clean` removes
+  `build/` and the top-level outputs of the old layout. `make sanitize` no
+  longer starts with `make clean`, because it no longer shares a directory
+  with the release build.
+* `tools/compare_model` and `tools/run_corpus` use
+  `build/release/dscdecode`. `--build sanitize` (or `DSCDECODE_BUILD`)
+  selects `build/sanitize/dscdecode`; `DSCDECODE_BIN` still names any other
+  binary. Each prints `dscdecode: PATH` before its first decode (to stderr
+  under `--json`), fails if the file does not exist, and records the path in
+  `result.json` / `results.json`. Without `DSCDECODE_MODEL_BIN` they print
+  SKIP first, as before.
+* `scripts/ci.sh`: the build step builds `build/release/test_rc` and
+  `build/release/test_predict`; the fuzz step runs
+  `build/fuzz/fuzz_decode`; the model step compares `build/release/dscdecode`
+  unless `CI_MODEL_BUILD=sanitize`, and names the build in its PASS line. The
+  test scripts default to `build/release/dscdecode`. This removes the v0.1.0
+  situation where the model step and corpus runs used whichever build was
+  last made.
+* README "Build and use" and "Verification and fuzzing" give the new paths
+  and describe the flavors and `--build`. No other README section changed.
+* `.gitignore` already listed `/build/`.
+* `make afl` could not be run: AFL++ is not installed. The rule was checked
+  with `make afl AFLCC=clang` (builds `build/afl/fuzz_afl`); that build was
+  deleted.
+
+No change to the program. At 069c9d7 (old Makefile) and in the working tree
+(new Makefile), in two separate copies, `make CFLAGS=-O2` built the release
+objects without `-g`, plus `test_rc` and `test_predict`. The compile commands
+are identical except for the output paths. Compared with `cmp`:
+
+| Output | Result |
+|---|---|
+| `src/{pps,decode,predict,rate_control,options,main}.o` | 6 of 6 byte-identical |
+| `libdsc.a` | byte-identical (SHA-256 71e27d1d…686d44) |
+| `dscdecode` | byte-identical (SHA-256 4f61aa2e…6ed3a) |
+| `test_rc`, `test_predict` | byte-identical |
+
+Scratch copies: `~/dsc-runs/m3/phase1/{before,after}`.
+
+Gate:
+
+* `scripts/ci.sh` with `DSCDECODE_MODEL_BIN` unset: all steps pass, model
+  SKIP. libFuzzer 763,373 executions in 61 s; deterministic smoke 680,000.
+* With `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref`: all steps pass. The
+  model step printed `dscdecode: .../build/release/dscdecode`; self-test
+  match; `oq1` in-flight, `oq2b` lower, `oq3` chunk, `oq4` midpoint, `oq2`
+  superseded. libFuzzer 725,366 executions in 61 s; deterministic smoke 680,000.
+  `tools/compare_model --build sanitize --self-test` printed
+  `build/sanitize/dscdecode` and matched.
+* 1.1 regression (`tools/run_corpus --bpp 8 --bp 0 1 --slices 2
+  --min-images 17`, release build): 34 of 34 bit-exact
+  (`~/dsc-runs/corpus/20260924-024859`).

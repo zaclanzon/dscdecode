@@ -13,6 +13,11 @@
 The model binary comes from DSCDECODE_MODEL_BIN. If that is unset, every mode
 prints SKIP and exits 77, which scripts/ci.sh counts as a pass.
 
+dscdecode is the release build, build/release/dscdecode (make). --build
+sanitize, or DSCDECODE_BUILD=sanitize, selects the ASan/UBSan build,
+build/sanitize/dscdecode (make build/sanitize/dscdecode). DSCDECODE_BIN names
+any other binary and takes precedence. Every mode prints the path it uses.
+
 The model's interface is taken only from its README.TXT, its .cfg files, and
 the files it writes. Its .dsc files are the 4 bytes "DSCF", the 128-byte PPS,
 then the payload in DSC 1.1 §4.2.2 order: slice rows, then lines, then one
@@ -234,8 +239,30 @@ def split_dsc(dsc, run_dir):
 
 # --- dscdecode --------------------------------------------------------------
 
+BUILDS = ('release', 'sanitize')
+
+
+def dscdecode_binary():
+    """DSCDECODE_BIN if set, else build/<DSCDECODE_BUILD or release>/dscdecode."""
+    if os.environ.get('DSCDECODE_BIN'):
+        return Path(os.environ['DSCDECODE_BIN'])
+    build = os.environ.get('DSCDECODE_BUILD') or 'release'
+    if build not in BUILDS:
+        raise HarnessError(f'unknown build {build}; choose one of {", ".join(BUILDS)}')
+    return REPO / 'build' / build / 'dscdecode'
+
+
+def announce_binary(stream=sys.stdout):
+    """Print the dscdecode path in use; fail early if it has not been built."""
+    exe = dscdecode_binary()
+    print(f'dscdecode: {exe}', file=stream, flush=True)
+    if not exe.is_file():
+        raise HarnessError(f'{exe} does not exist; build it with make')
+    return exe
+
+
 def dscdecode(pps, payload, out, readings=None, extra=()):
-    exe = os.environ.get('DSCDECODE_BIN', str(REPO / 'dscdecode'))
+    exe = str(dscdecode_binary())
     args = [exe, '--stats', *extra]
     for k, v in (readings or {}).items():
         args += ['--reading', f'{k}={v}']
@@ -247,7 +274,7 @@ def dscdecode(pps, payload, out, readings=None, extra=()):
 
 def decoder_defaults():
     """The reading each switch defaults to, from dscdecode's usage listing."""
-    exe = os.environ.get('DSCDECODE_BIN', str(REPO / 'dscdecode'))
+    exe = str(dscdecode_binary())
     p = subprocess.run([exe], capture_output=True, text=True, timeout=60)
     defaults = {}
     for line in p.stderr.splitlines():
@@ -328,7 +355,7 @@ def run_image(image, bpp=8.0, slices=1, slice_height=None, bp=False, line_buffer
     results = compare_decodes(run_dir, pps, payload, model_out, readings_list or [{}])
     summary = dict(mode='image', image=str(image), bpp=bpp, slices=slices,
                    block_pred=int(bp), slice_height=slice_height, run_dir=str(run_dir),
-                   results=results)
+                   dscdecode=str(dscdecode_binary()), results=results)
     (run_dir / 'result.json').write_text(json.dumps(summary, indent=1))
     return summary
 
@@ -441,6 +468,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--self-test', action='store_true')
     ap.add_argument('--json', action='store_true')
+    ap.add_argument('--build', choices=BUILDS, default=None,
+                    help='dscdecode build to use (default: DSCDECODE_BUILD, else release)')
     sub = ap.add_subparsers(dest='mode')
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument('--reading', action='append', metavar='NAME=VALUE')
@@ -465,7 +494,14 @@ def main():
     ds.add_argument('names', nargs='*')
     ds.add_argument('--json', action='store_true')
     a = ap.parse_args()
+    if a.build:
+        os.environ['DSCDECODE_BUILD'] = a.build
+    if not os.environ.get('DSCDECODE_MODEL_BIN') and (a.self_test or a.mode):
+        print('SKIP: DSCDECODE_MODEL_BIN is not set')
+        return SKIP
     try:
+        if a.self_test or a.mode:
+            announce_binary(sys.stderr if a.json else sys.stdout)
         if a.self_test:
             return mode_self_test(a)
         if a.mode == 'image':

@@ -54,13 +54,19 @@ it accepted, and `--reading partial_padding=reject` makes that an error
 ## Build and use
 
 ```sh
-make
-./dscdecode picture.pps compressed.bin output.ppm
-./dscdecode --slice picture.pps one-slice.bin slice.ppm
-make test
-make sanitize
-scripts/ci.sh      # everything CI runs: build, suites, sanitizers, fuzz smoke
+make                 # release build: build/release/dscdecode and libdsc.a
+build/release/dscdecode picture.pps compressed.bin output.ppm
+build/release/dscdecode --slice picture.pps one-slice.bin slice.ppm
+make test            # release build, then the test suites
+make sanitize        # ASan/UBSan build in build/sanitize, then its suites
+scripts/ci.sh        # everything CI runs: build, suites, sanitizers, fuzz smoke
 ```
+
+Each build flavor has its own directory under `build/`: `release`
+(`make`, `CFLAGS`, default `-O2 -g`), `sanitize`, `fuzz`, `fuzz-smoke` and
+`afl`. A `.flags` file in each directory records the compiler and flags, so
+changing either rebuilds that flavor, and one flavor never replaces another's
+binaries. `make clean` removes `build/`.
 
 Options: `--reading NAME=VALUE` selects one reading of a rate-control or
 block-prediction question the text leaves open (see "Open questions" in
@@ -105,11 +111,11 @@ transition/padding fixtures with `python3 tests/make_transition_vectors.py`.
 ```sh
 python3 tests/make_corpus.py
 make fuzz                        # requires Clang with libFuzzer
-mkdir -p fuzz-corpus               # writable corpus; tests/corpus is read-only seeds
-./fuzz_decode fuzz-corpus tests/corpus -max_len=65536 -timeout=2
+mkdir -p fuzz-corpus             # writable corpus; tests/corpus is read-only seeds
+build/fuzz/fuzz_decode fuzz-corpus tests/corpus -max_len=65536 -timeout=2
 make afl                         # requires afl-clang-fast / AFL++
-afl-fuzz -i tests/corpus -o afl-results -- ./fuzz_afl
-make fuzz-smoke                   # deterministic mutation, GCC or Clang
+afl-fuzz -i tests/corpus -o afl-results -- build/afl/fuzz_afl
+make fuzz-smoke                  # deterministic mutation, GCC or Clang
 ```
 
 The shared entry exercises both frame and single-slice APIs and caps per-input
@@ -117,6 +123,12 @@ pixels at 4096. The deterministic sanitizer smoke campaign is **not** a
 coverage-guided fuzz result. Sanitizer builds treat undefined behavior as
 fatal and report leaks; on a host where LeakSanitizer cannot run, set
 `ASAN_OPTIONS=detect_leaks=0`.
+
+`tools/compare_model`, `tools/run_corpus` and the model step of
+`scripts/ci.sh` run the release build, `build/release/dscdecode`, and print
+the path of the binary they use. `--build sanitize` (for `scripts/ci.sh`,
+`CI_MODEL_BUILD=sanitize`) selects `build/sanitize/dscdecode`;
+`DSCDECODE_BIN` names any other binary.
 
 ## Remaining correctness work
 

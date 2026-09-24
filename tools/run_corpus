@@ -9,6 +9,9 @@ directory. JPEG is used only if Pillow is installed. For every image and
 every combination of settings, the model encodes the image and both the model
 and dscdecode decode the model's bitstream.
 
+dscdecode is the release build unless --build sanitize (or DSCDECODE_BUILD, or
+DSCDECODE_BIN) says otherwise; see tools/compare_model. Its path is printed.
+
 Writes results.json and results.md (a table for PROGRESS.md) to a new directory
 under ~/dsc-runs/corpus. Images are never copied into the repository, and a
 --dir inside the repository is refused.
@@ -146,10 +149,19 @@ def main():
     ap.add_argument('--slices', type=int, nargs='+', default=[1, 2, 4])
     ap.add_argument('--min-images', type=int, default=20)
     ap.add_argument('--limit', type=int, default=0, help='use only the first N images')
+    ap.add_argument('--build', choices=cm.BUILDS, default=None,
+                    help='dscdecode build to use (default: DSCDECODE_BUILD, else release)')
     a = ap.parse_args()
+    if a.build:
+        os.environ['DSCDECODE_BUILD'] = a.build
     if not os.environ.get('DSCDECODE_MODEL_BIN'):
         print('SKIP: DSCDECODE_MODEL_BIN is not set')
         return cm.SKIP
+    try:
+        exe = cm.announce_binary()
+    except cm.HarnessError as e:
+        print(f'ERROR: {e}', file=sys.stderr)
+        return 2
     corpus = Path(a.dir).expanduser().resolve()
     if corpus == REPO or REPO in corpus.parents:
         print(f'ERROR: {corpus} is inside the repository; keep images outside it', file=sys.stderr)
@@ -187,7 +199,8 @@ def main():
         print(lines[-1], flush=True)
         status |= 0 if s['results'][0]['match'] else 1
     (work / 'results.json').write_text(json.dumps(dict(corpus=str(corpus), skipped=skipped,
-                                                       runs=summaries), indent=1))
+                                                       dscdecode=str(exe), runs=summaries),
+                                                  indent=1))
     (work / 'results.md').write_text('\n'.join(lines) + '\n')
     print(f'\n{len(ready)} images, {len(summaries)} runs; results in {work}')
     return status

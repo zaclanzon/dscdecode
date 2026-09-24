@@ -8,7 +8,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parent
 FIXTURES = ROOT/'fixtures'
-EXE = Path(sys.argv[1] if len(sys.argv) > 1 else './dscdecode').resolve()
+EXE = Path(sys.argv[1] if len(sys.argv) > 1 else 'build/release/dscdecode').resolve()
 
 
 def invoke(arguments, expect_success=True):

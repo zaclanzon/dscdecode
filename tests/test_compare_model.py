@@ -81,7 +81,7 @@ def corpus_checks(tmp, fake):
 
 
 def main():
-    exe = str(Path(sys.argv[1] if len(sys.argv) > 1 else ROOT / 'dscdecode').resolve())
+    exe = str(Path(sys.argv[1] if len(sys.argv) > 1 else ROOT / 'build' / 'release' / 'dscdecode').resolve())
     with tempfile.TemporaryDirectory(prefix='dsc-cm-') as tmp:
         common = dict(DSCDECODE_RUNS=tmp, DSCDECODE_BIN=exe, DSCDECODE_MODEL_CFG_DIR=str(ROOT / 'tests'))
         code, out = run(['--self-test'], **common)

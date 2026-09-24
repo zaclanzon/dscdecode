@@ -11,6 +11,10 @@
 #   CI_FUZZ_DIR          writable libFuzzer corpus (default: a fresh temp dir;
 #                        never tests/corpus, which holds the tracked seeds)
 #   DSCDECODE_MODEL_BIN  reference model for the model step; unset means SKIP
+#   CI_MODEL_BUILD       dscdecode build the model step compares: release
+#                        (default, build/release) or sanitize (build/sanitize)
+#
+# Each make flavor builds in its own directory under build/ (see Makefile).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -24,7 +28,7 @@ note() { printf '\n==> %s\n' "$*"; }
 
 step_build() {
     make clean
-    make CFLAGS='-O2 -g -Werror' all test_rc test_predict
+    make CFLAGS='-O2 -g -Werror' all build/release/test_rc build/release/test_predict
 }
 
 step_test() {
@@ -60,7 +64,7 @@ step_fuzz() {
     if [ -z "$work" ]; then work=$(mktemp -d); temporary=1; fi
     mkdir -p "$work"
     make fuzz
-    ./fuzz_decode -max_total_time="$FUZZ_SECONDS" -max_len=65536 -timeout=2 \
+    build/fuzz/fuzz_decode -max_total_time="$FUZZ_SECONDS" -max_len=65536 -timeout=2 \
         -artifact_prefix="$work/" -print_final_stats=1 "$work" tests/corpus
     [ "$temporary" -eq 0 ] || rm -rf "$work"
     make fuzz-smoke
@@ -72,15 +76,20 @@ step_fuzz() {
 # readings the decoder no longer defaults to may match neither (inconclusive).
 # One the manifest marks superseded is reported but not counted.
 step_model() {
-    local status=0
-    make CFLAGS='-O2 -g -Werror' all
-    tools/compare_model --self-test || status=$?
+    local status=0 build=${CI_MODEL_BUILD:-release}
+    case $build in
+        release) make CFLAGS='-O2 -g -Werror' all ;;
+        sanitize) make build/sanitize/dscdecode ;;
+        *) echo "CI_MODEL_BUILD must be release or sanitize, not $build" >&2; return 2 ;;
+    esac
+    tools/compare_model --build "$build" --self-test || status=$?
     if [ "$status" -eq 77 ]; then
         RESULTS+=("model: SKIP (DSCDECODE_MODEL_BIN not set)")
         return 0
     fi
     [ "$status" -eq 0 ] || return "$status"
-    tools/compare_model discriminators
+    tools/compare_model --build "$build" discriminators
+    RESULTS+=("model: PASS (build/$build/dscdecode)")
 }
 
 ALL=(build test fixtures sanitize fuzz model)
