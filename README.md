@@ -8,6 +8,8 @@ path in software instead.
 An open-source DSC 1.1 decoder, written from the specification with no
 VESA model code, and bit-exact with the VESA C model on 760 test streams.
 
+C11, libc only, built as a library and a command-line tool.
+
 BSD-2-Clause-Patent licensed; kernel DSC definitions retain their Intel
 notice and MIT license.
 
@@ -23,6 +25,10 @@ for bit. The hand-derived fixtures are bitstreams built by this
 repository's generators. The model and dscdecode both decode them, and
 both outputs match the hand-derived expected images. Tested with 8 bpc
 RGB 4:4:4 at constant bit rate.
+
+Where the specification text supports two readings, each reading is a
+runtime switch (dscdecode --reading). RESEARCH.md lists every open
+question and the evidence for each default.
 
 | Set | Streams | Bit-exact |
 |---|---|---|
@@ -75,7 +81,7 @@ must be removed upstream. No hardware access occurs.
 
 `include/dsc.h` exposes `dsc_parse_pps`, `dsc_decode_slice`, and
 `dsc_decode_frame`. The parser uses the kernel's `struct drm_dsc_config` and
-also parses 1.2 PPS fields, but the decoder accepts only the 1.1 profile above.
+also parses 1.2 PPS fields, but the decoder accepts only the DSC 1.1, 8 bpc RGB 4:4:4 CBR profile.
 Thresholds retain PPS units and signed BPG offsets retain six-bit encoding.
 
 Limits: 16,777,216 pixels for both a frame and an individual slice; at most 255
