@@ -770,3 +770,37 @@ step; history was not rewritten.
   stand-in harness checks as 10; `tests/test_compare_model.py` has 9. The
   count is 9 before and after this pass (the discriminators check gained
   cases, not a new check line).
+
+## Corpus comparison (2026-09-23)
+
+Corpus: the 17 images in `Full_1080p_ref_images.zip` from the VESA DSC
+test results, all 1920×1080 RGB. They were converted from BMP to PPM with
+Pillow 12.1.1. The conversion is lossless. The images stay outside the
+repository, in `~/vesa-corpus/`.
+
+Run by `tools/run_corpus` with the Phase 5 configuration, block prediction
+off and on, and 1, 2 and 4 slices per line. Model: `dsc-ref`, version
+1.67. Results: `~/dsc-runs/corpus/20260923-201016` (8 bpp) and
+`~/dsc-runs/corpus/20260923-202309` (the other rates).
+
+| bpp | Runs | Bit-exact matches | Differing samples |
+|---|---|---|---|
+| 6 | 102 | 102 | 0 |
+| 7.5 | 102 | 102 | 0 |
+| 8 | 102 | 102 | 0 |
+| 10 | 102 | 102 | 0 |
+| 12 | 102 | 102 | 0 |
+| 15 | 102 | 102 | 0 |
+| Total | 612 | 612 | 0 |
+
+Images: t_1024x1024Cr, t_1280x768_Noise_128, t_Barbara, t_Boats,
+t_CircularPatterns26, t_Desktop10, t_FineTextRendering14, t_HSweepSplit,
+t_Mandrill, t_Noise_gradient, t_TextOnTreeInField_crop, t_Tools,
+t_hintergrund-musik, t_s1_peacock, t_s2_waterdrop_icons, t_s3_forestnymph,
+t_sc_map.
+
+## GitHub Actions (2026-09-23)
+
+The first GitHub Actions run, on ubuntu-24.04, passed. The model step
+reported SKIP, and the crash-upload step did not run. This supersedes the
+Phase 1 note that the workflow has not run.

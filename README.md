@@ -16,15 +16,22 @@ notice and MIT license.
 dscdecode is a working, tested checkpoint for DSC 1.1. It has not been
 through VESA compliance testing.
 
-Agreement with the VESA C model (version 1.67), used only as a black box:
-the model encodes an image, the model and dscdecode both decode the
-model's bitstream, and the two outputs are compared bit for bit. Tested
-with 8 bpc RGB 4:4:4 at constant bit rate.
+Agreement with the VESA C model (version 1.67), used only as a black box.
+For each test image, the model encodes the image, the model and dscdecode
+both decode the model's bitstream, and the two outputs are compared bit
+for bit. The hand-derived fixtures are bitstreams built by this
+repository's generators. The model and dscdecode both decode them, and
+both outputs match the hand-derived expected images. Tested with 8 bpc
+RGB 4:4:4 at constant bit rate.
 
 | Set | Streams | Bit-exact |
 |---|---|---|
 | The 17 VESA 1080p evaluation images: 6, 7.5, 8, 10, 12 and 15 bpp, block prediction off and on, 1, 2 and 4 slices per line | 612 | 612 |
 | Synthetic pictures, hand-derived fixtures and fractional-rate tests | 148 | 148 |
+
+A successful decode does not show that an encoder's output conforms to
+DSC. Like the model, dscdecode accepts some nonconforming streams, such
+as nonzero padding in partial groups, and reports them with a warning.
 
 The images, the model and the specification are not in this repository.
 PROGRESS.md has the method and every result. THIRD_PARTY.md has the
@@ -110,16 +117,23 @@ fatal and report leaks; on a host where LeakSanitizer cannot run, set
 * The status of every open rate-control and prediction question, and the
   evidence behind each default, is in the "Open questions" table in
   `RESEARCH.md`. Two remain open: OQ-7 (DSC 1.2 only) and OQ-9 (encoder only).
-* Only DSC 1.1, 8 bits per component, RGB 4:4:4 is decoded. Fractional
-  bits_per_pixel has been exercised by a discriminator and by model-encoded
-  pictures at two rates, 7.5 and 9.3125 (`PROGRESS.md`), not across the
-  range.
-* VBR framing and buffer handling are not implemented.
+* Only DSC 1.1, 8 bits per component, RGB 4:4:4 at constant bit rate is
+  decoded. The decoder rejects streams that use any of the following as
+  unsupported; none is implemented:
+  * DSC 1.2. The PPS parser reads the 1.2 fields, but the decoder accepts
+    only version 1.1.
+  * 10 and 12 bits per component (and the 14 and 16 of DSC 1.2).
+  * VBR, including its framing and buffer handling.
+  * Native 4:2:2 and native 4:2:0 (DSC 1.2).
+  * Simple 4:2:2, and YCbCr input (`convert_rgb` 0).
+* Fractional bits_per_pixel has been exercised by a discriminator and by
+  model-encoded pictures at two rates, 7.5 and 9.3125 (`PROGRESS.md`), not
+  across the range.
 * The licensed VESA reference model is not included. `tools/compare_model`
   drives it as a black box when `DSCDECODE_MODEL_BIN` points at it, and
   `tests/discriminators/` holds inputs that separate the readings of the
-  open rate-control questions. Comparison results are recorded only in
-  `PROGRESS.md`.
+  open rate-control questions. The Status section summarizes the model
+  comparison. PROGRESS.md has every result.
 
 See `RESEARCH.md` for pinned Linux/NVIDIA/specification sources, PPS field notes,
 caller survey, RC-table adjudication, licensing evidence, and the
