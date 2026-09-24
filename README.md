@@ -130,6 +130,19 @@ the path of the binary they use. `--build sanitize` (for `scripts/ci.sh`,
 `CI_MODEL_BUILD=sanitize`) selects `build/sanitize/dscdecode`;
 `DSCDECODE_BIN` names any other binary.
 
+`tools/verify_refactor BASE HEAD` checks that a refactor between two commits,
+such as reformatting or brace insertion, leaves the compiled code and the
+Python code unchanged. It exports both commits with `git archive` into a scratch
+directory and compares: the objects of every `.c` file under `src/`, `fuzz/`
+and `tests/` (gcc and clang, `-O0` and `-O2`, no `-g`, relative paths, and an
+`assert.h` shim first on the include path so that `__LINE__` does not reach the
+objects), plus `src/` with the Makefile's flags; `dscdecode` and `libdsc.a`
+from `make CFLAGS=-O2`; clang's raw tokens of every `.c` and `.h` file, where
+only inserted `{ }` pairs are allowed and are counted; the comments, which may
+differ only in whitespace; and `ast.dump` of every Python file. It exits 1 on
+any difference and prints the first one, 0 when there is none. Files that are
+neither C nor Python are listed but not checked.
+
 ## Remaining correctness work
 
 * The status of every open rate-control and prediction question, and the

@@ -1052,3 +1052,58 @@ Gate:
 * 1.1 regression (`tools/run_corpus --bpp 8 --bp 0 1 --slices 2
   --min-images 17`, release build): 34 of 34 bit-exact
   (`~/dsc-runs/corpus/20260924-024859`).
+
+## Phase 2: tools/verify_refactor (2026-09-24)
+
+`tools/verify_refactor BASE HEAD` replaces the shim and scripts used for the
+readability-refactor check (`~/verify/`: `shim/assert.h`, `compile.sh`,
+`tokens.py`, `pyast.py`). It exports both commits with `git archive` into a
+scratch directory (`$TMPDIR`) and runs:
+
+* files: C and Python files present at only one commit are differences;
+  other changed files are listed as not verified.
+* objects: every tracked `.c` under `src/`, `fuzz/` and `tests/`, compiled
+  from the tree root with relative paths by gcc and clang at `-O0` and `-O2`,
+  `-c -std=c11 -Iinclude -Isrc`, no `-g`, with the `assert.h` shim first on
+  the include path; plus the `src/` files with the Makefile release flags
+  without `-g`. Every pair must be byte-identical. Occurrences of
+  `__LINE__`, `__FILE__`, `__DATE__` or `__TIME__` are listed, since they
+  can reach objects.
+* build: `make CFLAGS=-O2 all` at both commits; `dscdecode` and `libdsc.a`
+  (in `build/release/`, or the tree root for the older layout) must be
+  byte-identical.
+* tokens: clang raw tokens of every tracked `.c` and `.h`; the tokens must
+  rebuild each file; code tokens may differ only by inserted `{ }` pairs,
+  which are counted per file and by construct; preprocessor directives must
+  be identical.
+* comments: same text in the same order after removing whitespace; comments
+  that differ only in whitespace are counted.
+* python: `ast.dump(ast.parse(...))` of every tracked `*.py` file and every
+  file with a python shebang.
+
+It prints the first difference of each step and the first one overall, and
+exits 1 on any difference, 0 on none, 2 on a setup error. README
+"Verification and fuzzing" documents it.
+
+Tests:
+
+| Range | Result |
+|---|---|
+| 732041a..6382dae (the readability refactor) | PASS, exit 0. 50 of 50 object pairs identical; `dscdecode` and `libdsc.a` identical; 16 C files, 19,215 code tokens, 203 inserted brace pairs (if 149, for 47, else 5, while 2); 272 comments, 4 differing only in whitespace; 86 directives; 11 Python files equal. Same counts as the manual check recorded above. 3 s. |
+| 6382dae..5fd54b3: scratch commit changing `-172` to `-173` in `src/rate_control.c` | FAIL, exit 1. objects (5 pairs of `rate_control.c`), build (`dscdecode`, `libdsc.a`) and tokens (`172` replaced by `173`) report it; first difference: `gcc-O0 src/rate_control.c: objects differ`. |
+| 6382dae..181bee8: scratch commit changing one comment word in `src/decode.c` and the `--min-images` default in `tools/run_corpus` | FAIL, exit 1. objects, build and tokens same; comments and python report the change. |
+
+Both scratch commits were made on a detached HEAD in a scratch worktree
+(`~/dsc-runs/m3/phase2/scratch-wt`, since removed); no branch contains them.
+Logs: `~/dsc-runs/m3/phase1/verify-pass.log`,
+`~/dsc-runs/m3/phase2/verify-fail{,2}.log`.
+
+Gate:
+
+* `scripts/ci.sh` with the model unset: all steps pass, model SKIP.
+  libFuzzer 800,862 executions in 61 s; deterministic smoke 680,000.
+* With `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref`: all steps pass (release
+  build; self-test match; `oq1` in-flight, `oq2b` lower, `oq3` chunk, `oq4`
+  midpoint, `oq2` superseded). libFuzzer 785,152 executions in 61 s;
+  deterministic smoke 680,000.
+* 1.1 regression: 34 of 34 bit-exact (`~/dsc-runs/corpus/20260924-025529`).
