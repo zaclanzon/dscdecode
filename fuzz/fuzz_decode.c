@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
+
 #include "dsc.h"
 #include <stdlib.h>
 
@@ -15,13 +16,20 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     struct dsc_stats stats = {0};
     uint8_t *out, mix = 0, sum = 0;
     size_t pixels, i;
-    if (size < DSC_PPS_BYTES || dsc_parse_pps(data, DSC_PPS_BYTES, &c)) return 0;
+
+    if (size < DSC_PPS_BYTES || dsc_parse_pps(data, DSC_PPS_BYTES, &c)) {
+        return 0;
+    }
     pixels = (size_t)c.pic_width * c.pic_height;
     /* Bound per-input work so coverage-guided fuzzing cannot allocate enormous
      * frames. Public decoder has its own independent, larger resource limits. */
-    if (pixels > 4096 || (size_t)c.slice_width * c.slice_height > 4096) return 0;
+    if (pixels > 4096 || (size_t)c.slice_width * c.slice_height > 4096) {
+        return 0;
+    }
     out = malloc(4096 * 3);
-    if (!out) return 0;
+    if (!out) {
+        return 0;
+    }
     dsc_decode_frame(&c, data + 128, size - 128, out, 4096 * 3);
     dsc_decode_slice(&c, data + 128, size - 128, out, 4096 * 3);
     /* Also decode under a combination of the open-question readings, taken

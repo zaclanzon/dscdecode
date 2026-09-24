@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent
  * Independent sample expectations from DSC 1.1 sections 6.3--6.5.
  */
+
 #include "predict.h"
 #include <assert.h>
 #include <stdio.h>
@@ -9,12 +10,17 @@ static void line_storage(unsigned depth)
 {
     struct dsc_predict *p = dsc_predict_create(9, 2, depth, 0, 0);
     const unsigned q[3] = {0, 0, 0};
-    const int residual[3][3] = {{-28, -28, -28}, {255, 255, 255}, {1, 1, 1}};
+    const int residual[3][3] = {
+        {-28, -28, -28},
+        {255, 255, 255},
+        {1,   1,   1  }
+    };
     const int zero[3][3] = {{0}};
     const int mpp[3] = {1, 1, 1};
     const unsigned neighbors[3] = {25, 26, 31}, history[3] = {3, 4, 5};
     uint16_t pixels[3][3];
     unsigned x, j;
+
     assert(p);
     for (x = 0; x < 9; x += 3) {
         assert(!dsc_predict_group(p, x, 0, q, residual, mpp, 0, neighbors, pixels));
@@ -41,6 +47,7 @@ static void history_boundaries(void)
     const int zero[3][3] = {{0}}, mpp[3] = {1, 1, 1};
     uint16_t pixels[3][3];
     struct dsc_predict *p = dsc_predict_create(3, 2, 9, 0, 0);
+
     assert(p);
     assert(!dsc_predict_group(p, 0, 0, q, zero, mpp, 0, indices, pixels));
     /* A full three-pixel final group must not populate the history. */
@@ -59,8 +66,16 @@ static void history_boundaries(void)
  * research/bp-worked-note.md derives the pattern values used here. At QP 0
  * an MPP group reconstructs midpoint + residual, which writes exact samples.
  */
-static const uint16_t pattern_abc[3][3] = {{80, 416, 176}, {120, 256, 416}, {80, 96, 176}};
-static const uint16_t pattern_def[3][3] = {{180, 416, 336}, {180, 96, 336}, {140, 256, 96}};
+static const uint16_t pattern_abc[3][3] = {
+    {80,  416, 176},
+    {120, 256, 416},
+    {80,  96,  176}
+};
+static const uint16_t pattern_def[3][3] = {
+    {180, 416, 336},
+    {180, 96,  336},
+    {140, 256, 96 }
+};
 
 /* Write one group of exact samples with MPP at QP 0. */
 static void put(struct dsc_predict *p, unsigned x, unsigned y, const uint16_t px[3][3],
@@ -71,6 +86,7 @@ static void put(struct dsc_predict *p, unsigned x, unsigned y, const uint16_t px
     static const unsigned none[3] = {0, 0, 0};
     int residual[3][3];
     unsigned c, j;
+
     for (c = 0; c < 3; ++c) {
         for (j = 0; j < 3; ++j) {
             residual[c][j] = px[j][c] - (c ? 256 : 128);
@@ -84,6 +100,7 @@ static void zero(struct dsc_predict *p, unsigned x, unsigned y, uint16_t pixels[
 {
     static const unsigned q[3] = {0, 0, 0}, none[3] = {0, 0, 0};
     static const int no_mpp[3] = {0, 0, 0}, residual[3][3] = {{0}};
+
     assert(!dsc_predict_group(p, x, y, q, residual, no_mpp, 0, none, pixels));
 }
 
@@ -99,8 +116,11 @@ static struct dsc_predict *abc_line(unsigned width, int bp, const struct dsc_opt
     struct dsc_predict *p = dsc_predict_create(width, 2, 9, bp, 0);
     uint16_t pixels[3][3];
     unsigned x;
+
     assert(p);
-    if (o) dsc_predict_set_options(p, o);
+    if (o) {
+        dsc_predict_set_options(p, o);
+    }
     for (x = 0; x < width; x += 3) {
         put(p, x, 0, pattern_abc, pixels);
     }
@@ -112,6 +132,7 @@ static void bp_selection(void)
     uint16_t pixels[3][3];
     unsigned x;
     struct dsc_predict *p = abc_line(21, 1, NULL);
+
     for (x = 0; x < 12; x += 3) {
         put(p, x, 1, pattern_def, pixels);
     }
@@ -134,7 +155,7 @@ static void bp_selection(void)
     zero(p, 15, 1, pixels);
     assert(is(pixels, 0, 180, 416, 336) && is(pixels, 1, 180, 96, 336) &&
            is(pixels, 2, 140, 256, 96));
-    zero(p, 18, 1, pixels);                       /* copies 15-17: D E F again */
+    zero(p, 18, 1, pixels); /* copies 15-17: D E F again */
     assert(is(pixels, 0, 180, 416, 336) && is(pixels, 2, 140, 256, 96));
     dsc_predict_destroy(p);
 
@@ -164,11 +185,20 @@ static void bp_selection(void)
  * CLAMP(50, 70, 100) = 70. BP would copy 50. */
 static void bp_edge_gate(void)
 {
-    static const uint16_t gray[3][3] = {{100, 256, 256}, {110, 256, 256}, {120, 256, 256}};
-    static const uint16_t dark[3][3] = {{50, 256, 256}, {60, 256, 256}, {70, 256, 256}};
+    static const uint16_t gray[3][3] = {
+        {100, 256, 256},
+        {110, 256, 256},
+        {120, 256, 256}
+    };
+    static const uint16_t dark[3][3] = {
+        {50, 256, 256},
+        {60, 256, 256},
+        {70, 256, 256}
+    };
     uint16_t pixels[3][3];
     unsigned x;
     struct dsc_predict *p = dsc_predict_create(21, 2, 9, 1, 0);
+
     assert(p);
     for (x = 0; x < 21; x += 3) {
         put(p, x, 0, gray, pixels);
@@ -193,14 +223,19 @@ static void bp_edge_gate(void)
  * hPos 15 with midpoint and at hPos 18 with replicate. */
 static void bp_left_boundary(int reading, int bp_at_15)
 {
-    static const uint16_t line1[3][3] = {{50, 256, 256}, {90, 256, 256}, {130, 256, 256}};
-    static const unsigned luma[21] = {142, 128, 148, 128, 128, 128, 128, 128, 128, 128, 128, 128,
-                                      188, 68, 188, 188, 68, 188, 188, 68, 188};
+    static const uint16_t line1[3][3] = {
+        {50,  256, 256},
+        {90,  256, 256},
+        {130, 256, 256}
+    };
+    static const unsigned luma[21] = {142, 128, 148, 128, 128, 128, 128, 128, 128, 128, 128,
+                                      128, 188, 68,  188, 188, 68,  188, 188, 68,  188};
     uint16_t pixels[3][3], group[3][3];
     struct dsc_options o;
     struct dsc_stats st = {0};
     unsigned x, j, c;
     struct dsc_predict *p = dsc_predict_create(21, 2, 9, 1, 0);
+
     assert(p);
     dsc_options_init(&o);
     o.bp_left = reading;

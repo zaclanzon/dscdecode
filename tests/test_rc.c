@@ -2,6 +2,7 @@
  * Hand-calculated RC traces from DSC 1.1 section 6.8. These are unit tests,
  * not compressed-stream interoperability vectors. See rc-ambiguities.md.
  */
+
 #include "rate_control.h"
 #include <assert.h>
 #include <stdio.h>
@@ -11,6 +12,7 @@ static struct drm_dsc_config settings(void)
 {
     struct drm_dsc_config c;
     unsigned i;
+
     memset(&c, 0, sizeof(c));
     c.slice_width = 30;
     c.slice_height = 3;
@@ -53,6 +55,7 @@ static void qp_trace(void)
     static const unsigned visible_qp[] = {0, 8, 8, 7};
     static const int64_t fullness[] = {100, 124, 127, 130};
     static const int64_t offset[] = {-2072, -2096, -2120, -2144};
+
     assert(dsc_rc_init(&r, &c) == 0);
     assert(dsc_rc_qp(&r) == 0);
     for (i = 0; i < 4; ++i) {
@@ -71,6 +74,7 @@ static void fractional_chunk(void)
 {
     struct drm_dsc_config c = settings();
     struct dsc_rc r;
+
     c.slice_width = 7;
     c.bits_per_pixel = 129; /* 8 + 1/16 bits per pixel. */
     c.slice_chunk_size = 8;
@@ -95,6 +99,7 @@ static void invalid_traces(void)
 {
     struct drm_dsc_config c = settings();
     struct dsc_rc r;
+
     c.initial_xmit_delay = 1;
     assert(dsc_rc_init(&r, &c) == 0);
     /* CBR supplies3 bits while24 leave: model fullness would be -21. */
@@ -119,6 +124,7 @@ static void flat_unmodified(void)
 {
     struct drm_dsc_config c = settings();
     struct dsc_rc r;
+
     assert(dsc_rc_init(&r, &c) == 0);
     /* 100 bits generate QP 8 for group 2; group 1 still decodes at QP 0. */
     assert(dsc_rc_step(&r, 0, 0, 3, 100, 100) == 0);
@@ -138,6 +144,7 @@ static void flat_restart(int reading, unsigned group3_qp)
     struct dsc_options o;
     struct dsc_stats st = {0};
     struct dsc_rc r;
+
     dsc_options_init(&o);
     o.flat_restart = reading;
     o.stats = &st;
@@ -163,9 +170,10 @@ static void threshold_equality(int reading, unsigned range)
     struct dsc_options o;
     struct dsc_stats st = {0};
     struct dsc_rc r;
+
     dsc_options_init(&o);
     o.threshold_eq = reading;
-    o.rc_pipeline = DSC_RC_PIPELINE_SAME_GROUP;   /* range of this step itself */
+    o.rc_pipeline = DSC_RC_PIPELINE_SAME_GROUP; /* range of this step itself */
     o.stats = &st;
     assert(dsc_rc_init(&r, &c) == 0);
     dsc_rc_set_options(&r, &o);
@@ -185,6 +193,7 @@ static void fractional_literal(void)
     struct drm_dsc_config c = settings();
     struct dsc_options o;
     struct dsc_rc r;
+
     c.slice_width = 7;
     c.bits_per_pixel = 129;
     c.slice_chunk_size = 8;
@@ -212,6 +221,7 @@ static void delay_boundary(int reading, int64_t offset)
     struct drm_dsc_config c = settings();
     struct dsc_options o;
     struct dsc_rc r;
+
     c.initial_xmit_delay = 4;
     dsc_options_init(&o);
     o.delay_offset = reading;
@@ -235,6 +245,7 @@ static void increment_order(int reading, unsigned queued)
     struct dsc_options o;
     struct dsc_rc r;
     unsigned i;
+
     for (i = 0; i < 15; ++i) {
         c.rc_range_params[i].range_max_qp = 15;
     }
@@ -257,6 +268,7 @@ static void range_pipeline(int reading, unsigned queued)
     struct dsc_stats st = {0};
     struct dsc_rc r;
     unsigned i;
+
     for (i = 0; i < 15; ++i) {
         c.rc_range_params[i].range_min_qp = (u8)i;
         c.rc_range_params[i].range_max_qp = (u8)(i < 14 ? i : 15);
@@ -280,6 +292,7 @@ static void scale_decrement(int reading, const unsigned expect[5])
     struct dsc_options o;
     struct dsc_rc r;
     unsigned g;
+
     c.initial_scale_value = 12;
     c.scale_decrement_interval = 2;
     dsc_options_init(&o);
@@ -299,6 +312,7 @@ static void partial_target(int reading, int64_t target)
     struct drm_dsc_config c = settings();
     struct dsc_options o;
     struct dsc_rc r;
+
     c.slice_width = 7;
     c.slice_chunk_size = 7;
     dsc_options_init(&o);
@@ -323,6 +337,7 @@ static void very_flat_type(int reading, unsigned own, unsigned previous, unsigne
     struct dsc_options o;
     struct dsc_stats st = {0};
     struct dsc_rc r;
+
     dsc_options_init(&o);
     o.very_flat = reading;
     o.stats = &st;
@@ -344,6 +359,7 @@ static void flat_max_qp(int reading, unsigned own, unsigned previous, unsigned q
     struct dsc_options o;
     struct dsc_stats st = {0};
     struct dsc_rc r;
+
     assert(c.rc_range_params[14].range_max_qp == 15);
     dsc_options_init(&o);
     o.flat_max_qp = reading;
@@ -375,6 +391,7 @@ int main(void)
     range_pipeline(DSC_RC_PIPELINE_RANGE_LAG, 0);
     {
         static const unsigned from1[5] = {12, 12, 11, 11, 10}, from0[5] = {12, 11, 11, 10, 10};
+
         scale_decrement(DSC_SCALE_DEC_FROM_GROUP_1, from1);
         scale_decrement(DSC_SCALE_DEC_FROM_GROUP_0, from0);
     }

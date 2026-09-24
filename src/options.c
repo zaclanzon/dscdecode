@@ -3,12 +3,15 @@
  * reference model, used as a black box, supports one reading, that reading
  * is the default; PROGRESS.md (Phase 5) records the evidence.
  */
+
 #include "dsc.h"
 #include <string.h>
 
 void dsc_options_init(struct dsc_options *o)
 {
-    if (!o) return;
+    if (!o) {
+        return;
+    }
     memset(o, 0, sizeof(*o));
     o->flat_restart = DSC_FLAT_RESTART_IN_FLIGHT;
     o->threshold_eq = DSC_THRESHOLD_EQ_LOWER;
