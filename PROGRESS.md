@@ -804,3 +804,109 @@ t_sc_map.
 The first GitHub Actions run, on ubuntu-24.04, passed. The model step
 reported SKIP, and the crash-upload step did not run. This supersedes the
 Phase 1 note that the workflow has not run.
+
+## Readability refactor verification (2026-09-24)
+
+Checked: 62df40a, 70671c7 and b47e367 (branch
+`claude/upbeat-maxwell-6b8daj`) on top of 732041a (v0.1.0). They change 14
+files, all C: 11 `.c` and 3 `.h`. No Python, Makefile, `scripts/`,
+`.github/` or Markdown file changed. Base and head were compared in two
+worktrees. Toolchain on this VM: gcc 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1,
+also `cc`), clang 18.1.3, Python 3.12.3. The v0.1.0 corpus run used gcc
+15.2.0 and clang 21.1.8, so the matching corpus result below also shows that
+it holds on a second toolchain.
+
+* Object files. An `assert.h` shim defined `assert(e)` as `((e) ? (void)0 :
+  __builtin_trap())`, and its `-I` came first on every command line, so the
+  line numbers in `assert` do not reach the objects. `__LINE__` and `__FILE__` occur
+  nowhere else in `src/`, `fuzz/` or `tests/`. Every `.c` file in those three
+  directories (11) was compiled from the worktree root with relative paths
+  and `-c -std=c11 -Iinclude -Isrc`, no `-g`, by gcc and clang at `-O0` and
+  `-O2` (44 pairs). The 6 `src/` files were also compiled with the Makefile
+  flags without `-g`: `cc -Iinclude -O2 -std=c11 -Wall -Wextra -Wpedantic
+  -Wshadow -Wconversion` (6 pairs). All 50 pairs are byte-identical (`cmp`).
+  Neither side printed a warning.
+* Build outputs. After `make clean`, `make CFLAGS=-O2` gives byte-identical
+  `dscdecode` and `libdsc.a`, build ID included.
+* The `-g` build. A plain `make` (`-O2 -g`) gives different files. In
+  `dscdecode` the differing sections are `.debug_aranges`, `.debug_info`,
+  `.debug_abbrev`, `.debug_line`, `.debug_line_str`, `.debug_loclists` and
+  `.note.gnu.build-id`. Every other section is identical, and so is
+  `objdump -d`. The first differing byte is the section header offset in
+  the ELF header, which moves because the debug sections change size. With
+  `objcopy --strip-debug --remove-section=.note.gnu.build-id` the two files
+  are identical. `ar` writes zero timestamps and owners, so `libdsc.a`
+  differs only through its members. All five differ, only in `.debug_*` and
+  `.rela.debug_*` sections, and are identical after `--strip-debug`. This
+  is expected for a reformat built with `-g`. Debug information records
+  source line numbers, which a reformat moves: the code at 0x3340 maps to
+  `decode.c` lines 18 and 24 at base and 29 and 40 at head. It also records
+  the build directory (`DW_AT_comp_dir`), which differs between the two
+  worktrees. The build ID is a hash over the linked file, debug sections
+  included.
+* Tokens. Every `.c` and `.h` file (16) was lexed at both commits with
+  `clang -Xclang -dump-raw-tokens`, with locations and flags removed. The
+  tokens, whitespace included, rebuild each file exactly. The code tokens
+  differ only by inserted `{ }` pairs: 203 in total, the bodies of 149
+  `if`, 47 `for`, 5 `else` and 2 `while` statements. Each inserted `{` is
+  matched by an inserted `}`, and removing the pairs from head gives the
+  base tokens exactly. The 86 preprocessor directives are unchanged.
+* Comments. The raw lexer emits comments. All 272 have the same text in the
+  same order. 4 differ only in whitespace.
+* Python. `ast.dump(ast.parse(source))` is equal at both commits for all 11
+  Python files (`tests/*.py`, `tools/compare_model`, `tools/run_corpus`).
+* Other files. The diff of `Makefile`, `scripts/` and `.github/` is empty.
+  No Markdown file changed, so the README Status, Patents and summary text
+  is unchanged.
+* `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref scripts/ci.sh` at b47e367:
+  every step passed (build, test, fixtures, sanitize, fuzz, model). The
+  libFuzzer step ran 779,091 inputs in 61 s. The model step gave the v0.1.0
+  verdicts: self-test match; `oq1` in-flight, `oq2b` lower, `oq3` chunk,
+  `oq4` midpoint, `oq2` superseded. The model step, like the corpus run
+  below, used the sanitizer build of `dscdecode`.
+* `make fuzz-smoke` at b47e367 passed: 680,000 deterministic mutated-input
+  executions.
+
+Corpus at b47e367: the same 17 images in `~/vesa-corpus/`, run by
+`DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref tools/run_corpus --bpp 6 7.5 8
+10 12 15 --min-images 17`, with block prediction off and on, and 1, 2 and 4
+slices per line. Model: `dsc-ref`, version 1.67. Results:
+`~/dsc-runs/corpus/20260924-013008`.
+
+| bpp | Runs | Bit-exact matches | Differing samples |
+|---|---|---|---|
+| 6 | 102 | 102 | 0 |
+| 7.5 | 102 | 102 | 0 |
+| 8 | 102 | 102 | 0 |
+| 10 | 102 | 102 | 0 |
+| 12 | 102 | 102 | 0 |
+| 15 | 102 | 102 | 0 |
+| Total | 612 | 612 | 0 |
+
+This VM reproduces the v0.1.0 corpus result.
+
+The corpus run used the ASan/UBSan build of `dscdecode` left by the `ci.sh`
+sanitize step (`-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined
+-fno-sanitize-recover=undefined`). The model step's `make all` found it up to
+date, because make does not track CFLAGS, and `tools/compare_model` runs the
+repository's `./dscdecode`. No `*SAN_OPTIONS` variable was set.
+
+* Sanitizer reports in the run's logs: 0. None of the 44,678 text files in
+  the results directory and nothing in the console output contains one. The
+  logs keep `dscdecode`'s stderr only for a decode that exits non-zero, and
+  none did: all 612 results are matches, none with an error. In this build
+  every sanitizer finding exits non-zero: ASan aborts, UBSan is not
+  recoverable, and a leak report at exit sets status 1.
+* A sanitizer abort counts as a failure, not a match. `tools/compare_model`
+  records any non-zero exit of `dscdecode` as an error with `match` false,
+  without comparing the output image. `tools/run_corpus` prints such a run
+  as "dscdecode error" and exits 1. Checked by running `tools/run_corpus`
+  on one image with `DSCDECODE_BIN` set to a stand-in built with the same
+  flags. An ASan heap-buffer-overflow, a UBSan signed overflow and a leak
+  were each reported as "dscdecode error", with `match` false and exit
+  status 1.
+
+No corpus run used the -O2 build. Its objects are byte-identical to the base
+build, and UBSan found no undefined behavior in the 612 sanitizer-build
+decodes, so an -O2 difference would require undefined behavior that UBSan
+does not detect.
