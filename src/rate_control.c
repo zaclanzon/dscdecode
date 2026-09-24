@@ -29,12 +29,14 @@ int dsc_rc_init(struct dsc_rc *s, const struct drm_dsc_config *c)
         (c->initial_scale_value > 8 && !c->scale_decrement_interval) ||
         !c->slice_chunk_size || c->vbr_enable)
         return fail(s);
-    for (i = 0; i < 15; ++i)
+    for (i = 0; i < 15; ++i) {
         if (c->rc_range_params[i].range_min_qp > c->rc_range_params[i].range_max_qp ||
             c->rc_range_params[i].range_max_qp > 15) return fail(s);
-    for (i = 0; i < 14; ++i)
+    }
+    for (i = 0; i < 14; ++i) {
         if (c->rc_buf_thresh[i] > 255 ||
             (i && c->rc_buf_thresh[i] <= c->rc_buf_thresh[i-1])) return fail(s);
+    }
     s->offset_q11 = ((int64_t)c->initial_offset - c->rc_model_size) * 2048;
     s->scale = c->initial_scale_value;
     return 0;
@@ -252,11 +254,12 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum,
                (int64_t)c->rc_buf_thresh[range] * 64 - c->rc_model_size) ++range;
     }
     if (s->opt.stats)
-        for (k = 0; k < 14; ++k)
+        for (k = 0; k < 14; ++k) {
             if (transformed == (int64_t)c->rc_buf_thresh[k] * 64 - c->rc_model_size) {
                 ++s->opt.stats->threshold_equal;
                 break;
             }
+        }
     /* OQ-11: Figure 6-8 runs the long-term RC (range selection) one group
      * behind. In the range-lag reading the short-term RC uses the range from
      * the previous step. Before any group there is no previous step; the

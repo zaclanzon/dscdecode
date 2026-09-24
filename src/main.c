@@ -119,9 +119,10 @@ static const struct reading readings[] = {
 static const struct reading *find_reading(const char *name, const char *value)
 {
     size_t i;
-    for (i = 0; i < sizeof(readings) / sizeof(readings[0]); i++)
+    for (i = 0; i < sizeof(readings) / sizeof(readings[0]); i++) {
         if (!strcmp(readings[i].name, name) && !strcmp(readings[i].value, value))
             return &readings[i];
+    }
     return NULL;
 }
 
@@ -156,9 +157,10 @@ static int usage(const char *self)
             "Usage: %s [--slice] [--stats] [--trace FILE.csv] [--reading NAME=VALUE]... PPS.bin slices.bin output.ppm\n"
             "Readings (see RESEARCH.md, open questions):\n",
             self);
-    for (i = 0; i < sizeof(readings) / sizeof(readings[0]); i++)
+    for (i = 0; i < sizeof(readings) / sizeof(readings[0]); i++) {
         fprintf(stderr, "  %s=%s%s\n", readings[i].name, readings[i].value,
                 *readings[i].field(&defaults) == readings[i].code ? " (default)" : "");
+    }
     return 2;
 }
 

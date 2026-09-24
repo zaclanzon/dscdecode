@@ -39,7 +39,9 @@ int main(int argc, char **argv)
             if (i % 8 == 0)
                 len = random32() % (n + 1);
             else if (i % 8 == 1) {
-                for (k = 0; k < n; k++) work[k] = (uint8_t)random32();
+                for (k = 0; k < n; k++) {
+                    work[k] = (uint8_t)random32();
+                }
             } else
                 for (k = 0; k < changes; k++) {
                     size_t base = i % 3 ? 128 : 0;

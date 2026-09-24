@@ -47,14 +47,16 @@ static int validate(const struct drm_dsc_config *c)
         return DSC_LIMIT;
     if (c->slice_chunk_size != ((unsigned)c->slice_width * c->bits_per_pixel + 127) / 128)
         return DSC_INVALID;
-    for (i = 0; i < 14; i++)
+    for (i = 0; i < 14; i++) {
         if (c->rc_buf_thresh[i] > 255 || (i && c->rc_buf_thresh[i] <= c->rc_buf_thresh[i - 1]) ||
             c->rc_buf_thresh[i] * 64u >= c->rc_model_size)
             return DSC_INVALID;
-    for (i = 0; i < 15; i++)
+    }
+    for (i = 0; i < 15; i++) {
         if (c->rc_range_params[i].range_min_qp > c->rc_range_params[i].range_max_qp ||
             c->rc_range_params[i].range_max_qp > 15 || c->rc_range_params[i].range_bpg_offset > 63)
             return DSC_INVALID;
+    }
     return DSC_OK;
 }
 
@@ -67,7 +69,9 @@ static int refill(struct reservoir *r, const uint8_t *p, size_t n, size_t *pos)
     if (left >= 36) return 0;
     if (*pos > n || n - *pos < 6) return -1;
     memmove(r->bits, r->bits + r->read, left);
-    for (i = 0; i < 48; i++) r->bits[left + i] = (p[*pos + i / 8] >> (7 - i % 8)) & 1;
+    for (i = 0; i < 48; i++) {
+        r->bits[left + i] = (p[*pos + i / 8] >> (7 - i % 8)) & 1;
+    }
     *pos += 6;
     r->read = 0;
     r->count = left + 48;
@@ -78,7 +82,9 @@ static int take(struct reservoir *r, unsigned n, unsigned *v)
 {
     unsigned k, x = 0;
     if (n > 16 || r->count - r->read < n) return -1;
-    for (k = 0; k < n; k++) x = x * 2 + r->bits[r->read++];
+    for (k = 0; k < n; k++) {
+        x = x * 2 + r->bits[r->read++];
+    }
     *v = x;
     return 0;
 }
@@ -87,8 +93,9 @@ static unsigned signed_size(int n)
 {
     unsigned w;
     if (!n) return 0;
-    for (w = 1; w <= 10; w++)
+    for (w = 1; w <= 10; w++) {
         if (n >= -(1 << (w - 1)) && n < (1 << (w - 1))) return w;
+    }
     return 11;
 }
 
@@ -100,7 +107,9 @@ static int syntax(struct syntax_state *s, const struct drm_dsc_config *c, unsign
     static const unsigned chroma[16] = {0, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 8, 8, 8};
     unsigned start = 0, j, k, v, z, max, pred, width, required[3], largest;
     if (qp > 15) return -1;
-    for (j = 0; j < 3; j++) start += s->s[j].read;
+    for (j = 0; j < 3; j++) {
+        start += s->s[j].read;
+    }
     if (group % 4 == 3) {
         s->flat_flag = 0;
         if (qp >= c->flatness_min_qp && qp <= c->flatness_max_qp) {
@@ -163,7 +172,9 @@ static int syntax(struct syntax_state *s, const struct drm_dsc_config *c, unsign
     if (*ich) *ideal = 16;
     s->was_ich = *ich;
     *actual = 0;
-    for (j = 0; j < 3; j++) *actual += s->s[j].read;
+    for (j = 0; j < 3; j++) {
+        *actual += s->s[j].read;
+    }
     *actual -= start;
     return 0;
 }
@@ -195,14 +206,15 @@ static int decode_slice(const struct drm_dsc_config *c, const struct dsc_options
     if (!pred) return DSC_NOMEM;
     dsc_predict_set_options(pred, opt);
     s.flat_group = (size_t)-1;
-    for (y = 0; y < c->slice_height; y++)
+    for (y = 0; y < c->slice_height; y++) {
         for (x = 0; x < c->slice_width; x += 3, g++) {
             unsigned count = c->slice_width - x < 3 ? c->slice_width - x : 3;
-            for (j = 0; j < 3; j++)
+            for (j = 0; j < 3; j++) {
                 if (refill(&s.s[j], p, n, &pos)) {
                     status = DSC_TRUNCATED;
                     goto done;
                 }
+            }
             if (dsc_rc_apply_flat(&rc, s.flat_group == g, s.flat_type)) {
                 status = DSC_RATE_CONTROL;
                 goto done;
@@ -224,8 +236,9 @@ static int decode_slice(const struct drm_dsc_config *c, const struct dsc_options
                 if (ich)
                     noncanonical = idx[k] != idx[count - 1];
                 else
-                    for (j = 0; j < 3; j++)
+                    for (j = 0; j < 3; j++) {
                         if (res[j][k]) noncanonical = 1;
+                    }
                 if (noncanonical) {
                     if (opt->stats) ++opt->stats->padding_nonzero;
                     if (opt->partial_padding == DSC_PARTIAL_PADDING_REJECT) {
@@ -269,22 +282,26 @@ static int decode_slice(const struct drm_dsc_config *c, const struct dsc_options
                 opt->trace(opt->trace_context, &tr);
             }
         }
+    }
     /* Residual funnel and CBR slice-tail padding must be zero (6.7.4). */
-    for (j = 0; j < 3; j++)
-        for (k = s.s[j].read; k < s.s[j].count; k++)
+    for (j = 0; j < 3; j++) {
+        for (k = s.s[j].read; k < s.s[j].count; k++) {
             if (s.s[j].bits[k]) {
                 status = DSC_BITSTREAM;
                 goto done;
             }
+        }
+    }
     if (c->vbr_enable && pos != n) {
         status = DSC_INVALID;
         goto done;
     }
-    for (; pos < n; pos++)
+    for (; pos < n; pos++) {
         if (p[pos]) {
             status = DSC_BITSTREAM;
             goto done;
         }
+    }
     status = DSC_OK;
 done:
     dsc_predict_destroy(pred);
@@ -338,7 +355,7 @@ int dsc_decode_frame_ex(const struct drm_dsc_config *c, const struct dsc_options
         free(decoded);
         return DSC_NOMEM;
     }
-    for (sy = 0; sy < ny; sy++)
+    for (sy = 0; sy < ny; sy++) {
         for (sx = 0; sx < nx; sx++) {
             for (y = 0; y < c->slice_height; y++) {
                 size_t source =
@@ -355,6 +372,7 @@ int dsc_decode_frame_ex(const struct drm_dsc_config *c, const struct dsc_options
                        decoded + (size_t)y * c->slice_width * 3, (size_t)width * 3);
             }
         }
+    }
 done:
     free(slice);
     free(decoded);

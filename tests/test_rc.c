@@ -28,7 +28,9 @@ static struct drm_dsc_config settings(void)
     c.rc_quant_incr_limit1 = 11;
     c.rc_tgt_offset_low = 3;
     c.rc_tgt_offset_high = 3;
-    for (i = 0; i < 14; ++i) c.rc_buf_thresh[i] = (u16)((i + 1) * 8);
+    for (i = 0; i < 14; ++i) {
+        c.rc_buf_thresh[i] = (u16)((i + 1) * 8);
+    }
     for (i = 0; i < 15; ++i) {
         c.rc_range_params[i].range_min_qp = 8;
         c.rc_range_params[i].range_max_qp = 8;
@@ -233,7 +235,9 @@ static void increment_order(int reading, unsigned queued)
     struct dsc_options o;
     struct dsc_rc r;
     unsigned i;
-    for (i = 0; i < 15; ++i) c.rc_range_params[i].range_max_qp = 15;
+    for (i = 0; i < 15; ++i) {
+        c.rc_range_params[i].range_max_qp = 15;
+    }
     dsc_options_init(&o);
     o.incr_order = reading;
     assert(dsc_rc_init(&r, &c) == 0);

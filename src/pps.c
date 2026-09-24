@@ -17,8 +17,9 @@ int dsc_parse_pps(const uint8_t *p, size_t n, struct drm_dsc_config *c)
         (p[27] & 224) || (p[36] & 224) || (p[37] & 224) || (p[40] & 240) || (p[41] & 224) ||
         (p[42] & 224))
         return DSC_INVALID;
-    for (i = c->dsc_version_minor == 1 ? 88 : 94; i < 128; i++)
+    for (i = c->dsc_version_minor == 1 ? 88 : 94; i < 128; i++) {
         if (p[i]) return DSC_INVALID;
+    }
     if (c->dsc_version_minor == 2 && ((p[88] & 252) || (p[89] & 224))) return DSC_INVALID;
     c->bits_per_component = p[3] >> 4;
     c->line_buf_depth = p[3] & 15;
@@ -54,7 +55,9 @@ int dsc_parse_pps(const uint8_t *p, size_t n, struct drm_dsc_config *c)
     c->rc_quant_incr_limit1 = p[42];
     c->rc_tgt_offset_high = p[43] >> 4;
     c->rc_tgt_offset_low = p[43] & 15;
-    for (i = 0; i < 14; i++) c->rc_buf_thresh[i] = p[44 + i];
+    for (i = 0; i < 14; i++) {
+        c->rc_buf_thresh[i] = p[44 + i];
+    }
     for (i = 0; i < 15; i++) {
         unsigned r = be16(p + 58 + 2 * i);
         c->rc_range_params[i].range_min_qp = (u8)(r >> 11);

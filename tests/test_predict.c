@@ -16,8 +16,9 @@ static void line_storage(unsigned depth)
     uint16_t pixels[3][3];
     unsigned x, j;
     assert(p);
-    for (x = 0; x < 9; x += 3)
+    for (x = 0; x < 9; x += 3) {
         assert(!dsc_predict_group(p, x, 0, q, residual, mpp, 0, neighbors, pixels));
+    }
     assert(!dsc_predict_group(p, 0, 1, q, zero, mpp, 1, neighbors, pixels));
     for (j = 0; j < 3; ++j) {
         assert(pixels[0][j] == 100);
@@ -70,8 +71,11 @@ static void put(struct dsc_predict *p, unsigned x, unsigned y, const uint16_t px
     static const unsigned none[3] = {0, 0, 0};
     int residual[3][3];
     unsigned c, j;
-    for (c = 0; c < 3; ++c)
-        for (j = 0; j < 3; ++j) residual[c][j] = px[j][c] - (c ? 256 : 128);
+    for (c = 0; c < 3; ++c) {
+        for (j = 0; j < 3; ++j) {
+            residual[c][j] = px[j][c] - (c ? 256 : 128);
+        }
+    }
     assert(!dsc_predict_group(p, x, y, q, (const int (*)[3])residual, all_mpp, 0, none, pixels));
 }
 
@@ -97,7 +101,9 @@ static struct dsc_predict *abc_line(unsigned width, int bp, const struct dsc_opt
     unsigned x;
     assert(p);
     if (o) dsc_predict_set_options(p, o);
-    for (x = 0; x < width; x += 3) put(p, x, 0, pattern_abc, pixels);
+    for (x = 0; x < width; x += 3) {
+        put(p, x, 0, pattern_abc, pixels);
+    }
     return p;
 }
 
@@ -106,7 +112,9 @@ static void bp_selection(void)
     uint16_t pixels[3][3];
     unsigned x;
     struct dsc_predict *p = abc_line(21, 1, NULL);
-    for (x = 0; x < 12; x += 3) put(p, x, 1, pattern_def, pixels);
+    for (x = 0; x < 12; x += 3) {
+        put(p, x, 1, pattern_def, pixels);
+    }
     /* hPos 12: bpCount is 2, so MMAP. a = F, b = A, c = C:
      * P0 = CLAMP(a+b-c, MIN(a,b), MAX(a,b)) = (140, 416, 96).
      * P1 adds d = B: Y 140+120-80 = 180 -> 140; Co 256+256-96 = 416; Cg
@@ -120,7 +128,9 @@ static void bp_selection(void)
      * vector -3 copies pixels 12-14, so the output is D E F. MMAP would give
      * Y 140 for pixel 15 (a = F.Y 140, b = A.Y 80, c = C.Y 80). */
     p = abc_line(21, 1, NULL);
-    for (x = 0; x < 15; x += 3) put(p, x, 1, pattern_def, pixels);
+    for (x = 0; x < 15; x += 3) {
+        put(p, x, 1, pattern_def, pixels);
+    }
     zero(p, 15, 1, pixels);
     assert(is(pixels, 0, 180, 416, 336) && is(pixels, 1, 180, 96, 336) &&
            is(pixels, 2, 140, 256, 96));
@@ -130,7 +140,9 @@ static void bp_selection(void)
 
     /* block_pred_enable 0: never BP, so hPos 15 is MMAP, Y 140. */
     p = abc_line(21, 0, NULL);
-    for (x = 0; x < 15; x += 3) put(p, x, 1, pattern_def, pixels);
+    for (x = 0; x < 15; x += 3) {
+        put(p, x, 1, pattern_def, pixels);
+    }
     zero(p, 15, 1, pixels);
     assert(is(pixels, 0, 140, 416, 96));
     dsc_predict_destroy(p);
@@ -138,7 +150,9 @@ static void bp_selection(void)
     /* Width 17: the group at hPos 15 has two pixels, a partial group, so
      * MMAP although bpCount is 3. */
     p = abc_line(17, 1, NULL);
-    for (x = 0; x < 15; x += 3) put(p, x, 1, pattern_def, pixels);
+    for (x = 0; x < 15; x += 3) {
+        put(p, x, 1, pattern_def, pixels);
+    }
     zero(p, 15, 1, pixels);
     assert(is(pixels, 0, 140, 416, 96));
     dsc_predict_destroy(p);
@@ -156,8 +170,12 @@ static void bp_edge_gate(void)
     unsigned x;
     struct dsc_predict *p = dsc_predict_create(21, 2, 9, 1, 0);
     assert(p);
-    for (x = 0; x < 21; x += 3) put(p, x, 0, gray, pixels);
-    for (x = 0; x < 15; x += 3) put(p, x, 1, dark, pixels);
+    for (x = 0; x < 21; x += 3) {
+        put(p, x, 0, gray, pixels);
+    }
+    for (x = 0; x < 15; x += 3) {
+        put(p, x, 1, dark, pixels);
+    }
     zero(p, 15, 1, pixels);
     assert(pixels[0][0] == 70);
     dsc_predict_destroy(p);
@@ -189,11 +207,16 @@ static void bp_left_boundary(int reading, int bp_at_15)
     o.stats = &st;
     dsc_predict_set_options(p, &o);
     for (x = 0; x < 21; x += 3) {
-        for (j = 0; j < 3; ++j)
-            for (c = 0; c < 3; ++c) group[j][c] = (uint16_t)(c ? 256 : luma[x + j]);
+        for (j = 0; j < 3; ++j) {
+            for (c = 0; c < 3; ++c) {
+                group[j][c] = (uint16_t)(c ? 256 : luma[x + j]);
+            }
+        }
         put(p, x, 0, (const uint16_t (*)[3])group, pixels);
     }
-    for (x = 0; x < 15; x += 3) put(p, x, 1, line1, pixels);
+    for (x = 0; x < 15; x += 3) {
+        put(p, x, 1, line1, pixels);
+    }
     /* BP copies 50; MMAP gives CLAMP(130+188-188, 130, 188) = 130. */
     zero(p, 15, 1, pixels);
     assert(pixels[0][0] == (bp_at_15 ? 50 : 130));

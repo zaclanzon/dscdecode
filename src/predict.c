@@ -83,13 +83,14 @@ static int bp_search(const struct dsc_predict *p, int x, int left)
         unsigned total = 0, sad;
         for (b = 0; b < 3; ++b) {
             unsigned partial = 0;
-            for (j = 0; j < 3; ++j)
+            for (j = 0; j < 3; ++j) {
                 for (c = 0; c < 3; ++c) {
                     int pos = x - 6 + (int)(3 * b + j);
                     int d = bp_sample(p, pos, c, left) - bp_sample(p, pos + candidates[k], c, left);
                     unsigned m = (unsigned)(d < 0 ? -d : d) >> (c ? 2 : 1); /* bitDepth - 7 */
                     partial += m > 63 ? 63 : m;
                 }
+            }
             total += partial > 511 ? 511 : partial;
         }
         /* OQ-10: 1.1's prose and DSC 1.2b drop three LSBs; 1.1's formula clips. */
@@ -109,11 +110,12 @@ static int bp_recent_edge(const struct dsc_predict *p, int last, int left)
 {
     int q;
     unsigned c;
-    for (q = last - 2; q <= last; ++q)
+    for (q = last - 2; q <= last; ++q) {
         for (c = 0; c < 3; ++c) {
             int d = bp_sample(p, q, c, left) - bp_sample(p, q - 1, c, left);
             if (d > 32 || d < -32) return 1;
         }
+    }
     return 0;
 }
 
@@ -147,18 +149,22 @@ static void history_update(struct dsc_predict *p, int ich,
         int duplicate = 0;
         --i;
         if (ich)
-            for (j = i + 1; j < 3; ++j)
+            for (j = i + 1; j < 3; ++j) {
                 if (index[i] == index[j]) duplicate = 1;
+            }
         if (!duplicate) {
-            for (c = 0; c < 3; ++c) next[n][c] = out[c][i];
+            for (c = 0; c < 3; ++c) {
+                next[n][c] = out[c][i];
+            }
             ++n;
         }
     }
     for (i = 0; i < p->valid && n < capacity; ++i) {
         int selected = 0;
         if (ich)
-            for (j = 0; j < 3; ++j)
+            for (j = 0; j < 3; ++j) {
                 if (index[j] == i) selected = 1;
+            }
         if (!selected) {
             memcpy(next[n], p->history[i], sizeof(next[n]));
             ++n;
@@ -178,8 +184,9 @@ int dsc_predict_group(struct dsc_predict *p, unsigned x, unsigned y,
         x != p->next_x || y != p->next_y || x >= p->width || y >= p->height) return -1;
     for (c = 0; c < 3; ++c) {
         if (qlevel[c] > (c ? 8U : 7U)) return -1;
-        for (j = 0; j < 3; ++j)
+        for (j = 0; j < 3; ++j) {
             if (residual[c][j] < -512 || residual[c][j] > 511) return -1;
+        }
     }
     n = p->width - x < 3 ? p->width - x : 3;
     capacity = y ? 25 : 32;
@@ -206,14 +213,17 @@ int dsc_predict_group(struct dsc_predict *p, unsigned x, unsigned y,
             if (index[j] >= 32) return -1;
             if (index[j] < capacity) {
                 if (index[j] >= p->valid) return -1;
-                for (c = 0; c < 3; ++c) out[c][j] = p->history[index[j]][c];
+                for (c = 0; c < 3; ++c) {
+                    out[c][j] = p->history[index[j]][c];
+                }
             } else {
                 int base;
                 /* Seven-neighbor semantics have no definition for width < 7. */
                 if (p->width < 7) return -1;
                 base = clamp((int)x - 2, 0, (int)p->width - 7);
-                for (c = 0; c < 3; ++c)
+                for (c = 0; c < 3; ++c) {
                     out[c][j] = (uint16_t)above(p, base + (int)index[j] - 25, c);
+                }
             }
         }
     }
@@ -243,7 +253,9 @@ int dsc_predict_group(struct dsc_predict *p, unsigned x, unsigned y,
             }
         }
     for (c = 0; c < 3; ++c) {
-        for (j = 0; j < n; ++j) p->current[(x + j) * 3 + c] = out[c][j];
+        for (j = 0; j < n; ++j) {
+            p->current[(x + j) * 3 + c] = out[c][j];
+        }
         p->last[c] = out[c][n - 1];
     }
     /* Section 6.5.2 excludes every last group, including a full final group. */
@@ -251,13 +263,14 @@ int dsc_predict_group(struct dsc_predict *p, unsigned x, unsigned y,
     p->next_x = x + n;
     if (p->next_x == p->width) {
         uint16_t *swap;
-        for (j = 0; j < p->width; ++j)
+        for (j = 0; j < p->width; ++j) {
             for (c = 0; c < 3; ++c) {
                 unsigned bits = c ? 9 : 8;
                 unsigned shift = bits > p->depth ? bits - p->depth : 0;
                 int rounded = (p->current[j * 3 + c] + (shift ? (1 << (shift - 1)) : 0)) >> shift;
                 p->current[j * 3 + c] = (uint16_t)(minimum(rounded, (1 << p->depth) - 1) << shift);
             }
+        }
         swap = p->previous;
         p->previous = p->current;
         p->current = swap;
