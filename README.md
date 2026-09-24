@@ -147,16 +147,13 @@ current verification report. No driver patches are part of this project.
 
 ## Patents
 
-DSC is a VESA standard. VESA members have declared patents that may apply
-to DSC, with licensing under VESA's intellectual property policy. In the
-patent declarations in VESA's DSC release package, each member that filed
-an IPR response form committed to license its declared patents on RAND
-terms, with the right to charge royalties. The BSD+Patent license covers
-only patents held by this project's contributors. It grants no license to
-anyone else's patents. You alone are responsible for deciding whether your
-use of dscdecode needs other licenses, including patent licenses, and for
-obtaining them. The authors do not obtain such licenses for users and are
-not liable for any fees they require.
+This project is licensed under BSD-2-Clause-Patent. That license includes
+a limited patent grant from this project's contributors. It does not grant
+rights to third-party patents that may cover DSC. In the patent
+declarations in VESA's DSC release package, each member that filed an IPR
+response form committed to license its declared patents on RAND terms,
+with the right to charge royalties. Users should assess whether their
+intended use requires additional licenses.
 
 ## Development
 
