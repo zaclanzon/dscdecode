@@ -164,7 +164,11 @@ def main():
                      'oq2b_threshold_equality (threshold_eq): model output matches lower',
                      'oq3_fractional_bpp (frac_reset): model output matches chunk',
                      'oq4_bp_left (bp_left): model output matches replicate',
-                     superseded, 'for the record, model output matches NEITHER prediction'):
+                     superseded, 'for the record, model output matches NEITHER prediction',
+                     # YCbCr inputs: the stub's .yuv (native 4:2:2 and 4:2:0).
+                     'oq38_activity422 (activity422): model output matches sizes',
+                     'oq40_offset_adj (offset_adj): model output matches start',
+                     'oq41b_ich_window (ich_window): model output matches container'):
             assert line in out, out
         assert 'inconclusive' not in out and code == 0, out
         # A stub output that matches no prediction: inputs built under the M1

@@ -147,6 +147,32 @@ enum dsc_flat_top {             /* OQ-34, §6.8.5.2 no adjustment at range 14's 
     DSC_FLAT_TOP_AT_OR_ABOVE = 1 /* also above it, which DSC 1.2's bitSaveMode can reach */
 };
 
+/* DSC 1.2 native 4:2:2 and 4:2:0 (DSC 1.2b §3.10.1, §6.4, §6.8.4). */
+enum dsc_activity420 {            /* OQ-37, §6.8.4 predActivity in native 4:2:0, printed unbalanced */
+    DSC_ACTIVITY420_LUMA = 0,     /* prevQp + MAX(predictedSize[0], predictedSize[1]) + predictedSize[2] */
+    DSC_ACTIVITY420_SUM = 1       /* prevQp + MAX(predictedSize[0], predictedSize[1] + predictedSize[2]) */
+};
+
+enum dsc_activity422 {            /* OQ-38, §6.8.4 predActivity in native 4:2:2 */
+    DSC_ACTIVITY422_SIZES = 0,    /* prevQp + (sum of the four predictedSizes >> 1) */
+    DSC_ACTIVITY422_TOTAL = 1     /* (prevQp + sum of the four) >> 1, the C reading of the text */
+};
+
+enum dsc_bp420_edge {             /* OQ-39, §6.4.4.1 lastEdgeCount in native 4:2:0 */
+    DSC_BP420_EDGE_LUMA = 0,      /* edges in the luma units only, as BP and its search (§3.10.1) */
+    DSC_BP420_EDGE_ALL = 1        /* edges in any container component, chroma included */
+};
+
+enum dsc_offset_adj {             /* OQ-40, second_line_offset_adj (native 4:2:0) */
+    DSC_OFFSET_ADJ_SUBTRACT = 0,  /* subtracted once the first line is done (§6.8.2) */
+    DSC_OFFSET_ADJ_START = 1      /* also added at the slice start (Annex E, Table E-2) */
+};
+
+enum dsc_ich_window {            /* OQ-41, §6.5.1 previous-line ICH pairs at the slice edges (native) */
+    DSC_ICH_WINDOW_PIXELS = 0,    /* the eight luma samples shifted to lie in the slice */
+    DSC_ICH_WINDOW_CONTAINER = 1  /* the container pixels x - 1 to x + 3 shifted to lie in the slice */
+};
+
 enum dsc_bp_left {             /* OQ-4, DSC 1.1 §6.4.4.1 */
     DSC_BP_LEFT_REPLICATE = 0, /* previous-line samples left of the slice repeat its first sample */
     DSC_BP_LEFT_MIDPOINT = 1   /* ... are the component midpoint */
@@ -175,6 +201,16 @@ enum dsc_rc_pipeline {              /* OQ-11, DSC 1.1 Figure 6-8, §7.3 */
 enum dsc_scale_dec {                /* OQ-14, DSC 1.1 §6.8.2 */
     DSC_SCALE_DEC_FROM_GROUP_1 = 0, /* decrement interval counted from the second group */
     DSC_SCALE_DEC_FROM_GROUP_0 = 1  /* ... counted from the first group of the slice */
+};
+
+enum dsc_scale_first {             /* OQ-42, DSC 1.1 and DSC 1.2b §6.8.2 */
+    DSC_SCALE_FIRST_GROUP = 0,     /* with scale_decrement_interval 1 the first group decrements */
+    DSC_SCALE_FIRST_NOT = 1        /* the first group keeps initial_scale_value; the count is unchanged */
+};
+
+enum dsc_scale_line {              /* OQ-43, DSC 1.1 and DSC 1.2b §6.8.2, Annex E */
+    DSC_SCALE_LINE_UNTIL_UNITY = 0, /* decrements continue until unity, past the first line if need be */
+    DSC_SCALE_LINE_FIRST = 1        /* decrements only during the first line of the slice */
 };
 
 enum dsc_partial_target {         /* OQ-15, DSC 1.1 §6.8.1, §6.8.4 */
@@ -216,6 +252,9 @@ struct dsc_stats {
     unsigned long delay_partial_differs; /* groups whose initial-delay offsets differ (OQ-19) */
     unsigned long bit_save_groups;       /* DSC 1.2 RC steps taken in bit-saving mode 1 or 2 */
     unsigned long line_flat;             /* DSC 1.2 first-group-of-line very-flat adjustments */
+    unsigned long activity_differs;      /* native RC steps whose bitSaveMode the OQ-37/OQ-38 readings change */
+    unsigned long bp420_edge_differs;    /* native 4:2:0 groups whose BP decision depends on OQ-39 */
+    unsigned long ich_window_differs;    /* native previous-line ICH lookups the OQ-41 readings place differently */
 };
 
 /* One record per decoded group, after its rate-control step. */
@@ -235,6 +274,8 @@ struct dsc_options {
     int bpg_combine, chroma_qlevel, prefix16, bitsave_ich, bitsave_pred, bitsave_flat, line_flat;
     int low_min, decrement_test, activity_qp, bitsave_step, target_floor, flat_rerun, rerun_bitsave,
         mux16, flat_top, prefix16_scope, prefix16_cut;
+    int activity420, activity422, bp420_edge, offset_adj, ich_window;
+    int scale_first, scale_line;
     struct dsc_stats *stats; /* optional */
     dsc_trace_fn trace;      /* optional */
     void *trace_context;
@@ -271,9 +312,13 @@ int dsc_decode_frame_ex(const struct drm_dsc_config *cfg, const struct dsc_optio
                         const uint8_t *data, size_t size, uint8_t *rgb, size_t capacity);
 
 /* Output with 16-bit samples, one plane per component: R, G, B when
- * convert_rgb is set. Samples are in the low bits_per_component bits. stride
- * and capacity count samples; each plane needs capacity of at least
- * stride * (height - 1) + width, stride at least width. */
+ * convert_rgb is set, else Y, Cb, Cr (no color conversion, DSC 1.2b §7.7).
+ * The chroma planes of simple 4:2:2 and native 4:2:2 have half the width
+ * (rounded up), those of native 4:2:0 half the width and half the height;
+ * chroma is co-sited with the even-position luma samples. Samples are in the
+ * low bits_per_component bits. stride and capacity count samples; each plane
+ * needs capacity of at least stride * (height - 1) + width, stride at least
+ * width. dsc_plane_size gives each plane's size. */
 struct dsc_planes {
     uint16_t *plane[3];
     size_t stride[3], capacity[3];

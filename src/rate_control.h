@@ -14,6 +14,7 @@ struct dsc_rc_inputs {
     unsigned actual, ideal, previous_ideal, min_qp, max_qp;
     int v12, zero;                   /* DSC 1.2 rules; all residuals zero */
     unsigned bit_save, top_qp;       /* bitSaveMode; 2 * bpc - 1 */
+    int overflow;                    /* -172, or -224 in native 4:2:2 (DSC 1.2b §6.8.4) */
 };
 
 /* What the entropy decoder reports for one group (DSC 1.2b Table 7-1). */
@@ -37,6 +38,7 @@ struct dsc_rc {
     struct dsc_options opt;
     unsigned max_qp, flat_type_qp, very_flat_qp; /* scaled by bpc (dsc_qp_scale) */
     int v12;                                     /* dsc_version_minor 2 */
+    int native;                                  /* enum dsc_native of the format */
     unsigned bit_save, mpp_state, bit_save_thresh; /* DSC 1.2b §6.8.4 */
     /* The last step's group and bitSaveMode state before its update, for a
      * re-run that computes bitSaveMode again (OQ-32). */

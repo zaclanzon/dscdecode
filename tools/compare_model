@@ -81,8 +81,15 @@ READINGS = {
     'flat_top': ('equal', 'at-or-above'),
     'prefix16_scope': ('qp0', 'qlevel'),
     'prefix16_cut': ('always', 'longer'),
+    'activity420': ('luma', 'sum'),
+    'activity422': ('sizes', 'total'),
+    'bp420_edge': ('luma', 'all'),
+    'offset_adj': ('subtract', 'start'),
+    'ich_window': ('pixels', 'container'),
+    'scale_first': ('group', 'not'),
+    'scale_line': ('until-unity', 'first'),
 }
-RC_NAME = re.compile(r'rc_(\d+)bpc_(\d+)bpp\.cfg$')
+RC_NAME = re.compile(r'rc_(\d+)bpc_(\d+)bpp(_42[02])?\.cfg$')
 
 
 class HarnessError(Exception):
@@ -182,6 +189,118 @@ def compare_images(expected_path, actual_path):
     return result
 
 
+# --- YCbCr ---------------------------------------------------------------------
+#
+# dscdecode writes YCbCr as NAME.yuv in the layouts of the model's .yuv files
+# (its README.TXT: YUV_FILE_FORMAT 0 planar 4:2:0, 1 interleaved UYVY 4:2:2),
+# and 4:4:4 planar; above 8 bits every sample takes two bytes, least
+# significant first, with the value in the most significant bits, as the
+# model's files hold it. The model writes 4:4:4 YCbCr only as DPX
+# (descriptor 102), read below into the planar layout.
+
+FORMATS = ('rgb', 'ycbcr_444', 'simple_422', 'native_422', 'native_420')
+
+
+def stream_format(pps):
+    """The coding format a 128-byte PPS describes."""
+    if pps[4] & 0x10:
+        return 'rgb'
+    if pps[0] & 15 == 2 and pps[88] & 1:
+        return 'native_422'
+    if pps[0] & 15 == 2 and pps[88] & 2:
+        return 'native_420'
+    return 'simple_422' if pps[4] & 0x08 else 'ycbcr_444'
+
+
+def pps_geometry(pps):
+    """(width, height, bpc) of the picture a PPS describes."""
+    bpc = pps[3] >> 4 or 16
+    return pps[8] << 8 | pps[9], pps[6] << 8 | pps[7], bpc
+
+
+def yuv_planes(fmt, w, h):
+    """(name, width, height) of each plane of the planar layouts."""
+    cw = (w + 1) // 2 if fmt != 'ycbcr_444' else w
+    ch = (h + 1) // 2 if fmt == 'native_420' else h
+    return [('Y', w, h), ('Cb', cw, ch), ('Cr', cw, ch)]
+
+
+def yuv_samples(data, bpc):
+    if bpc <= 8:
+        return list(data)
+    return [data[i] | data[i + 1] << 8 for i in range(0, len(data), 2)]
+
+
+def locate_yuv(fmt, w, h, index):
+    """(component, x, y) of sample `index` of a .yuv file."""
+    if fmt in ('native_422', 'simple_422'):
+        pair, k = divmod(index, 4)
+        row, pair = divmod(pair, (w + 1) // 2)
+        return ('Cb', 'Y', 'Cr', 'Y')[k], 2 * pair + (k == 3), row
+    for name, pw, ph in yuv_planes(fmt, w, h):
+        if index < pw * ph:
+            return name, index % pw, index // pw
+        index -= pw * ph
+    return '?', 0, 0
+
+
+def compare_yuv(expected_path, actual_path, fmt, w, h, bpc):
+    """compare_images for raw YCbCr of known format and size."""
+    e = yuv_samples(Path(expected_path).read_bytes(), bpc)
+    a = yuv_samples(Path(actual_path).read_bytes(), bpc)
+    if len(e) != len(a):
+        return dict(match=False, size_mismatch=[len(e), 1, len(a), 1])
+    diffs = [i for i in range(len(e)) if e[i] != a[i]]
+    result = dict(match=not diffs, samples_differing=len(diffs), pixels_differing=len(diffs))
+    if diffs:
+        c, x, y = locate_yuv(fmt, w, h, diffs[0])
+        result['first'] = dict(x=x, y=y, component=c, expected=e[diffs[0]], actual=a[diffs[0]])
+    return result
+
+
+def dpx_to_yuv(dpx_path, out_path, w, h, bpc):
+    """The model's 4:4:4 YCbCr DPX (descriptor 102) as planar .yuv. Its
+    layout, found from the files it writes: per pixel Cb, Y, Cr; at 10 bits
+    one big-endian 32-bit word per pixel with Cb in bits 2-11, Y in 12-21
+    and Cr in 22-31; at 8 bits bytes, and above 10 bits 16-bit samples
+    (12 bits: the value times 16; 14 bits: floor(v * 65535 / 16383); 16
+    bits: the value), packed into big-endian 32-bit words from the least
+    significant end."""
+    data = Path(dpx_path).read_bytes()
+    if data[:4] != b'SDPX' or data[800] != 102:
+        raise HarnessError(f'{dpx_path}: not a big-endian 4:4:4 YCbCr DPX')
+    off, n = int.from_bytes(data[4:8], 'big'), w * h
+    if bpc == 10:
+        words = [int.from_bytes(data[off + 4 * i:off + 4 * i + 4], 'big') for i in range(n)]
+        cb, y, cr = ([(v >> s) & 1023 for v in words] for s in (2, 12, 22))
+    else:
+        width = 1 if bpc == 8 else 2
+        stream = []
+        size = 3 * n * width
+        for i in range(off, off + size + (-size) % 4, 4):
+            word = int.from_bytes(data[i:i + 4], 'big')
+            stream += [(word >> (8 * width * k)) & ((1 << 8 * width) - 1) for k in range(4 // width)]
+        inverse = {8: lambda v: v, 12: lambda v: v >> 4, 14: lambda v: -(-v * 16383 // 65535),
+                   16: lambda v: v}[bpc]
+        stream = [inverse(v) for v in stream[:3 * n]]
+        cb, y, cr = stream[0::3], stream[1::3], stream[2::3]
+    out = bytearray()
+    for plane in (y, cb, cr):
+        for v in plane:
+            out += bytes([v]) if bpc <= 8 else (v << (16 - bpc)).to_bytes(2, 'little')
+    Path(out_path).write_bytes(bytes(out))
+    return out_path
+
+
+def compare_output(expected, actual, pps):
+    """compare_images or compare_yuv, by the format the PPS describes."""
+    fmt = stream_format(pps)
+    if fmt == 'rgb':
+        return compare_images(expected, actual)
+    w, h, bpc = pps_geometry(pps)
+    return compare_yuv(expected, actual, fmt, w, h, bpc)
+
+
 def describe(result):
     if 'model_error' in result:
         return result['model_error']
@@ -231,14 +350,16 @@ class Model:
             raise HarnessError(f'model {cfg_name} failed ({p.returncode}): {(p.stdout + p.stderr)[-400:]}')
         return p.stdout
 
-    def rc_file(self, bpc, bpp):
-        """rc_<bpc>bpc_<bpp>bpp.cfg, or the one with the nearest rate."""
+    def rc_file(self, bpc, bpp, suffix=''):
+        """rc_<bpc>bpc_<bpp>bpp<suffix>.cfg, or the one with the nearest
+        rate; suffix _422 or _420 selects the model's native-mode files,
+        whose bpp is that of the picture."""
         rates = sorted(int(m.group(2)) for m in (RC_NAME.match(f.name)
                                                  for f in self.cfg_dir.glob('rc_*.cfg'))
-                       if m and int(m.group(1)) == bpc)
+                       if m and int(m.group(1)) == bpc and (m.group(3) or '') == suffix)
         if not rates:
-            raise HarnessError(f'no rc_{bpc}bpc_*bpp.cfg in {self.cfg_dir}')
-        return f'rc_{bpc}bpc_{min(rates, key=lambda b: abs(b - bpp))}bpp.cfg'
+            raise HarnessError(f'no rc_{bpc}bpc_*bpp{suffix}.cfg in {self.cfg_dir}')
+        return f'rc_{bpc}bpc_{min(rates, key=lambda b: abs(b - bpp))}bpp{suffix}.cfg'
 
     def encode(self, image, bpp, slices, slice_height, block_pred, line_buffer, bpc=8, version=1):
         w, h = image_size(image)
@@ -285,10 +406,25 @@ class Model:
         return 'match' 
 
     def decode(self, dsc):
-        self.run('decode', 'FUNCTION 2\nSRC_LIST @LIST@\nPPM_FILE_OUTPUT 1\n', [dsc.name])
-        out = self.dir / (dsc.stem + '.out.ppm')
+        """The model's decode of dsc: NAME.out.ppm for RGB; for YCbCr its
+        .yuv (4:2:0 planar or UYVY, chosen to match the coding format; the
+        model fails when they do not match), or its 4:4:4 DPX turned into
+        planar .yuv."""
+        pps = dsc.read_bytes()[4:132]
+        fmt = stream_format(pps)
+        if fmt == 'rgb':
+            cfg, out = 'PPM_FILE_OUTPUT 1\n', self.dir / (dsc.stem + '.out.ppm')
+        elif fmt == 'ycbcr_444':
+            cfg, out = 'DPX_FILE_OUTPUT 1\n', self.dir / (dsc.stem + '.out.dpx')
+        else:
+            cfg = f"YUV_FILE_OUTPUT 1\nYUV_FILE_FORMAT {0 if fmt == 'native_420' else 1}\n"
+            out = self.dir / (dsc.stem + '.out.yuv')
+        self.run('decode', 'FUNCTION 2\nSRC_LIST @LIST@\n' + cfg, [dsc.name])
         if not out.exists():
             raise HarnessError(f'model wrote no {out.name}')
+        if fmt == 'ycbcr_444':
+            w, h, bpc = pps_geometry(pps)
+            out = dpx_to_yuv(out, self.dir / (dsc.stem + '.out.444.yuv'), w, h, bpc)
         return out
 
 
@@ -401,13 +537,15 @@ def reading_sets(all_readings, fixed, vary=None):
 
 def compare_decodes(run_dir, pps, payload, model_out, readings_list):
     results = []
+    pps_bytes = Path(pps).read_bytes()
+    ext = 'ppm' if stream_format(pps_bytes) == 'rgb' else 'yuv'
     for n, readings in enumerate(readings_list):
-        out = run_dir / f'dscdecode.{n}.ppm'
+        out = run_dir / f'dscdecode.{n}.{ext}'
         code, err, stats = dscdecode(pps, payload, out, readings)
         if code:
             results.append(dict(readings=readings, error=err, stats=stats, match=False))
             continue
-        r = compare_images(model_out, out)
+        r = compare_output(model_out, out, pps_bytes)
         r.update(readings=readings, stats=stats)
         results.append(r)
     return results
@@ -527,8 +665,11 @@ def mode_discriminators(a):
             verdicts = {r: dict(match=False, model_error=f'model decode failed: {reason}')
                         for r in own_readings(entry)}
         else:
+            pps = (root / f'{name}.pps').read_bytes()
+            ext = entry.get('output', 'ppm')
             for reading in own_readings(entry):
-                verdicts[reading] = compare_images(model_out, root / f'{name}.{reading}.expected.ppm')
+                verdicts[reading] = compare_output(model_out,
+                                                   root / f'{name}.{reading}.expected.{ext}', pps)
         supported = [r for r, v in verdicts.items() if v['match']]
         # Readings with the same prediction count as one outcome (an input
         # need not separate all three readings of a three-way question).

@@ -5,6 +5,12 @@
  * Block prediction: DSC 1.1 §6.4.2, §6.4.4.1 and §7.5.2.1, with the bpSad
  * correction printed in DSC 1.2b §6.4.4.1. Open points are OQ-4, OQ-10 and
  * OQ-13 in RESEARCH.md; research/bp-worked-note.md works examples by hand.
+ * YCbCr units have bpc bits. Native 4:2:2 and 4:2:0 (DSC 1.2b §6.4.1.1,
+ * §6.4.1.2, §6.4.2, §6.5.1) predict the half-width container: luma of even
+ * and odd positions are separate units, 4:2:0 chroma is predicted from the
+ * second line above (a line of the same chroma type), and ICH entries from
+ * the previous line are luma pairs that may start at any position (OQ-39 for
+ * the BP edge test in 4:2:0).
  */
 
 #include "predict.h"
@@ -14,10 +20,12 @@
 struct dsc_predict {
     struct dsc_format f;
     unsigned width, height, depth, next_x, next_y;
+    unsigned first_lines; /* lines whose ICH has 32 history entries: 1, or 2 in native 4:2:0 */
     int multiple, block_prediction;
     struct dsc_options opt;
     unsigned bp_count, bp_count_other; /* bpCount under opt.bp_left and the other reading */
-    uint16_t *previous, *current; /* f.units samples per pixel */
+    unsigned bp_count_edge;            /* bpCount under the other OQ-39 reading (statistics) */
+    uint16_t *previous, *current, *older; /* f.units samples per pixel; older: line y - 2 */
     uint16_t history[32][4], last[4];
     unsigned valid;
 };
@@ -48,10 +56,24 @@ static int upper(const struct dsc_predict *p, unsigned c)
     return (1 << p->f.depth[c]) - 1;
 }
 
+/* The line a unit is predicted from: the one above, or for native 4:2:0
+ * chroma the second line above, which has the same chroma type. */
+static const uint16_t *reference_line(const struct dsc_predict *p, unsigned c)
+{
+    return p->f.native == DSC_NATIVE_420 && c == 2 ? p->older : p->previous;
+}
+
+/* Whether line y has that reference line: not on a slice's first line, nor
+ * on the first two for native 4:2:0 chroma (DSC 1.2b §6.4.1). */
+static int has_above(const struct dsc_predict *p, unsigned y, unsigned c)
+{
+    return y >= (p->f.native == DSC_NATIVE_420 && c == 2 ? 2u : 1u);
+}
+
 static int above(const struct dsc_predict *p, int x, unsigned c)
 {
     x = clamp(x, 0, (int)p->width - 1);
-    return p->previous[(unsigned)x * p->f.units + c];
+    return reference_line(p, c)[(unsigned)x * p->f.units + c];
 }
 
 static int blended(const struct dsc_predict *p, int x, unsigned c, unsigned q)
@@ -80,10 +102,12 @@ struct dsc_predict *dsc_predict_create_format(const struct dsc_format *f, unsign
     p->f = *f;
     p->previous = calloc((size_t)width * f->units, sizeof(uint16_t));
     p->current = calloc((size_t)width * f->units, sizeof(uint16_t));
-    if (!p->previous || !p->current) {
+    p->older = calloc((size_t)width * f->units, sizeof(uint16_t));
+    if (!p->previous || !p->current || !p->older) {
         dsc_predict_destroy(p);
         return NULL;
     }
+    p->first_lines = f->native == DSC_NATIVE_420 ? 2 : 1;
     p->width = width;
     p->height = height;
     p->depth = line_depth;
@@ -116,7 +140,7 @@ void dsc_predict_set_options(struct dsc_predict *p, const struct dsc_options *o)
 static int bp_sample(const struct dsc_predict *p, int x, unsigned c, int left)
 {
     if (x < 0) {
-        return left == DSC_BP_LEFT_MIDPOINT ? midpoint(p, c) : p->previous[c];
+        return left == DSC_BP_LEFT_MIDPOINT ? midpoint(p, c) : reference_line(p, c)[c];
     }
     return above(p, x, c);
 }
@@ -124,7 +148,9 @@ static int bp_sample(const struct dsc_predict *p, int x, unsigned c, int left)
 /* §6.4.4.1: the best of the nine candidate vectors for the group at hPos x.
  * Each 9-pixel SAD is three 3x1 partial SADs, summed over all components,
  * of differences reduced to 6 bits (shifted by cpntBitDepth - 7) and each
- * partial clamped to 511. */
+ * partial clamped to 511. Native modes search the container, over the units
+ * BP predicts: all four in 4:2:2, the two luma units in 4:2:0 (DSC 1.2b
+ * §6.4.4.1). */
 static int bp_search(const struct dsc_predict *p, int x, int left)
 {
     static const int candidates[9] = {-1, -3, -4, -5, -6, -7, -8, -9, -10};
@@ -139,11 +165,17 @@ static int bp_search(const struct dsc_predict *p, int x, int left)
 
             for (j = 0; j < 3; ++j) {
                 for (c = 0; c < p->f.units; ++c) {
-                    int pos = x - 6 + (int)(3 * b + j);
-                    int d = bp_sample(p, pos, c, left) - bp_sample(p, pos + candidates[k], c, left);
-                    unsigned m = (unsigned)(d < 0 ? -d : d) >> (p->f.depth[c] - 7);
+                    if (!(p->f.bp_units >> c & 1)) {
+                        continue;
+                    }
+                    {
+                        int pos = x - 6 + (int)(3 * b + j);
+                        int d = bp_sample(p, pos, c, left) -
+                                bp_sample(p, pos + candidates[k], c, left);
+                        unsigned m = (unsigned)(d < 0 ? -d : d) >> (p->f.depth[c] - 7);
 
-                    partial += m > 63 ? 63 : m;
+                        partial += m > 63 ? 63 : m;
+                    }
                 }
             }
             total += partial > 511 ? 511 : partial;
@@ -161,15 +193,24 @@ static int bp_search(const struct dsc_predict *p, int x, int left)
 
 /* lastEdgeCount < 3: an edge, a step above 32 << (bpc - 8) in any
  * component, at one of the three previous-line samples ending at last
- * (OQ-13 chooses last). */
-static int bp_recent_edge(const struct dsc_predict *p, int last, int left)
+ * (OQ-13 chooses last). In native modes the samples are container samples.
+ * OQ-39: in native 4:2:0, the luma units only, or chroma too where line y
+ * has chroma above. */
+static int bp_recent_edge(const struct dsc_predict *p, unsigned y, int last, int left,
+                          int edge420)
 {
     int q, edge = 32 << (p->f.bpc - 8);
     unsigned c;
 
     for (q = last - 2; q <= last; ++q) {
         for (c = 0; c < p->f.units; ++c) {
-            int d = bp_sample(p, q, c, left) - bp_sample(p, q - 1, c, left);
+            int d;
+
+            if (p->f.native == DSC_NATIVE_420 && !(p->f.bp_units >> c & 1) &&
+                (edge420 == DSC_BP420_EDGE_LUMA || !has_above(p, y, c))) {
+                continue;
+            }
+            d = bp_sample(p, q, c, left) - bp_sample(p, q - 1, c, left);
 
             if (d > edge || d < -edge) {
                 return 1;
@@ -182,8 +223,8 @@ static int bp_recent_edge(const struct dsc_predict *p, int last, int left)
 /* §6.4.4.1 selection for one group under one OQ-4 reading. bpCount starts
  * each line at 0 and increments only from hPos 9, so BP can first be
  * selected at hPos 15. Partial groups never use BP. */
-static int bp_decide(const struct dsc_predict *p, unsigned x, unsigned n, int left, unsigned *count,
-                     int *vector)
+static int bp_decide(const struct dsc_predict *p, unsigned x, unsigned y, unsigned n, int left,
+                     int edge420, unsigned *count, int *vector)
 {
     int last = p->opt.bp_edge == DSC_BP_EDGE_BEFORE ? (int)x - 1 : (int)x + 2;
 
@@ -193,7 +234,7 @@ static int bp_decide(const struct dsc_predict *p, unsigned x, unsigned n, int le
     } else if (x >= 9 && *count < 3) {
         ++*count;
     }
-    return *vector != -1 && *count >= 3 && n == 3 && bp_recent_edge(p, last, left);
+    return *vector != -1 && *count >= 3 && n == 3 && bp_recent_edge(p, y, last, left, edge420);
 }
 
 void dsc_predict_destroy(struct dsc_predict *p)
@@ -201,6 +242,7 @@ void dsc_predict_destroy(struct dsc_predict *p)
     if (p) {
         free(p->previous);
         free(p->current);
+        free(p->older);
         free(p);
     }
 }
@@ -208,7 +250,7 @@ void dsc_predict_destroy(struct dsc_predict *p)
 static void history_update(struct dsc_predict *p, int ich, const unsigned index[3],
                            uint16_t out[4][3], unsigned capacity)
 {
-    uint16_t next[32][4];
+    uint16_t next[32][4] = {{0}};
     unsigned n = 0, i, j, c;
 
     for (i = 3; i > 0;) {
@@ -248,6 +290,62 @@ static void history_update(struct dsc_predict *p, int ich, const unsigned index[
     p->valid = n;
 }
 
+/* Where the native previous-line pairs start: one luma sample left of the
+ * group, shifted at the slice edges (OQ-41) so that the eight luma samples,
+ * or the container pixels x - 1 to x + 3 they lie in, stay inside the
+ * slice. -1 if the slice is too narrow. */
+static int ich_window(const struct dsc_predict *p, unsigned x, int reading)
+{
+    int pixels = 2 * (int)p->width;
+
+    if (reading == DSC_ICH_WINDOW_CONTAINER) {
+        return p->width < 5 ? -1 : 2 * clamp((int)x, 1, (int)p->width - 4) - 1;
+    }
+    return pixels < 8 ? -1 : clamp(2 * (int)x - 1, 0, pixels - 8);
+}
+
+/* ICH entries 25 to 31 on lines with a line above (§6.5.1). In 4:4:4 they
+ * are the seven pixels from two left of the group, the window shifted to stay
+ * inside the slice. In native modes (DSC 1.2b §6.5.1, Figures 6-7 and 6-8)
+ * each is a pair of adjacent luma samples of the line above, starting at any
+ * position from one left of the group's first pixel; the pair's chroma is
+ * that of its even-position sample, from the second line above in 4:2:0. */
+static int ich_above(const struct dsc_predict *p, unsigned x, unsigned index, uint16_t *px)
+{
+    unsigned c;
+
+    if (!p->f.native) {
+        int base;
+
+        /* Seven-neighbor semantics have no definition for width < 7. */
+        if (p->width < 7) {
+            return -1;
+        }
+        base = clamp((int)x - 2, 0, (int)p->width - 7);
+        for (c = 0; c < p->f.units; ++c) {
+            px[c] = (uint16_t)above(p, base + (int)index - 25, c);
+        }
+    } else {
+        int start = ich_window(p, x, p->opt.ich_window), q;
+
+        if (start < 0) {
+            return -1;
+        }
+        if (p->opt.stats && start != ich_window(p, x, !p->opt.ich_window)) {
+            ++p->opt.stats->ich_window_differs;
+        }
+        q = start + (int)index - 25;
+        px[0] = (uint16_t)above(p, q >> 1, q & 1 ? p->f.odd_luma : 0);
+        px[p->f.odd_luma] = (uint16_t)above(p, (q + 1) >> 1, (q + 1) & 1 ? p->f.odd_luma : 0);
+        for (c = 1; c < p->f.units; ++c) {
+            if (!p->f.luma[c]) {
+                px[c] = (uint16_t)above(p, (q + 1) >> 1, c);
+            }
+        }
+    }
+    return 0;
+}
+
 int dsc_predict_group_units(struct dsc_predict *p, unsigned x, unsigned y,
                             const unsigned qlevel[4], const int residual[4][3], const int mpp[4],
                             int ich, const unsigned index[3], uint16_t out[4][3])
@@ -274,20 +372,21 @@ int dsc_predict_group_units(struct dsc_predict *p, unsigned x, unsigned y,
         }
     }
     n = p->width - x < 3 ? p->width - x : 3;
-    capacity = y ? 25 : 32;
+    capacity = y >= p->first_lines ? 25 : 32;
     /* BP needs the previous line, so never on a slice's first line. The
      * search runs for every group, whatever the group's coding mode. */
     if (p->block_prediction && y) {
         if (!x) {
-            p->bp_count = p->bp_count_other = 0;
+            p->bp_count = p->bp_count_other = p->bp_count_edge = 0;
         }
-        use_bp = bp_decide(p, x, n, p->opt.bp_left, &p->bp_count, &vector);
+        use_bp = bp_decide(p, x, y, n, p->opt.bp_left, p->opt.bp420_edge, &p->bp_count, &vector);
         if (p->opt.stats) {
-            /* The other OQ-4 reading, run alongside only for the counters. */
+            /* The other OQ-4 and OQ-39 readings, run alongside only for the
+             * counters. */
             int other = p->opt.bp_left == DSC_BP_LEFT_MIDPOINT ? DSC_BP_LEFT_REPLICATE
                                                                : DSC_BP_LEFT_MIDPOINT;
-            int other_vector, other_bp = bp_decide(p, x, n, other, &p->bp_count_other,
-                                                   &other_vector);
+            int other_vector, other_bp = bp_decide(p, x, y, n, other, p->opt.bp420_edge,
+                                                   &p->bp_count_other, &other_vector);
 
             if (use_bp && !ich) {
                 ++p->opt.stats->bp_groups;
@@ -295,12 +394,23 @@ int dsc_predict_group_units(struct dsc_predict *p, unsigned x, unsigned y,
             if (use_bp != other_bp || (use_bp && vector != other_vector)) {
                 ++p->opt.stats->bp_left_differs;
             }
+            if (p->f.native == DSC_NATIVE_420) {
+                other = p->opt.bp420_edge == DSC_BP420_EDGE_LUMA ? DSC_BP420_EDGE_ALL
+                                                                  : DSC_BP420_EDGE_LUMA;
+                other_bp = bp_decide(p, x, y, n, p->opt.bp_left, other, &p->bp_count_edge,
+                                     &other_vector);
+                if (use_bp != other_bp) {
+                    ++p->opt.stats->bp420_edge_differs;
+                }
+            }
         }
     }
     if (ich) {
         /* Only real pixels are looked up; a partial group's padding index
          * produces no pixel and, as a last group, updates no history. */
         for (j = 0; j < n; ++j) {
+            uint16_t px[4] = {0};
+
             if (index[j] >= 32) {
                 return -1;
             }
@@ -308,20 +418,12 @@ int dsc_predict_group_units(struct dsc_predict *p, unsigned x, unsigned y,
                 if (index[j] >= p->valid) {
                     return -1;
                 }
-                for (c = 0; c < p->f.units; ++c) {
-                    out[c][j] = p->history[index[j]][c];
-                }
-            } else {
-                int base;
-
-                /* Seven-neighbor semantics have no definition for width < 7. */
-                if (p->width < 7) {
-                    return -1;
-                }
-                base = clamp((int)x - 2, 0, (int)p->width - 7);
-                for (c = 0; c < p->f.units; ++c) {
-                    out[c][j] = (uint16_t)above(p, base + (int)index[j] - 25, c);
-                }
+                memcpy(px, p->history[index[j]], sizeof(px));
+            } else if (ich_above(p, x, index[j], px)) {
+                return -1;
+            }
+            for (c = 0; c < p->f.units; ++c) {
+                out[c][j] = px[c];
             }
         }
     }
@@ -331,9 +433,10 @@ int dsc_predict_group_units(struct dsc_predict *p, unsigned x, unsigned y,
     }
     if (!ich) {
         for (c = 0; c < p->f.units; ++c) {
+            int bp = use_bp && (p->f.bp_units >> c & 1), first = !has_above(p, y, c);
             int a = x ? p->current[(x - 1) * p->f.units + c] : midpoint(p, c);
-            int b = y ? blended(p, (int)x, c, qlevel[c]) : 0;
-            int before = x ? blended(p, (int)x - 1, c, qlevel[c]) : midpoint(p, c);
+            int b = first ? 0 : blended(p, (int)x, c, qlevel[c]);
+            int before = x && !first ? blended(p, (int)x - 1, c, qlevel[c]) : midpoint(p, c);
             int lo = a, hi = a, cumulative = 0;
 
             for (j = 0; j < n; ++j) {
@@ -341,11 +444,11 @@ int dsc_predict_group_units(struct dsc_predict *p, unsigned x, unsigned y,
 
                 if (mpp[c]) {
                     pred = midpoint(p, c) + (p->last[c] & ((1 << qlevel[c]) - 1));
-                } else if (use_bp) {
+                } else if (bp) {
                     /* §6.4.2: the reconstructed sample |bpVector| to the left on this
                      * line; bpVector <= -3 and hPos >= 15 keep it inside the slice. */
                     pred = p->current[(x + j - (unsigned)-vector) * p->f.units + c];
-                } else if (!y) {
+                } else if (first) {
                     pred = clamp(a + cumulative, 0, upper(p, c));
                 } else {
                     int reference = j ? blended(p, (int)(x + j), c, qlevel[c]) : b;
@@ -384,14 +487,18 @@ int dsc_predict_group_units(struct dsc_predict *p, unsigned x, unsigned y,
                 p->current[at] = (uint16_t)(minimum(rounded, (1 << p->depth) - 1) << shift);
             }
         }
-        swap = p->previous;
+        swap = p->older;
+        p->older = p->previous;
         p->previous = p->current;
         p->current = swap;
         p->next_x = 0;
         ++p->next_y;
+        /* §6.5.2: with more than one slice per line the shift register is
+         * invalidated at every line start; otherwise lines with a line
+         * above keep 25 entries. */
         if (p->multiple) {
             p->valid = 0;
-        } else if (p->valid > 25) {
+        } else if (p->next_y >= p->first_lines && p->valid > 25) {
             p->valid = 25;
         }
     }

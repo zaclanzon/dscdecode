@@ -1660,3 +1660,86 @@ Gate:
 * 1.1 regression: 34 of 34 bit-exact (`~/dsc-runs/corpus/20260924-184142`).
 
 Logs: `~/dsc-runs/m3/phase4/gate-*.log`, `matrix-*.log`.
+
+## Phase 5, part 1: YCbCr and native 4:2:2 and 4:2:0 decoding, OQ-37 to OQ-43 discriminators (2026-09-24)
+
+Phase 5 is not complete at this commit. This part is committed so that the
+ten new discriminators and their predictions are in the history before the
+reference model decodes them; the model has decoded none of them. Section
+numbers are DSC 1.2b unless marked.
+
+### Decoder
+
+* YCbCr (convert_rgb 0) in DSC 1.1 and 1.2: 4:4:4, simple 4:2:2 (Annex B:
+  4:4:4 coding, the even-position chroma kept on output), and in DSC 1.2
+  native 4:2:2 and native 4:2:0. Chroma has the luma depth (§7.7); in DSC
+  1.2 qLevelC is one below Table 6-3 (§6.8.6).
+* Native modes code a half-width container (§3.10.1, §4.3, §6.1): four
+  units in 4:2:2 (Y even, Cb, Cr, Y odd; substreams Y, Co, Cg, Y2), three in
+  4:2:0 (Y even, Y odd in Co, Cb or Cr by line in Cg). The rate control
+  counts container pixels (§6.8.1); chunk_size follows the container width;
+  native 4:2:2 has its overflow threshold of −224 (§6.8.4); predActivity
+  has the native forms (OQ-37, OQ-38); the second-line offsets of native
+  4:2:0 apply (§6.8.2, OQ-40). Prediction: MMAP per container unit, native
+  4:2:0 chroma from the second line above and first-line prediction for
+  its lines 0 and 1, BP on luma only in 4:2:0 (§6.4), ICH entries are
+  container pixels, previous-line entries are luma pairs at any position
+  (§6.5.1, OQ-41), 32 history entries on the first two lines of 4:2:0. ICH
+  indices of native 4:2:2 are in Y2, Co and Cg (§6.6.2). RESEARCH.md lists
+  the points taken without a switch.
+* Output: `dsc_decode_*_planes` returns Y, Cb, Cr planes for YCbCr, chroma
+  at half width for 4:2:2 and also half height for 4:2:0
+  (`dsc_plane_size`). `dscdecode` writes YCbCr to `NAME.yuv` in the
+  layouts of the model's .yuv files: planar 4:2:0, UYVY 4:2:2, and (the
+  model writes none) planar 4:4:4; above 8 bits two bytes per sample, least
+  significant first, the value in the top bits, as in the model's files.
+  RGB streams still go to PPM.
+* bits_per_pixel is accepted up to 1023 (it was capped at 384; in native
+  modes it is twice the picture's rate, and 16 bpc RGB can exceed 24 bpp);
+  a group may have up to 512 bits (four units at 16 bpc).
+
+### Found on model-encoded streams
+
+The model's I/O, from its README.TXT and the files it writes: `.yuv` input
+and output (YUV_FILE_FORMAT 0, planar 4:2:0; 1, UYVY), 16-bit little-endian
+samples above 8 bpc with the value in the top bits (a 12-bit 194 is read as
+12, and written back as 192); in decode mode the `.yuv` format must match
+the coding format (a 4:2:0 stream written as UYVY crashes it); 4:4:4 YCbCr
+only as DPX (descriptor 102: Cb, Y, Cr per pixel; 8 bits: bytes reversed in
+each 32-bit big-endian word; 10 bits: one word per pixel, Cb in bits 2–11,
+Y 12–21, Cr 22–31; 12, 14, 16 bits: 16-bit samples, two per word from the
+low half, holding v·16, floor(v·65535/16383) and v).
+
+First streams (256x64 and 128x32 synthetic YCbCr, `~/dsc-runs/m3/phase5`):
+native 4:2:2, simple 4:2:2 and 8-bit YCbCr 4:4:4 decoded bit-exact at once.
+Native 4:2:0 diverged from group 16; it decodes bit-exact once
+second_line_offset_adj is also added at the slice start, as Table E-2 says
+(OQ-40). Textured pictures with block prediction and ICH decoded bit-exact
+only with previous-line ICH windows clamped in container pixels (OQ-41).
+YCbCr 4:4:4 at 10 to 16 bpc on small slices, and then an 8-bit RGB DSC 1.2
+picture of 128x32, diverged: with an initial_scale_value of 30 or 32
+decremented every group, the model skips a decrement due at the first group
+(OQ-42) and makes none after the first line (OQ-43), in DSC 1.1 as in 1.2.
+The Phase 4 comparisons (slices 108 lines high and more, longer decrement
+intervals) did not reach either case; with both new defaults the
+DSC 1.1 regression check still gives 34 of 34 matches
+(`~/dsc-runs/corpus/20260924-193723`).
+
+### Switches, discriminators, tests
+
+* Seven switches: `activity420` (OQ-37), `activity422` (OQ-38),
+  `bp420_edge` (OQ-39), `offset_adj` (OQ-40), `ich_window` (OQ-41),
+  `scale_first` (OQ-42), `scale_line` (OQ-43). OQ-37 to OQ-39 default to
+  the reading judged more likely from the text; OQ-40 to OQ-43 to the
+  reading the model streams showed. `--stats` counts `activity_differs`,
+  `bp420_edge_differs` and `ich_window_differs`.
+* Ten discriminators (`oq37_activity420` to `oq43b_scale_line`),
+  predictions in `tests/discriminators/README.md` and `manifest.json`;
+  native inputs by the new `tests/make_native_discriminators.py`. Their
+  expected pictures are raw YCbCr. `tests/pydsc.py` now models YCbCr, the
+  native containers and block prediction; on the first slice of eight
+  model-encoded native and 4:4:4 streams its output equals the model's.
+  Discriminator decodes: 11,816 → 13,896.
+* `tools/compare_model`: YCbCr streams (the model's output format chosen per
+  stream, DPX 102 read back to planar), raw YCbCr comparison, the new
+  switches, `_422`/`_420` rate files. The stand-in model writes YCbCr too.

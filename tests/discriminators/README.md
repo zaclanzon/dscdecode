@@ -2,13 +2,14 @@
 
 Each input here is a DSC 1.1 PPS (`NAME.pps`) plus a one-slice payload
 (`NAME.bin`), 8 bpc RGB: 96×1 for the rate-control questions, 30×2 for the
-block-prediction one, 7×2 for OQ-19; the DSC 1.2 inputs below are listed
-with their sizes. For one open question in
-RESEARCH.md, the two readings decode it to different pixels. Each file below
-states which reading predicts which output. The predictions were written and
-committed before the VESA reference model decoded any of these inputs
-(OQ-1 to OQ-3 in Phase 3, OQ-4 in Phase 2, `oq2b` in Phase 5 of M2;
-`oq19` in Phase 3 of M3; the DSC 1.2 inputs in Phase 4 of M3).
+block-prediction one, 7×2 for OQ-19; the DSC 1.2 inputs below, and the
+native 4:2:2 and 4:2:0 ones (YCbCr), are listed with their sizes. For one
+open question in RESEARCH.md, the two readings decode it to different
+pixels. Each file below states which reading predicts which output. The
+predictions were written and committed before the VESA reference model
+decoded any of these inputs (OQ-1 to OQ-3 in Phase 3, OQ-4 in Phase 2,
+`oq2b` in Phase 5 of M2; `oq19` in Phase 3 of M3; the DSC 1.2 inputs in
+Phase 4 of M3; OQ-37 to OQ-43 in Phase 5 of M3).
 
 `python3 tests/make_discriminators.py` rebuilds every file here except this
 README. The generator contains a rate-control model written separately from
@@ -418,11 +419,73 @@ In short:
   ICH group and a continued ICH group, which the always reading reads as
   P-mode groups.
 
+## DSC 1.2 native modes and the scale decrement — OQ-37 to OQ-43
+
+Added in M3, Phase 5, part 1, and committed with these predictions before
+the reference model decoded them. OQ-37 to OQ-39 are readings of the text;
+OQ-40 to OQ-43 are places where model-encoded streams of Phase 5 decoded
+bit-exact under one reading only (RESEARCH.md). The native inputs are
+YCbCr: their pictures are raw YCbCr (`NAME.READING.expected.yuv`, the
+layout dscdecode writes for a `.yuv` output and the model for its `.yuv`
+files: planar 4:2:0 for native 4:2:0, UYVY for native 4:2:2), and
+`manifest.json` gives their `output` and `format`. Native 4:2:0 and 4:2:2
+inputs are built by `tests/make_native_discriminators.py`, the RGB ones by
+`tests/make_v12_discriminators.py`, both with `tests/pydsc.py`, which now
+models YCbCr, the native containers and block prediction (checked against
+the first slices of the model-encoded native streams of Phase 5). OQ-42 and
+OQ-43 have an input in each DSC version; the two inputs of a pair decode to
+the same pictures. The generators' docstrings give the arithmetic.
+
+| Input | Size, bpc, format | Question: the decisive QP or decision | First difference between the predictions |
+|---|---|---|---|
+| `oq37_activity420` | 48×2, 8, native 4:2:0 | activity420: last group QP luma → 12, sum → 9 | Y at x = 42, y = 1: 176 luma, 160 sum; 3 samples differ |
+| `oq38_activity422` | 48×2, 8, native 4:2:2 | activity422: last group QP sizes → 12, total → 9 | Cb at x = 42, y = 1: 97 sizes, 129 total; 4 samples differ |
+| `oq39_bp420_edge` | 36×4, 8, native 4:2:0, BP | bp420_edge: BP at line 2, hPos 15 (container) luma → no, all → yes | Y at x = 30, y = 2: 108 luma, 109 all; 10 samples differ |
+| `oq40_offset_adj` | 12×2, 8, native 4:2:0 | offset_adj: last group QP subtract → 0, start → 4 | Y at x = 7, y = 1: 128 subtract, 127 start; 2 samples differ |
+| `oq41_ich_window` | 12×2, 8, native 4:2:2 | ich_window: ICH entries 25, 27, 29 at the left edge start at luma sample 0 (pixels) or 1 (container) | Cb at x = 0, y = 1: 120 pixels, 126 container; 20 samples differ |
+| `oq41b_ich_window` | 24×4, 8, native 4:2:0 | ich_window: ICH entries 29-31 at the right edge start at luma sample 20 (pixels) or 19 (container) | Y at x = 18, y = 2: 109 pixels, 152 container; 13 samples differ |
+| `oq42_scale_first` | 30×1, 8, RGB, DSC 1.2 | scale_first: last group QP group → 4, not → 0 | R at x = 27, y = 0: 134 group, 130 not; 9 samples differ |
+| `oq42b_scale_first` | 30×1, 8, RGB, DSC 1.1 | as `oq42_scale_first` | as `oq42_scale_first` |
+| `oq43_scale_line` | 12×2, 8, RGB, DSC 1.2 | scale_line: last group QP until-unity → 4, first → 0 | R at x = 9, y = 1: 135 until-unity, 131 first; 5 samples differ |
+| `oq43b_scale_line` | 12×2, 8, RGB, DSC 1.1 | as `oq43_scale_line` | as `oq43_scale_line` |
+
+SHA-256 prefixes of the predictions (full values in `manifest.json`):
+`oq37_activity420` luma `53858a3b9812be54`, sum `92d6b58eb2aef330`;
+`oq38_activity422` sizes `632322550202dcd7`, total `2ad8ee71bc6e2891`;
+`oq39_bp420_edge` luma `21e5ed0eebc6db70`, all `b7582bd3b8562506`;
+`oq40_offset_adj` subtract `bc657342f915901d`, start `1ea4af8fca969eb4`;
+`oq41_ich_window` pixels `56aca5b99f71628b`, container `3cba5798821a7ffe`;
+`oq41b_ich_window` pixels `f70d9681bbb5dab5`, container `34da1d252030b430`;
+`oq42_scale_first` and `oq42b_scale_first` group `1072edbb3b3fffd0`, not
+`c12267f3d76c57f7`; `oq43_scale_line` and `oq43b_scale_line` until-unity
+`aae11c1af4c7a591`, first `2ab2365669a9aaa6`.
+
+In short:
+
+* `oq37_activity420`, `oq38_activity422`: the frame of `oq28_activity_qp`
+  in the native containers. MPP groups keep bitSaveMode 2 and raise the QP
+  by 2 a step; a P-mode group at QP 8 has predicted sizes (3, 1, 3) in
+  4:2:0 (8 + MAX(3, 1) + 3 = 14 against 8 + MAX(3, 1 + 3) = 12) and
+  (3, 3, 3, 3) in 4:2:2 (8 + (12 >> 1) = 14 against (8 + 12) >> 1 = 10),
+  with bitSaveThresh 14.
+* `oq39_bp420_edge`: line 1's luma repeats every three container pixels
+  without a step above 32, so bpVector -3 wins from hPos 9 and bpCount
+  reaches 3 at hPos 15; the only edge is a Cb step of 60 two lines up.
+* `oq40_offset_adj`: second_line_offset_adj 512 at rcXformScale 1 moves
+  rcModelFullness after group 0 across threshold 0 only under start.
+* `oq41_ich_window`, `oq41b_ich_window`: previous-line ICH entries at the
+  first group of a line and at the last group of a line.
+* `oq42_scale_first`, `oq43_scale_line`: initial_scale_value 16 decremented
+  every group; the readings leave the scale one apart after group 6 (one
+  line of ten groups) or after group 4 (the first group of the second line
+  of a 12-pixel slice, OQ-42 read as not).
+
 ## Running against the reference model
 
 `tools/compare_model bitstream tests/discriminators/NAME.pps
 tests/discriminators/NAME.bin` has the model decode the input and compares
-the result with each expected PPM. `tools/compare_model discriminators` does
+the result with each expected PPM (or raw YCbCr, for the native inputs).
+`tools/compare_model discriminators` does
 this for every input. It fails if the model matches both predictions, or
 neither; an input whose `assumes` differ from the decoder's current defaults
 that matches neither is reported as inconclusive instead, since its

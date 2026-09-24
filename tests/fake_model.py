@@ -6,6 +6,9 @@ no DSC work of its own. FUNCTION 1 writes FAKE_MODEL_FIXTURE's PPS and payload
 as NAME.dsc, whatever the image. FUNCTION 2 decodes NAME.dsc with dscdecode
 (readings from FAKE_MODEL_READINGS, space-separated NAME=VALUE) into
 NAME.out.ppm, then applies FAKE_MODEL_CORRUPT="x,y,component,delta" if set.
+A YCbCr stream is decoded into NAME.out.yuv, or for 4:4:4 into the model's
+8-bit DPX layout (NAME.out.dpx); FAKE_MODEL_CORRUPT then changes the first
+byte of the image data by delta.
 """
 import os
 from pathlib import Path
@@ -36,13 +39,38 @@ def main():
             Path(stem + '.dsc').write_bytes(data)
         elif s['FUNCTION'] == '2':
             data = Path(name).read_bytes()
-            Path('fake.pps').write_bytes(data[4:132])
+            pps = data[4:132]
+            Path('fake.pps').write_bytes(pps)
             Path('fake.bin').write_bytes(data[132:])
             exe = os.environ.get('DSCDECODE_BIN', str(ROOT / 'build' / 'release' / 'dscdecode'))
             readings = [a for r in os.environ.get('FAKE_MODEL_READINGS', '').split()
                         for a in ('--reading', r)]
-            subprocess.run([exe, *readings, 'fake.pps', 'fake.bin', stem + '.out.ppm'], check=True)
             corrupt = os.environ.get('FAKE_MODEL_CORRUPT')
+            if not pps[4] & 0x10:
+                native = pps[0] & 15 == 2 and pps[88] & 3
+                subprocess.run([exe, *readings, 'fake.pps', 'fake.bin', 'fake.yuv'], check=True)
+                image = bytearray(Path('fake.yuv').read_bytes())
+                if corrupt:
+                    image[0] = (image[0] + int(corrupt.split(',')[3])) % 256
+                if native or pps[4] & 0x08:
+                    Path(stem + '.out.yuv').write_bytes(image)
+                else:
+                    # 8-bit 4:4:4: Cb, Y, Cr per pixel, bytes reversed in
+                    # each 32-bit word (tools/compare_model, dpx_to_yuv).
+                    w, h = pps[8] << 8 | pps[9], pps[6] << 8 | pps[7]
+                    n = w * h
+                    stream = bytearray()
+                    for i in range(n):
+                        stream += bytes([image[n + i], image[i], image[2 * n + i]])
+                    stream += bytes(-len(stream) % 4)
+                    body = b''.join(stream[i:i + 4][::-1] for i in range(0, len(stream), 4))
+                    header = bytearray(8192)
+                    header[0:4] = b'SDPX'
+                    header[4:8] = (8192).to_bytes(4, 'big')
+                    header[800] = 102
+                    Path(stem + '.out.dpx').write_bytes(bytes(header) + body)
+                continue
+            subprocess.run([exe, *readings, 'fake.pps', 'fake.bin', stem + '.out.ppm'], check=True)
             if corrupt:
                 x, y, c, delta = (int(v) for v in corrupt.split(','))
                 ppm = bytearray(Path(stem + '.out.ppm').read_bytes())

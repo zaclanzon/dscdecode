@@ -48,8 +48,9 @@ int dsc_rc_init(struct dsc_rc *s, const struct drm_dsc_config *c)
         }
         /* DSC 1.2b §6.8.4: cpntBitDepth[0] + cpntBitDepth[1] - 2. */
         s->bit_save_thresh = f.depth[0] + f.depth[1] - 2;
+        s->native = f.native;
     }
-    if (!c->slice_width || !c->slice_height || !c->bits_per_pixel || c->bits_per_pixel > 384 ||
+    if (!c->slice_width || !c->slice_height || !c->bits_per_pixel || c->bits_per_pixel > 1023 ||
         !c->rc_model_size || c->initial_offset >= c->rc_model_size ||
         c->final_offset >= c->rc_model_size || c->initial_scale_value < 8 ||
         (c->initial_scale_value > 8 && !c->scale_decrement_interval) || !c->slice_chunk_size ||
@@ -146,7 +147,7 @@ static unsigned short_term_v12(const struct drm_dsc_config *c, const struct dsc_
                         ? (int64_t)in->ideal < low
                         : (int64_t)in->actual < low && (int64_t)in->ideal < low;
 
-    if (in->model > -172) {
+    if (in->model > in->overflow) {
         st = max_qp = c->rc_range_params[14].range_max_qp;
     } else if (in->fullness < 192) {
         st = min_qp;
@@ -180,7 +181,7 @@ static unsigned short_term(const struct drm_dsc_config *c, const struct dsc_rc_i
     if (in->v12) {
         return short_term_v12(c, in, prev, prev2, o);
     }
-    if (in->model > -172) {
+    if (in->model > in->overflow) {
         return c->rc_range_params[14].range_max_qp;
     }
     if (in->ideal == 3) {
@@ -359,16 +360,42 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned n, uns
     return dsc_rc_step_group(s, y, groupnum, n, &g);
 }
 
+/* DSC 1.2b §6.8.4 predActivity. In native 4:2:0 the text leaves a
+ * parenthesis open (OQ-37); in native 4:2:2 it can be read as halving the
+ * sizes or, by C precedence, the whole sum (OQ-38). other = 0 takes the
+ * selected reading of the format's question, other = 1 the other one. */
+static unsigned pred_activity(const struct dsc_rc *s, const struct dsc_rc_group *g, unsigned qp,
+                              int other)
+{
+    const unsigned *p = g->predicted;
+    int r;
+
+    switch (s->native) {
+    case DSC_NATIVE_420:
+        r = s->opt.activity420 != other;
+        return r ? qp + umax(p[0], p[1] + p[2]) : qp + umax(p[0], p[1]) + p[2];
+    case DSC_NATIVE_422:
+        r = s->opt.activity422 != other;
+        return r ? (qp + p[0] + p[1] + p[2] + p[3]) >> 1 : qp + ((p[0] + p[1] + p[2] + p[3]) >> 1);
+    default:
+        return qp + p[0] + umax(p[1], p[2]);
+    }
+}
+
 /* DSC 1.2b §6.8.4: bitSaveMode and mppState after the group just decoded.
  * OQ-22: DSC 1.2a prints ichSelected where DSC 1.2b has !ichSelected. */
 static void bit_save_update(struct dsc_rc *s, unsigned y, const struct dsc_rc_group *g,
                             unsigned prev, unsigned prev2)
 {
     /* OQ-28: prevQp as printed, or prev2Qp. */
-    unsigned activity = (s->opt.activity_qp == DSC_ACTIVITY_PREV2 ? prev2 : prev) +
-                        g->predicted[0] + umax(g->predicted[1], g->predicted[2]);
+    unsigned qp = s->opt.activity_qp == DSC_ACTIVITY_PREV2 ? prev2 : prev;
+    unsigned activity = pred_activity(s, g, qp, 0);
     int p_mode = s->opt.bitsave_ich == DSC_BITSAVE_ICH_SET ? g->ich : !g->ich;
 
+    if (s->native && s->opt.stats && y && !g->flat && p_mode && g->mpp < 3 &&
+        (activity >= s->bit_save_thresh) != (pred_activity(s, g, qp, 1) >= s->bit_save_thresh)) {
+        ++s->opt.stats->activity_differs;
+    }
     if (!y || g->flat) {
         s->bit_save = s->mpp_state = 0;
     } else if (p_mode && g->mpp >= 3) {
@@ -400,7 +427,14 @@ int dsc_rc_step_group(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned 
         return -1;
     }
     c = s->cfg;
-    if (n < 1 || n > 3 || actual > 256 || ideal > 256 || groupnum != s->groups ||
+    /* OQ-40: Annex E (Table E-2) adds second_line_offset_adj to the offset
+     * at the start of the slice; §6.8.2 states only its subtraction. */
+    if (!s->groups && s->v12 && s->opt.offset_adj == DSC_OFFSET_ADJ_START) {
+        s->offset_q11 += (int64_t)c->second_line_offset_adj * 2048;
+    }
+    /* A group holds at most four units of 4 * 16 + 4 bits (native 4:2:2 at
+     * 16 bpc). */
+    if (n < 1 || n > 3 || actual > 512 || ideal > 512 || groupnum != s->groups ||
         y != s->pixels / c->slice_width ||
         s->pixels + n > (uint64_t)c->slice_width * c->slice_height ||
         s->pixels % c->slice_width + n > c->slice_width) {
@@ -452,11 +486,16 @@ int dsc_rc_step_group(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned 
             s->scale_clock = 0;
             ++s->scale;
         }
-    } else if ((s->groups || s->opt.scale_dec == DSC_SCALE_DEC_FROM_GROUP_0) && s->scale > 8) {
-        /* OQ-14: whether the first decrement interval counts group 0. */
+    } else if ((s->groups || s->opt.scale_dec == DSC_SCALE_DEC_FROM_GROUP_0) && s->scale > 8 &&
+               (!y || s->opt.scale_line == DSC_SCALE_LINE_UNTIL_UNITY)) {
+        /* OQ-14: whether the first decrement interval counts group 0.
+         * OQ-42: whether a decrement can fall on group 0 (an interval of
+         * 1). OQ-43: whether decrements go on after the first line. */
         if (++s->scale_clock >= c->scale_decrement_interval) {
             s->scale_clock = 0;
-            --s->scale;
+            if (s->groups || s->opt.scale_first == DSC_SCALE_FIRST_GROUP) {
+                --s->scale;
+            }
         }
     }
     /* Q11 retains fractional precision across every group. OQ-12: §6.8.1
@@ -493,8 +532,8 @@ int dsc_rc_step_group(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned 
     delta -= (int64_t)delayed * c->bits_per_pixel * 128;
     if (s->v12) {
         /* DSC 1.2b §6.8.2 adjustments 5 and 6, and second_line_offset_adj
-         * subtracted once the first line is done. All three are zero
-         * unless native 4:2:0 is used. */
+         * subtracted once the first line is done (OQ-40). All three are
+         * zero unless native 4:2:0 is used. */
         delta += y == 1 ? -(int64_t)c->second_line_bpg_offset * 2048 : c->nsl_bpg_offset;
         if (y == 1 && s->pixels - n == c->slice_width) {
             delta -= (int64_t)c->second_line_offset_adj * 2048;
@@ -593,6 +632,7 @@ int dsc_rc_step_group(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned 
     in.v12 = s->v12;
     in.zero = g->zero;
     in.top_qp = 2u * c->bits_per_component - 1;
+    in.overflow = s->native == DSC_NATIVE_422 ? -224 : -172;
     if (s->v12) {
         s->step_group = *g;
         s->step_y = y;

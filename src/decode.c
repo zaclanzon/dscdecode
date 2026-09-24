@@ -58,7 +58,7 @@ static int validate(const struct drm_dsc_config *c, struct dsc_format *f)
         return DSC_UNSUPPORTED;
     }
     if (!c->slice_width || !c->slice_height || !c->pic_width || !c->pic_height ||
-        !c->slice_chunk_size || !c->bits_per_pixel || c->bits_per_pixel > 384 ||
+        !c->slice_chunk_size || !c->bits_per_pixel || c->bits_per_pixel > 1023 ||
         c->line_buf_depth < 8 || c->line_buf_depth > (f->version == 2 ? 16 : 13) ||
         !c->rc_model_size ||
         c->initial_scale_value < 8 || c->initial_scale_value > 63 ||
@@ -73,7 +73,15 @@ static int validate(const struct drm_dsc_config *c, struct dsc_format *f)
         (size_t)c->pic_width * c->pic_height > DSC_MAX_PIXELS) {
         return DSC_LIMIT;
     }
-    if (c->slice_chunk_size != ((unsigned)c->slice_width * c->bits_per_pixel + 127) / 128) {
+    /* DSC 1.2b Table 4-1: even slice widths for 4:2:2 and 4:2:0, even slice
+     * heights for native 4:2:0; chunk_size counts the container's pixels in
+     * native modes. */
+    if (((f->simple_422 || f->native) && c->slice_width % 2) ||
+        (f->native == DSC_NATIVE_420 && c->slice_height % 2)) {
+        return DSC_INVALID;
+    }
+    if (c->slice_chunk_size !=
+        (dsc_format_width(f, c->slice_width) * c->bits_per_pixel + 127) / 128) {
         return DSC_INVALID;
     }
     for (i = 0; i < 14; i++) {
@@ -253,8 +261,13 @@ static int syntax(struct syntax_state *s, const struct dsc_format *f,
             width = 0;
         }
         if (g->ich) {
-            if (take(&s->s[u], 5, &g->idx[u])) {
-                return -1;
+            /* §6.6.2: indices for the three container pixels, from Y, Co
+             * and Cg; in native 4:2:2 from Y2, Co and Cg, Y holding only
+             * the escape. */
+            for (k = 0; k < 3; k++) {
+                if (f->index_unit[k] == u && take(&s->s[u], 5, &g->idx[k])) {
+                    return -1;
+                }
             }
             g->mpp[u] = 0;
         } else {
@@ -326,7 +339,8 @@ static int check_padding(const struct dsc_format *f, const struct dsc_options *o
     return 0;
 }
 
-/* Decodes one slice into out: f->units samples per pixel, raster order. */
+/* Decodes one slice into out: f->units samples per pixel of the coded
+ * picture (the container in native modes), raster order. */
 static int decode_slice(const struct drm_dsc_config *c, const struct dsc_format *f,
                         const struct dsc_options *opt, unsigned slice, const uint8_t *p,
                         size_t n, uint16_t *out)
@@ -337,8 +351,9 @@ static int decode_slice(const struct drm_dsc_config *c, const struct dsc_format 
     struct dsc_rc rc;
     struct dsc_predict *pred;
     struct dsc_group_trace tr;
+    struct drm_dsc_config coded;
     size_t pos = 0, expected;
-    unsigned x, y, gn = 0, u, k, qp, width = c->slice_width;
+    unsigned x, y, gn = 0, u, k, qp, width = dsc_format_width(f, c->slice_width);
     int status;
     uint16_t pixel[4][3];
 
@@ -346,7 +361,11 @@ static int decode_slice(const struct drm_dsc_config *c, const struct dsc_format 
     if (n != expected) {
         return n < expected ? DSC_TRUNCATED : DSC_INVALID;
     }
-    if (dsc_rc_init(&rc, c)) {
+    /* DSC 1.2b §6.8.1: in native modes the rate control counts container
+     * pixel times over sliceWidth = slice_width >> 1. */
+    coded = *c;
+    coded.slice_width = (u16)width;
+    if (dsc_rc_init(&rc, &coded)) {
         return DSC_INVALID;
     }
     dsc_rc_set_options(&rc, opt);
@@ -472,11 +491,12 @@ done:
     return status;
 }
 
-/* Where decoded pixels go: RGB888, or 16-bit planes. */
+/* Where decoded pixels go: RGB888, or 16-bit planes. width and height
+ * bound each output plane (the picture, or one slice). */
 struct sink {
     uint8_t *rgb;
     const struct dsc_planes *planes;
-    unsigned width;
+    unsigned width[3], height[3];
 };
 
 static int half_floor(int v)
@@ -487,8 +507,8 @@ static int half_floor(int v)
 /* §7.7: YCoCg-R to RGB, each result clamped to the component range. At
  * 16 bpc the chroma was rounded to 16 bits; DSC 1.2b §7.7 restores the
  * scale with (C - 0x8000) << 1. */
-static void put_pixel(const struct sink *k, const struct dsc_format *f, unsigned x, unsigned y,
-                      const uint16_t *s)
+static void put_rgb(const struct sink *k, const struct dsc_format *f, unsigned x, unsigned y,
+                    const uint16_t *s)
 {
     int co = f->bpc == 16 ? ((int)s[1] - 0x8000) * 2 : (int)s[1] - (1 << f->bpc);
     int cg = f->bpc == 16 ? ((int)s[2] - 0x8000) * 2 : (int)s[2] - (1 << f->bpc);
@@ -500,7 +520,7 @@ static void put_pixel(const struct sink *k, const struct dsc_format *f, unsigned
     rgb[2] = bound(b, top);
     if (k->rgb) {
         for (c = 0; c < 3; c++) {
-            k->rgb[((size_t)y * k->width + x) * 3 + c] = (uint8_t)rgb[c];
+            k->rgb[((size_t)y * k->width[0] + x) * 3 + c] = (uint8_t)rgb[c];
         }
     } else {
         for (c = 0; c < 3; c++) {
@@ -509,16 +529,56 @@ static void put_pixel(const struct sink *k, const struct dsc_format *f, unsigned
     }
 }
 
-/* Writes the visible part of a decoded slice at (x0, y0) of the output. */
-static void put_slice(const struct sink *k, const struct dsc_format *f, const uint16_t *decoded,
-                      unsigned slice_width, unsigned slice_height, unsigned x0, unsigned y0,
-                      unsigned width, unsigned height)
+/* One sample of plane c, if inside that plane. */
+static void put_sample(const struct sink *k, unsigned c, unsigned x, unsigned y, uint16_t v)
 {
-    unsigned x, y;
+    if (x < k->width[c] && y < k->height[c]) {
+        k->planes->plane[c][(size_t)y * k->planes->stride[c] + x] = v;
+    }
+}
 
-    for (y = 0; y < slice_height && y0 + y < height; y++) {
-        for (x = 0; x < slice_width && x0 + x < width; x++) {
-            put_pixel(k, f, x0 + x, y0 + y, decoded + ((size_t)y * slice_width + x) * f->units);
+/* Writes a decoded slice whose top-left pixel is (x0, y0) of the output.
+ * YCbCr needs no conversion (§7.7). Simple 4:2:2 keeps the chroma of the
+ * even positions (Annex B). Native modes unpack the container (DSC 1.2b
+ * §6.1, Figures 3-12 and 3-14): its pixel cx holds luma at 2cx and 2cx + 1,
+ * and chroma cx, Cb on even and Cr on odd lines in 4:2:0. */
+static void put_slice(const struct sink *k, const struct dsc_format *f, const uint16_t *decoded,
+                      unsigned coded_width, unsigned slice_height, unsigned x0, unsigned y0)
+{
+    unsigned x, y, c;
+
+    for (y = 0; y < slice_height; y++) {
+        for (x = 0; x < coded_width; x++) {
+            const uint16_t *s = decoded + ((size_t)y * coded_width + x) * f->units;
+            unsigned py = y0 + y;
+
+            if (f->rgb) {
+                if (x0 + x < k->width[0] && py < k->height[0]) {
+                    put_rgb(k, f, x0 + x, py, s);
+                }
+            } else if (f->native) {
+                unsigned cx = x0 / 2 + x;
+
+                put_sample(k, 0, x0 + 2 * x, py, s[0]);
+                put_sample(k, 0, x0 + 2 * x + 1, py, s[f->odd_luma]);
+                if (f->native == DSC_NATIVE_422) {
+                    put_sample(k, 1, cx, py, s[1]);
+                    put_sample(k, 2, cx, py, s[2]);
+                } else {
+                    put_sample(k, py % 2 ? 2 : 1, cx, py / 2, s[2]);
+                }
+            } else {
+                put_sample(k, 0, x0 + x, py, s[0]);
+                if (!f->simple_422) {
+                    for (c = 1; c < 3; c++) {
+                        put_sample(k, c, x0 + x, py, s[c]);
+                    }
+                } else if ((x0 + x) % 2 == 0) {
+                    for (c = 1; c < 3; c++) {
+                        put_sample(k, c, (x0 + x) / 2, py, s[c]);
+                    }
+                }
+            }
         }
     }
 }
@@ -540,14 +600,21 @@ int dsc_plane_size(const struct drm_dsc_config *c, int slice, unsigned width[3],
     for (i = 0; i < 3; i++) {
         width[i] = slice ? c->slice_width : c->pic_width;
         height[i] = slice ? c->slice_height : c->pic_height;
+        if (i && (f.simple_422 || f.native)) {
+            width[i] = (width[i] + 1) / 2;
+        }
+        if (i && f.native == DSC_NATIVE_420) {
+            height[i] = (height[i] + 1) / 2;
+        }
     }
     return DSC_OK;
 }
 
-static int check_planes(const struct drm_dsc_config *c, int slice, const struct dsc_planes *o)
+static int check_planes(const struct drm_dsc_config *c, int slice, const struct dsc_planes *o,
+                        struct sink *k)
 {
-    unsigned w[3], h[3], i;
-    int status = dsc_plane_size(c, slice, w, h);
+    unsigned i;
+    int status = dsc_plane_size(c, slice, k->width, k->height);
 
     if (status) {
         return status;
@@ -556,8 +623,8 @@ static int check_planes(const struct drm_dsc_config *c, int slice, const struct 
         return DSC_INVALID;
     }
     for (i = 0; i < 3; i++) {
-        if (!o->plane[i] || o->stride[i] < w[i] ||
-            o->capacity[i] < o->stride[i] * (h[i] - 1) + w[i]) {
+        if (!o->plane[i] || o->stride[i] < k->width[i] ||
+            o->capacity[i] < o->stride[i] * (k->height[i] - 1) + k->width[i]) {
             return DSC_LIMIT;
         }
     }
@@ -583,14 +650,14 @@ static int decode_single(const struct drm_dsc_config *c, const struct dsc_option
         opt = &defaults;
     }
     dsc_format_apply_options(&f, opt);
-    decoded = malloc((size_t)c->slice_width * c->slice_height * f.units * sizeof(*decoded));
+    decoded = malloc((size_t)dsc_format_width(&f, c->slice_width) * c->slice_height * f.units *
+                     sizeof(*decoded));
     if (!decoded) {
         return DSC_NOMEM;
     }
     status = decode_slice(c, &f, opt, 0, p, n, decoded);
     if (!status) {
-        put_slice(k, &f, decoded, c->slice_width, c->slice_height, 0, 0, c->slice_width,
-                  c->slice_height);
+        put_slice(k, &f, decoded, dsc_format_width(&f, c->slice_width), c->slice_height, 0, 0);
     }
     free(decoded);
     return status;
@@ -629,7 +696,8 @@ static int decode_picture(const struct drm_dsc_config *c, const struct dsc_optio
         return n < expected ? DSC_TRUNCATED : DSC_INVALID;
     }
     slice = malloc(bytes);
-    decoded = malloc((size_t)c->slice_width * c->slice_height * f.units * sizeof(*decoded));
+    decoded = malloc((size_t)dsc_format_width(&f, c->slice_width) * c->slice_height * f.units *
+                     sizeof(*decoded));
     if (!slice || !decoded) {
         free(slice);
         free(decoded);
@@ -647,8 +715,8 @@ static int decode_picture(const struct drm_dsc_config *c, const struct dsc_optio
             if (status) {
                 goto done;
             }
-            put_slice(k, &f, decoded, c->slice_width, c->slice_height, sx * c->slice_width,
-                      sy * c->slice_height, c->pic_width, c->pic_height);
+            put_slice(k, &f, decoded, dsc_format_width(&f, c->slice_width), c->slice_height,
+                      sx * c->slice_width, sy * c->slice_height);
         }
     }
 done:
@@ -676,8 +744,9 @@ static int rgb888_sink(const struct drm_dsc_config *c, int slice, uint8_t *rgb, 
     }
     k->rgb = rgb;
     k->planes = NULL;
-    k->width = slice ? c->slice_width : c->pic_width;
-    if (cap < (size_t)k->width * (slice ? c->slice_height : c->pic_height) * 3) {
+    k->width[0] = slice ? c->slice_width : c->pic_width;
+    k->height[0] = slice ? c->slice_height : c->pic_height;
+    if (cap < (size_t)k->width[0] * k->height[0] * 3) {
         return DSC_LIMIT;
     }
     return DSC_OK;
@@ -692,13 +761,12 @@ static int planes_sink(const struct drm_dsc_config *c, int slice, const struct d
     if (status) {
         return status;
     }
-    status = check_planes(c, slice, o);
+    status = check_planes(c, slice, o, k);
     if (status) {
         return status;
     }
     k->rgb = NULL;
     k->planes = o;
-    k->width = slice ? c->slice_width : c->pic_width;
     return DSC_OK;
 }
 

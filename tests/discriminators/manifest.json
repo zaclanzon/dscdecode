@@ -2759,5 +2759,745 @@
     ]
    }
   }
+ },
+ "oq42_scale_first": {
+  "question": "scale_first",
+  "vary": [
+   "scale_first",
+   "bpg_combine",
+   "target_floor",
+   "scale_line",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous"
+  },
+  "width": 30,
+  "height": 1,
+  "bpc": 8,
+  "dsc_version": "1.2",
+  "mux_bits": 432,
+  "payload_bits": 720,
+  "pps_sha256": "b6be11fa650db3588fff431f6cf005c08b03d1bdff7ca1c4b0d77276665d579a",
+  "payload_sha256": "a330fcd68a23f8f6d2e5135addd6bd1cb5e9d74a75eecbd77317340699111701",
+  "readings": {
+   "group": {
+    "expected_sha256": "1072edbb3b3fffd01d2da03f122e37f6c4068be47b1a1ea3c7f0875b78f8ec85",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     4
+    ]
+   },
+   "not": {
+    "expected_sha256": "c12267f3d76c57f78db8533e1b449ed927dd6043da80db101b028594280756fe",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  }
+ },
+ "oq42b_scale_first": {
+  "question": "scale_first",
+  "vary": [
+   "scale_first",
+   "scale_line",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous"
+  },
+  "width": 30,
+  "height": 1,
+  "bpc": 8,
+  "dsc_version": "1.1",
+  "mux_bits": 432,
+  "payload_bits": 720,
+  "pps_sha256": "939914c5062c2b151090b6be61f71ac5c297539c2141f953c7c7aaeffa6650eb",
+  "payload_sha256": "a330fcd68a23f8f6d2e5135addd6bd1cb5e9d74a75eecbd77317340699111701",
+  "readings": {
+   "group": {
+    "expected_sha256": "1072edbb3b3fffd01d2da03f122e37f6c4068be47b1a1ea3c7f0875b78f8ec85",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     4
+    ]
+   },
+   "not": {
+    "expected_sha256": "c12267f3d76c57f78db8533e1b449ed927dd6043da80db101b028594280756fe",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  }
+ },
+ "oq43_scale_line": {
+  "question": "scale_line",
+  "vary": [
+   "scale_line",
+   "bpg_combine",
+   "target_floor",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous",
+   "scale_first": "not",
+   "line_flat": "signaled"
+  },
+  "width": 12,
+  "height": 2,
+  "bpc": 8,
+  "dsc_version": "1.2",
+  "mux_bits": 288,
+  "payload_bits": 576,
+  "pps_sha256": "50938465b122af79b327589ed00291b942e9f701208dcd5cd6e34c01114ed7c4",
+  "payload_sha256": "8ea0253a3586943a4ec4a7d2726e00c7ca7e88b7b1f6b5564bcfc1b5530493d9",
+  "readings": {
+   "until-unity": {
+    "expected_sha256": "aae11c1af4c7a59101c590bcc11880c976d2741ed702eccf6a42df7fb5d8e1f1",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     4
+    ]
+   },
+   "first": {
+    "expected_sha256": "2ab2365669a9aaa65d67a52db9ecd072f729cee75470b83eb89938af7371dd1e",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  }
+ },
+ "oq43b_scale_line": {
+  "question": "scale_line",
+  "vary": [
+   "scale_line",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous",
+   "scale_first": "not"
+  },
+  "width": 12,
+  "height": 2,
+  "bpc": 8,
+  "dsc_version": "1.1",
+  "mux_bits": 288,
+  "payload_bits": 576,
+  "pps_sha256": "4549cd85cb19e18ed9a3c7b27eb93fe55d7280abcfc3a8193e6019e252bf0b2a",
+  "payload_sha256": "8ea0253a3586943a4ec4a7d2726e00c7ca7e88b7b1f6b5564bcfc1b5530493d9",
+  "readings": {
+   "until-unity": {
+    "expected_sha256": "aae11c1af4c7a59101c590bcc11880c976d2741ed702eccf6a42df7fb5d8e1f1",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     4
+    ]
+   },
+   "first": {
+    "expected_sha256": "2ab2365669a9aaa65d67a52db9ecd072f729cee75470b83eb89938af7371dd1e",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  }
+ },
+ "oq37_activity420": {
+  "question": "activity420",
+  "vary": [
+   "activity420",
+   "offset_adj",
+   "activity422",
+   "ich_window",
+   "scale_line",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous",
+   "decrement_test": "size",
+   "bitsave_step": "2",
+   "bitsave_pred": "next",
+   "line_flat": "signaled",
+   "bitsave_ich": "not",
+   "activity_qp": "prev2",
+   "low_min": "min-qp",
+   "target_floor": "zero",
+   "flat_rerun": "every",
+   "rerun_bitsave": "redo",
+   "flat_top": "at-or-above",
+   "bitsave_flat": "lagged",
+   "bpg_combine": "add"
+  },
+  "width": 48,
+  "height": 2,
+  "bpc": 8,
+  "dsc_version": "1.2",
+  "mux_bits": 720,
+  "payload_bits": 1152,
+  "pps_sha256": "e18cd831572ed81bc29c6b2848d972039ee60ab87664df598c2a5e8fb126d1c3",
+  "payload_sha256": "1b82192ce7bd9c21ab3bb25bd547150c4ba363421380a960fd0dc77c899ba55e",
+  "readings": {
+   "luma": {
+    "expected_sha256": "53858a3b9812be54ab1ddd17cde218d2f7d8ee91ae65f26032410af90f915ff9",
+    "qp_schedule": [
+     0,
+     0,
+     4,
+     4,
+     4,
+     4,
+     4,
+     4,
+     0,
+     4,
+     4,
+     4,
+     6,
+     8,
+     10,
+     12
+    ]
+   },
+   "sum": {
+    "expected_sha256": "92d6b58eb2aef3301708d3e65eaa98a9414982b42b13a51b55126988848e1ff6",
+    "qp_schedule": [
+     0,
+     0,
+     4,
+     4,
+     4,
+     4,
+     4,
+     4,
+     0,
+     4,
+     4,
+     4,
+     6,
+     8,
+     10,
+     9
+    ]
+   }
+  },
+  "output": "yuv",
+  "format": "native_420"
+ },
+ "oq38_activity422": {
+  "question": "activity422",
+  "vary": [
+   "activity422",
+   "activity420",
+   "offset_adj",
+   "ich_window",
+   "scale_line",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous",
+   "decrement_test": "size",
+   "bitsave_step": "2",
+   "bitsave_pred": "next",
+   "line_flat": "signaled",
+   "bitsave_ich": "not",
+   "activity_qp": "prev2",
+   "low_min": "min-qp",
+   "target_floor": "zero",
+   "flat_rerun": "every",
+   "rerun_bitsave": "redo",
+   "flat_top": "at-or-above",
+   "bitsave_flat": "lagged",
+   "bpg_combine": "add"
+  },
+  "width": 48,
+  "height": 2,
+  "bpc": 8,
+  "dsc_version": "1.2",
+  "mux_bits": 960,
+  "payload_bits": 1440,
+  "pps_sha256": "24b92787b5d3ea1deedf9dd8b400d716d420daa0b77d9e6ea74dcf3c1123b3ff",
+  "payload_sha256": "dd740d91e535a1296cb91c43551c8045805b43abaf65a1296274b61876481a2d",
+  "readings": {
+   "sizes": {
+    "expected_sha256": "632322550202dcd704f6547ca1f97f0bb41f9983aaefe579d0b4127734b30f94",
+    "qp_schedule": [
+     0,
+     0,
+     4,
+     4,
+     4,
+     4,
+     4,
+     4,
+     0,
+     4,
+     4,
+     4,
+     6,
+     8,
+     10,
+     12
+    ]
+   },
+   "total": {
+    "expected_sha256": "2ad8ee71bc6e28914bbbefce4103a4b2d7e914fc9f98e774f153f6a8b9043ff3",
+    "qp_schedule": [
+     0,
+     0,
+     4,
+     4,
+     4,
+     4,
+     4,
+     4,
+     0,
+     4,
+     4,
+     4,
+     6,
+     8,
+     10,
+     9
+    ]
+   }
+  },
+  "output": "yuv",
+  "format": "native_422"
+ },
+ "oq39_bp420_edge": {
+  "question": "bp420_edge",
+  "vary": [
+   "bp420_edge",
+   "activity420",
+   "offset_adj",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous",
+   "decrement_test": "size",
+   "bitsave_step": "2",
+   "bitsave_pred": "next",
+   "line_flat": "signaled",
+   "bitsave_ich": "not",
+   "activity_qp": "prev2",
+   "low_min": "min-qp",
+   "target_floor": "zero",
+   "flat_rerun": "every",
+   "rerun_bitsave": "redo",
+   "flat_top": "at-or-above",
+   "bitsave_flat": "lagged",
+   "bpg_combine": "add",
+   "bp_left": "midpoint",
+   "bp_edge": "window",
+   "bp_sad": "shift"
+  },
+  "width": 36,
+  "height": 4,
+  "bpc": 8,
+  "dsc_version": "1.2",
+  "mux_bits": 864,
+  "payload_bits": 3456,
+  "pps_sha256": "a43160f7bb5121bfc37e34723d1e1f5dbd1377da03f356ed8a097dcf1c1606a4",
+  "payload_sha256": "a67da6c52bc0a2cde11b12120fb7b6edd897028c7470fa2726eaff617316d18d",
+  "readings": {
+   "luma": {
+    "expected_sha256": "21e5ed0eebc6db70479e63ad8f8d4b3436c4812b478a170f4619b0e68143ea74",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "all": {
+    "expected_sha256": "b7582bd3b8562506ccb586b30c2f0ba9536e7f264f70606de79cab1aaad98e4b",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  "output": "yuv",
+  "format": "native_420"
+ },
+ "oq40_offset_adj": {
+  "question": "offset_adj",
+  "vary": [
+   "offset_adj",
+   "activity420",
+   "line_flat",
+   "flat_rerun",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous",
+   "decrement_test": "size",
+   "bitsave_step": "2",
+   "bitsave_pred": "next",
+   "line_flat": "signaled",
+   "bitsave_ich": "not",
+   "activity_qp": "prev2",
+   "low_min": "min-qp",
+   "target_floor": "zero",
+   "flat_rerun": "every",
+   "rerun_bitsave": "redo",
+   "flat_top": "at-or-above",
+   "bitsave_flat": "lagged",
+   "bpg_combine": "add"
+  },
+  "width": 12,
+  "height": 2,
+  "bpc": 8,
+  "dsc_version": "1.2",
+  "mux_bits": 288,
+  "payload_bits": 576,
+  "pps_sha256": "5bb8ae8799381f7122e70f0dbad5baf291e3af46ca41bbbcee25da6e2f109e6b",
+  "payload_sha256": "6163ef8de42be0e382789602eba72b6ea87f30c516a712bcaf7391247333d0cc",
+  "readings": {
+   "subtract": {
+    "expected_sha256": "bc657342f915901d1ee4b1cd3c52be05eb4635729bda140426e045fa47397e01",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "start": {
+    "expected_sha256": "1ea4af8fca969eb482110a1a23c9023f3a5dea6155ec20c9efc18fbf2607cfc6",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     4
+    ]
+   }
+  },
+  "output": "yuv",
+  "format": "native_420"
+ },
+ "oq41_ich_window": {
+  "question": "ich_window",
+  "vary": [
+   "ich_window",
+   "activity422",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous",
+   "decrement_test": "size",
+   "bitsave_step": "2",
+   "bitsave_pred": "next",
+   "line_flat": "signaled",
+   "bitsave_ich": "not",
+   "activity_qp": "prev2",
+   "low_min": "min-qp",
+   "target_floor": "zero",
+   "flat_rerun": "every",
+   "rerun_bitsave": "redo",
+   "flat_top": "at-or-above",
+   "bitsave_flat": "lagged",
+   "bpg_combine": "add"
+  },
+  "width": 12,
+  "height": 2,
+  "bpc": 8,
+  "dsc_version": "1.2",
+  "mux_bits": 384,
+  "payload_bits": 576,
+  "pps_sha256": "a930cbf2316fd6715ec8e1ee4d62f766704b5b730d292cd8cd0d8b83ed4a39e6",
+  "payload_sha256": "61494ae690e3ad91d951784ca715fe13b6f67b8bb60a84258daf4d1020211be0",
+  "readings": {
+   "pixels": {
+    "expected_sha256": "56aca5b99f71628b1654c77437fe4d45c4cffe67ff6fdf9982cd1e09df6f34c6",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "container": {
+    "expected_sha256": "3cba5798821a7ffe8b53ced5bb75d0feb17660234a66d50f90d84e60d53735d7",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  "output": "yuv",
+  "format": "native_422"
+ },
+ "oq41b_ich_window": {
+  "question": "ich_window",
+  "vary": [
+   "ich_window",
+   "activity420",
+   "offset_adj",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous",
+   "decrement_test": "size",
+   "bitsave_step": "2",
+   "bitsave_pred": "next",
+   "line_flat": "signaled",
+   "bitsave_ich": "not",
+   "activity_qp": "prev2",
+   "low_min": "min-qp",
+   "target_floor": "zero",
+   "flat_rerun": "every",
+   "rerun_bitsave": "redo",
+   "flat_top": "at-or-above",
+   "bitsave_flat": "lagged",
+   "bpg_combine": "add"
+  },
+  "width": 24,
+  "height": 4,
+  "bpc": 8,
+  "dsc_version": "1.2",
+  "mux_bits": 864,
+  "payload_bits": 2304,
+  "pps_sha256": "318ecac48479d0166e09d1153b73c8af26804c8444e06941801d0508d9463931",
+  "payload_sha256": "d6216499a71d2fe12d3c4e12c3f8ca5e2d7b729cd3c0ad25907e4415b1af338d",
+  "readings": {
+   "pixels": {
+    "expected_sha256": "f70d9681bbb5dab5baab20c1934c2de92bfa0bd1e68f5d3bff6c7b6e02315fe0",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "container": {
+    "expected_sha256": "34da1d252030b430d4e78dda51735eec2461b695133c0268a855503050cbc8e4",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  "output": "yuv",
+  "format": "native_420"
  }
 }

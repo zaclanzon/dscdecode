@@ -42,6 +42,13 @@ READINGS = {
     'flat_top': ('equal', 'at-or-above'),
     'prefix16_scope': ('qp0', 'qlevel'),
     'prefix16_cut': ('always', 'longer'),
+    'activity420': ('luma', 'sum'),
+    'activity422': ('sizes', 'total'),
+    'bp420_edge': ('luma', 'all'),
+    'offset_adj': ('subtract', 'start'),
+    'ich_window': ('pixels', 'container'),
+    'scale_first': ('group', 'not'),
+    'scale_line': ('until-unity', 'first'),
 }
 # The statistic that shows each question's condition occurred.
 EXERCISED = {
@@ -50,6 +57,10 @@ EXERCISED = {
     'frac_reset': 'frac_differs',
     'bp_left': 'bp_left_differs',
     'delay_partial': 'delay_partial_differs',
+    'activity420': 'activity_differs',
+    'activity422': 'activity_differs',
+    'bp420_edge': 'bp420_edge_differs',
+    'ich_window': 'ich_window_differs',
 }
 
 
@@ -68,8 +79,10 @@ def main():
     manifest = json.loads((ROOT / 'manifest.json').read_text())
     count = 0
     with tempfile.TemporaryDirectory(prefix='dsc-disc-') as tmp:
-        out = Path(tmp) / 'out.ppm'
         for name, entry in manifest.items():
+            # YCbCr inputs are decoded to raw YCbCr (NAME.yuv), RGB ones to PPM.
+            ext = entry.get('output', 'ppm')
+            out = Path(tmp) / f'out.{ext}'
             question = entry['question']
             outputs = {}
             vary = entry['vary']
@@ -82,7 +95,7 @@ def main():
                 if question in EXERCISED:
                     assert stats[EXERCISED[question]] > 0, (name, stats)
                 own = readings[question]
-                expected = (ROOT / f'{name}.{own}.expected.ppm').read_bytes()
+                expected = (ROOT / f'{name}.{own}.expected.{ext}').read_bytes()
                 assert out.read_bytes() == expected, (name, readings)
                 outputs[own] = expected
                 count += 1

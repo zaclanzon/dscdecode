@@ -50,4 +50,16 @@ void dsc_options_init(struct dsc_options *o)
     o->flat_top = DSC_FLAT_TOP_AT_OR_ABOVE;
     o->prefix16_scope = DSC_PREFIX16_SCOPE_QLEVEL;
     o->prefix16_cut = DSC_PREFIX16_CUT_LONGER;
+    /* Native 4:2:2 and 4:2:0: the readings judged more likely from the text
+     * (RESEARCH.md, OQ-37 to OQ-40). */
+    o->activity420 = DSC_ACTIVITY420_LUMA;
+    o->activity422 = DSC_ACTIVITY422_SIZES;
+    o->bp420_edge = DSC_BP420_EDGE_LUMA;
+    o->offset_adj = DSC_OFFSET_ADJ_START;
+    /* Found on model-encoded native streams (PROGRESS.md, Phase 5). */
+    o->ich_window = DSC_ICH_WINDOW_CONTAINER;
+    /* OQ-42 and OQ-43: found on model streams with small slices, DSC 1.1
+     * and 1.2 alike (PROGRESS.md, Phase 5). */
+    o->scale_first = DSC_SCALE_FIRST_NOT;
+    o->scale_line = DSC_SCALE_LINE_FIRST;
 }

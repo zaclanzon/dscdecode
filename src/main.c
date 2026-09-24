@@ -238,6 +238,41 @@ static int *prefix16_cut(struct dsc_options *o)
     return &o->prefix16_cut;
 }
 
+static int *activity420(struct dsc_options *o)
+{
+    return &o->activity420;
+}
+
+static int *activity422(struct dsc_options *o)
+{
+    return &o->activity422;
+}
+
+static int *bp420_edge(struct dsc_options *o)
+{
+    return &o->bp420_edge;
+}
+
+static int *offset_adj(struct dsc_options *o)
+{
+    return &o->offset_adj;
+}
+
+static int *ich_window(struct dsc_options *o)
+{
+    return &o->ich_window;
+}
+
+static int *scale_first(struct dsc_options *o)
+{
+    return &o->scale_first;
+}
+
+static int *scale_line(struct dsc_options *o)
+{
+    return &o->scale_line;
+}
+
 static const struct reading readings[] = {
     {"flat_restart",    "next-cycle",   flat_restart,    DSC_FLAT_RESTART_NEXT_CYCLE},
     {"flat_restart",    "in-flight",    flat_restart,    DSC_FLAT_RESTART_IN_FLIGHT},
@@ -311,6 +346,20 @@ static const struct reading readings[] = {
     {"prefix16_cut",    "longer",       prefix16_cut,    DSC_PREFIX16_CUT_LONGER},
     {"flat_top",        "equal",        flat_top,        DSC_FLAT_TOP_EQUAL},
     {"flat_top",        "at-or-above",  flat_top,        DSC_FLAT_TOP_AT_OR_ABOVE},
+    {"activity420",     "luma",         activity420,     DSC_ACTIVITY420_LUMA},
+    {"activity420",     "sum",          activity420,     DSC_ACTIVITY420_SUM},
+    {"activity422",     "sizes",        activity422,     DSC_ACTIVITY422_SIZES},
+    {"activity422",     "total",        activity422,     DSC_ACTIVITY422_TOTAL},
+    {"bp420_edge",      "luma",         bp420_edge,      DSC_BP420_EDGE_LUMA},
+    {"bp420_edge",      "all",          bp420_edge,      DSC_BP420_EDGE_ALL},
+    {"offset_adj",      "subtract",     offset_adj,      DSC_OFFSET_ADJ_SUBTRACT},
+    {"offset_adj",      "start",        offset_adj,      DSC_OFFSET_ADJ_START},
+    {"ich_window",      "pixels",       ich_window,      DSC_ICH_WINDOW_PIXELS},
+    {"ich_window",      "container",    ich_window,      DSC_ICH_WINDOW_CONTAINER},
+    {"scale_first",     "group",        scale_first,     DSC_SCALE_FIRST_GROUP},
+    {"scale_first",     "not",          scale_first,     DSC_SCALE_FIRST_NOT},
+    {"scale_line",      "until-unity",  scale_line,      DSC_SCALE_LINE_UNTIL_UNITY},
+    {"scale_line",      "first",        scale_line,      DSC_SCALE_LINE_FIRST},
 };
 
 static const struct reading *find_reading(const char *name, const char *value)
@@ -359,7 +408,10 @@ static int usage(const char *self)
 
     dsc_options_init(&defaults);
     fprintf(stderr,
-            "Usage: %s [--slice] [--stats] [--trace FILE.csv] [--reading NAME=VALUE]... PPS.bin slices.bin output.ppm\n"
+            "Usage: %s [--slice] [--stats] [--trace FILE.csv] [--reading NAME=VALUE]... PPS.bin slices.bin OUTPUT\n"
+            "OUTPUT is a binary PPM for RGB (convert_rgb 1) and raw YCbCr, NAME.yuv, otherwise:\n"
+            "planar 4:2:0 for native 4:2:0, UYVY for 4:2:2, planar 4:4:4; above 8 bits,\n"
+            "two bytes per sample, least significant first, the sample in the top bits.\n"
             "Readings (see RESEARCH.md, open questions):\n",
             self);
     for (i = 0; i < sizeof(readings) / sizeof(readings[0]); i++) {
@@ -405,9 +457,68 @@ static int write_ppm(FILE *out, const struct dsc_planes *o, unsigned w, unsigned
     return status;
 }
 
+/* Raw YCbCr in the layouts the reference model reads and writes (its
+ * README.TXT: YUV_FILE_FORMAT 0 and 1): planar 4:2:0 (Y, Cb, Cr) for native
+ * 4:2:0, interleaved UYVY for 4:2:2. 4:4:4 YCbCr, which the model writes as
+ * DPX only, is written planar (Y, Cb, Cr). Samples above 8 bits take two
+ * bytes, least significant first, with the sample in the most significant
+ * bits, as in the model's files. An odd-width 4:2:2 row ends with its last
+ * luma sample repeated. */
+static int put_sample(FILE *out, unsigned v, unsigned bits)
+{
+    if (bits > 8) {
+        v <<= 16 - bits;
+        if (fputc((int)(v & 255), out) == EOF) {
+            return -1;
+        }
+        v >>= 8;
+    }
+    return fputc((int)v, out) == EOF ? -1 : 0;
+}
+
+static int write_yuv(FILE *out, const struct dsc_planes *o, const unsigned w[3],
+                     const unsigned h[3], unsigned bits, int interleaved)
+{
+    unsigned x, y, c;
+
+    if (interleaved) {
+        for (y = 0; y < h[0]; y++) {
+            for (x = 0; x < w[0]; x += 2) {
+                const uint16_t *luma = o->plane[0] + (size_t)y * o->stride[0];
+                unsigned odd = x + 1 < w[0] ? luma[x + 1] : luma[x];
+
+                if (put_sample(out, o->plane[1][(size_t)y * o->stride[1] + x / 2], bits) ||
+                    put_sample(out, luma[x], bits) ||
+                    put_sample(out, o->plane[2][(size_t)y * o->stride[2] + x / 2], bits) ||
+                    put_sample(out, odd, bits)) {
+                    return -1;
+                }
+            }
+        }
+        return 0;
+    }
+    for (c = 0; c < 3; c++) {
+        for (y = 0; y < h[c]; y++) {
+            for (x = 0; x < w[c]; x++) {
+                if (put_sample(out, o->plane[c][(size_t)y * o->stride[c] + x], bits)) {
+                    return -1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+static int has_suffix(const char *name, const char *suffix)
+{
+    size_t n = strlen(name), k = strlen(suffix);
+
+    return n >= k && !strcmp(name + n - k, suffix);
+}
+
 int main(int argc, char **argv)
 {
-    int single = 0, want_stats = 0, status, exitcode = 1, off = 1;
+    int single = 0, want_stats = 0, status, exitcode = 1, off = 1, yuv;
     unsigned w, h, pw[3], ph[3], i;
     size_t pps_n, n;
     struct drm_dsc_config c;
@@ -472,6 +583,12 @@ int main(int argc, char **argv)
         fprintf(stderr, "decode: %s\n", dsc_strerror(status));
         goto done;
     }
+    yuv = has_suffix(argv[off + 2], ".yuv");
+    if (yuv == !!c.convert_rgb) {
+        fprintf(stderr, "%s\n", c.convert_rgb ? "RGB output: name a .ppm file, not .yuv"
+                                              : "YCbCr output: name a .yuv file");
+        goto done;
+    }
     w = pw[0];
     h = ph[0];
     if ((size_t)w * h > DSC_MAX_PIXELS) {
@@ -496,13 +613,15 @@ int main(int argc, char **argv)
         fprintf(stderr,
                 "stats: groups=%lu threshold_equal=%lu flat_overrides=%lu flat_queue_differs=%lu frac_differs=%lu bp_groups=%lu bp_left_differs=%lu"
                 " incr_order_differs=%lu range_lag_differs=%lu partial_groups=%lu very_flat_low_qp=%lu padding_nonzero=%lu"
-                " flat_max_qp_differs=%lu delay_partial_differs=%lu bit_save_groups=%lu line_flat=%lu\n",
+                " flat_max_qp_differs=%lu delay_partial_differs=%lu bit_save_groups=%lu line_flat=%lu"
+                " activity_differs=%lu bp420_edge_differs=%lu ich_window_differs=%lu\n",
                 stats.groups, stats.threshold_equal, stats.flat_overrides,
                 stats.flat_queue_differs, stats.frac_differs, stats.bp_groups,
                 stats.bp_left_differs, stats.incr_order_differs, stats.range_lag_differs,
                 stats.partial_groups, stats.very_flat_low_qp, stats.padding_nonzero,
                 stats.flat_max_qp_differs, stats.delay_partial_differs, stats.bit_save_groups,
-                stats.line_flat);
+                stats.line_flat, stats.activity_differs, stats.bp420_edge_differs,
+                stats.ich_window_differs);
     }
     /* OQ-17: padding the default reading accepts is reported, not hidden. */
     if (opt.partial_padding == DSC_PARTIAL_PADDING_ACCEPT && stats.padding_nonzero) {
@@ -521,7 +640,9 @@ int main(int argc, char **argv)
         perror(argv[off + 2]);
         goto done;
     }
-    if (write_ppm(output, &planes, w, h, c.bits_per_component)) {
+    if (yuv ? write_yuv(output, &planes, pw, ph, c.bits_per_component,
+                        c.simple_422 || c.native_422)
+            : write_ppm(output, &planes, w, h, c.bits_per_component)) {
         fprintf(stderr, "output write failed\n");
         goto done;
     }

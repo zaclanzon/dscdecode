@@ -60,7 +60,7 @@ def emit(name, question, pps, plan, construct, vary=(), note='', separate=None, 
     fixed = dict(base or {}, **(assumes or {}))
     b = Builder(pps, dict(fixed, **{question: construct}))
     plan(b)
-    assert len(b.units) == (pps.slice_width + 2) // 3 * pps.slice_height, (name, 'plan size')
+    assert len(b.units) == (pps.coded_width + 2) // 3 * pps.slice_height, (name, 'plan size')
     payload, used = b.payload()
     if pps.bpc == 16 and question != 'mux16':
         # The refill threshold of the luma substream at 16 bpc is OQ-33
@@ -70,7 +70,7 @@ def emit(name, question, pps, plan, construct, vary=(), note='', separate=None, 
     outputs, logs = {}, {}
     for value in readings or READINGS[question]:
         d = Decoder(pps, dict(fixed, **{question: value})).decode(payload)
-        outputs[value] = d.ppm()
+        outputs[value] = d.output()
         logs[value] = d.rc.log
     distinct = len(set(outputs.values()))
     assert distinct >= 2, (name, 'readings agree')
@@ -81,16 +81,22 @@ def emit(name, question, pps, plan, construct, vary=(), note='', separate=None, 
     (OUT / f'{name}.syntax.txt').write_text(''.join(' '.join(u) + '\n' for u in b.units))
     entry = dict(question=question, vary=[question] + list(vary) + (COMMON_VARY if common is None else common),
                  assumes=dict(MODEL_TIMING, **(assumes or {})), width=pps.width, height=pps.height, bpc=pps.bpc,
-                 dsc_version='1.2', mux_bits=used, payload_bits=8 * len(payload),
+                 dsc_version=f'1.{pps.version}', mux_bits=used, payload_bits=8 * len(payload),
                  pps_sha256=hashlib.sha256(pps.bytes()).hexdigest(),
                  payload_sha256=hashlib.sha256(payload).hexdigest(), readings={})
     if note:
         entry['note'] = note
     if superseded_by:
         entry['superseded_by'] = superseded_by
-    for value, ppm in outputs.items():
-        (OUT / f'{name}.{value}.expected.ppm').write_bytes(ppm)
-        entry['readings'][value] = dict(expected_sha256=hashlib.sha256(ppm).hexdigest(),
+    # YCbCr inputs: the expected output is raw YCbCr (dscdecode's .yuv).
+    ext = 'ppm' if pps.rgb else 'yuv'
+    if not pps.rgb:
+        entry['output'] = 'yuv'
+        entry['format'] = ('native_422' if pps.native_422 else 'native_420' if pps.native_420 else
+                           'simple_422' if pps.simple_422 else 'ycbcr_444')
+    for value, image in outputs.items():
+        (OUT / f'{name}.{value}.expected.{ext}').write_bytes(image)
+        entry['readings'][value] = dict(expected_sha256=hashlib.sha256(image).hexdigest(),
                                         qp_schedule=[r['qp'] for r in logs[value]])
     return name, entry
 
@@ -628,6 +634,74 @@ def oq36_prefix16_cut():
                 vary=['prefix16'], assumes={'prefix16_scope': 'qlevel', 'chroma_qlevel': 'equal-depth'})
 
 
+def scale_input(name, question, construct, readings, version, width, height, scale, step,
+                vary, common=None, assumes=None):
+    """Pinned ranges (range 0: QP 0; ranges 1-14: QP 4), 24 bpp, the
+    initial scale decremented every group, no flatness. The last group of
+    the slice is the decisive one; the group before it has zero residuals,
+    so the last group's predicted sizes are 0 whatever its QP. The two
+    readings give different scales after group `step`, the same ones before;
+    threshold 0 is solved to lie between their rcModelFullness values there,
+    above every earlier value, so that with the range lag (OQ-11) only the
+    last group's QP depends on the reading: 0 or 4."""
+    groups = (width + 2) // 3 * height
+
+    def plan(b):
+        for _ in range(groups - 2):
+            b.group(**SMALL)
+        b.group(res=ZERO)
+        b.group(**LAST)
+
+    def pps_for(threshold):
+        return PPS(version=version, width=width, height=height, bpp16=384, scale=scale, scale_dec=1,
+                   thresholds=tuple(range(threshold, threshold + 14)),
+                   ranges=((0, 0, 0),) + ((4, 4, 0),) * 14, flat_min=15, flat_max=15)
+    logs = {}
+    for reading in readings:
+        probe = Builder(pps_for(113), dict(assumes or {}, **{question: reading}))
+        plan(probe)
+        logs[reading] = [r['model'] for r in probe.rc.log]
+    lower, higher = readings
+    low = max(logs[higher][:step] + logs[lower][:step + 1])
+    high = logs[higher][step]
+    threshold = (low + 8192) // 64 + 1
+    assert threshold * 64 - 8192 < high, (name, 'no threshold between the readings', low, high)
+    return emit(name, question, pps_for(threshold), plan, construct, vary=vary,
+                assumes=dict(MODEL_TIMING, **(assumes or {})), common=common)
+
+
+def oq42_scale_first():
+    """OQ-42, DSC 1.2. 30x1 (ten groups), initial_scale_value 16
+    (rcXformScale 2). With the first group decrementing (group) the scale
+    after group 6 is 16 - 7 = 9, without it (not) 10: rcModelFullness, which
+    is negative, is then higher under group, and group 9 decodes at QP 4
+    (group) or 0 (not)."""
+    return scale_input('oq42_scale_first', 'scale_first', 'not', ('not', 'group'), 2, 30, 1, 16, 6,
+                       vary=['bpg_combine', 'target_floor', 'scale_line'])
+
+
+def oq42b_scale_first():
+    """OQ-42, DSC 1.1: oq42_scale_first as a DSC 1.1 stream."""
+    return scale_input('oq42b_scale_first', 'scale_first', 'not', ('not', 'group'), 1, 30, 1, 16, 6,
+                       vary=['scale_line'])
+
+
+def oq43_scale_line():
+    """OQ-43, DSC 1.2. 12x2 (four groups a line), initial_scale_value 16:
+    after the first line the scale is 13 (groups 1-3 decremented it, under
+    OQ-42's reading not, which the input assumes). first
+    keeps 13; until-unity goes on, to 12 after group 4. Group 7, the last,
+    decodes at QP 0 (first) or 4 (until-unity)."""
+    return scale_input('oq43_scale_line', 'scale_line', 'first', ('first', 'until-unity'), 2, 12, 2, 16, 4,
+                       vary=['bpg_combine', 'target_floor'], assumes={'scale_first': 'not', 'line_flat': 'signaled'})
+
+
+def oq43b_scale_line():
+    """OQ-43, DSC 1.1: oq43_scale_line as a DSC 1.1 stream."""
+    return scale_input('oq43b_scale_line', 'scale_line', 'first', ('first', 'until-unity'), 1, 12, 2, 16, 4,
+                       vary=[], assumes={'scale_first': 'not'})
+
+
 def build_all():
     return [make() for make in (oq7_bpg_combine, oq20_chroma_qlevel, oq21_prefix16,
                                 oq22_bitsave_ich, oq23_bitsave_pred_next, oq24_bitsave_flat,
@@ -635,7 +709,8 @@ def build_all():
                                 oq24d_bitsave_flat, oq24e_bitsave_flat, oq26_low_min,
                                 oq27_decrement_test, oq28_activity_qp, oq29_bitsave_step,
                                 oq30_target_floor, oq31_flat_rerun, oq32_rerun_bitsave, oq33_mux16,
-                                oq34_flat_top, oq35_prefix16_scope, oq36_prefix16_cut)]
+                                oq34_flat_top, oq35_prefix16_scope, oq36_prefix16_cut,
+                                oq42_scale_first, oq42b_scale_first, oq43_scale_line, oq43b_scale_line)]
 
 
 if __name__ == '__main__':

@@ -19,6 +19,8 @@
  * Table 4-10 limit the luma prefix at QP 0 to keep elements within a mux
  * word, but the text does not restate the refill threshold (OQ-33,
  * dsc_format_apply_options). */
+/* Native modes (DSC 1.2b Table E-1, numExtraMuxBits) count Y2 and the
+ * odd-position luma of 4:2:0 with the chroma units: 4 * cpntBitDepth. */
 static void set_units(struct dsc_format *f)
 {
     unsigned u;
@@ -43,6 +45,8 @@ int dsc_qp_scale(unsigned bpc, unsigned *max_qp, unsigned *flat_type_qp, unsigne
 
 int dsc_format_init(struct dsc_format *f, const struct drm_dsc_config *c)
 {
+    unsigned u;
+
     memset(f, 0, sizeof(*f));
     if (!c || c->dsc_version_major != 1 ||
         (c->dsc_version_minor != 1 && c->dsc_version_minor != 2)) {
@@ -56,27 +60,62 @@ int dsc_format_init(struct dsc_format *f, const struct drm_dsc_config *c)
          (c->bits_per_component != 14 && c->bits_per_component != 16))) {
         return DSC_UNSUPPORTED;
     }
-    if (!c->convert_rgb || c->simple_422 || c->native_422 || c->native_420) {
+    /* DSC 1.2b Table 4-1: at most one of simple_422, native_422 and
+     * native_420, the native modes in DSC 1.2 only; subsampled coding is
+     * YCbCr (Annex B, §3.10.1). */
+    if (c->simple_422 + c->native_422 + c->native_420 > 1 ||
+        ((c->native_422 || c->native_420) && c->dsc_version_minor != 2)) {
+        return DSC_INVALID;
+    }
+    if (c->convert_rgb && (c->simple_422 || c->native_422 || c->native_420)) {
         return DSC_UNSUPPORTED;
     }
     f->version = c->dsc_version_minor;
     f->bpc = c->bits_per_component;
-    f->rgb = 1;
-    f->units = 3;
-    /* §6.1: YCoCg-R chroma has one bit more than luma, except at 16 bpc,
-     * where DSC 1.2b §6.1 rounds it to 16 bits. */
+    f->rgb = !!c->convert_rgb;
+    f->simple_422 = !!c->simple_422;
+    f->native = c->native_422 ? DSC_NATIVE_422 : c->native_420 ? DSC_NATIVE_420 : DSC_NATIVE_NONE;
+    f->units = f->native == DSC_NATIVE_422 ? 4 : 3;
     f->depth[0] = f->bpc;
-    f->depth[1] = f->depth[2] = f->bpc < 16 ? f->bpc + 1 : 16;
+    if (f->rgb) {
+        /* §6.1: YCoCg-R chroma has one bit more than luma, except at 16
+         * bpc, where DSC 1.2b §6.1 rounds it to 16 bits. */
+        f->depth[1] = f->depth[2] = f->bpc < 16 ? f->bpc + 1 : 16;
+    } else {
+        /* §7.7: Cb and Cr have the luma bit depth. */
+        for (u = 1; u < f->units; u++) {
+            f->depth[u] = f->bpc;
+        }
+    }
     f->luma[0] = 1;
+    /* DSC 1.2b §6.1: the odd-position luma samples are the fourth component
+     * in native 4:2:2 and the second in native 4:2:0. Luma units use qLevelY
+     * (§6.4.5, §6.8.6) and the Y2 codebook of Table 4-13. */
+    f->odd_luma = f->native == DSC_NATIVE_422 ? 3 : f->native == DSC_NATIVE_420 ? 1 : 0;
+    if (f->odd_luma) {
+        f->luma[f->odd_luma] = 1;
+    }
+    /* §4.5 and §6.6.2: in native 4:2:2 the Y unit carries only the ICH
+     * escape, and the first index is coded in Y2. */
+    f->index_unit[0] = f->native == DSC_NATIVE_422 ? 3 : 0;
+    f->index_unit[1] = 1;
+    f->index_unit[2] = 2;
+    /* §6.4.2: BP predicts every unit, but only luma in native 4:2:0. */
+    f->bp_units = f->native == DSC_NATIVE_420 ? 3u : (1u << f->units) - 1;
     /* §4.4: 48-bit mux words for 8 and 10 bpc, 64-bit above. */
     f->mux_word = f->bpc <= 10 ? 48 : 64;
     /* DSC 1.2b §6.8.6: with equal luma and chroma depths, DSC 1.2 lowers
-     * qLevelC by one. For RGB that is 16 bpc only; OQ-20 asks whether it
-     * applies there (dsc_format_apply_options). */
-    f->chroma_adjust = 0;
+     * qLevelC by one. That is always so for YCbCr; for RGB, 16 bpc only,
+     * where OQ-20 asks whether it applies (dsc_format_apply_options). */
+    f->chroma_adjust = f->version == 2 && !f->rgb;
     dsc_qp_scale(f->bpc, &f->max_qp, &f->flat_type_qp, &f->very_flat_qp);
     set_units(f);
     return DSC_OK;
+}
+
+unsigned dsc_format_width(const struct dsc_format *f, unsigned slice_width)
+{
+    return f->native ? slice_width >> 1 : slice_width;
 }
 
 void dsc_format_apply_options(struct dsc_format *f, const struct dsc_options *o)
