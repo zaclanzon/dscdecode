@@ -132,9 +132,9 @@ fatal and report leaks; on a host where LeakSanitizer cannot run, set
   * VBR, including its framing and buffer handling.
   * Native 4:2:2 and native 4:2:0 (DSC 1.2).
   * Simple 4:2:2, and YCbCr input (`convert_rgb` 0).
-* Fractional bits_per_pixel has been exercised by a discriminator and by
-  model-encoded pictures at two rates, 7.5 and 9.3125 (`PROGRESS.md`), not
-  across the range.
+* Fractional bits_per_pixel has been exercised by a discriminator, by
+  model-encoded synthetic pictures at 7.5 and 9.3125, and by the 17-image
+  corpus at 7.5 (`PROGRESS.md`), not across the range.
 * The licensed VESA reference model is not included. `tools/compare_model`
   drives it as a black box when `DSCDECODE_MODEL_BIN` points at it, and
   `tests/discriminators/` holds inputs that separate the readings of the
