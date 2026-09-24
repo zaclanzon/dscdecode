@@ -66,6 +66,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     opt.partial_padding = (sum >> 5) & 1;
     opt.flat_max_qp = (sum >> 6) & 1;
     opt.delay_partial = (sum >> 7) & 1;
+    /* DSC 1.2 readings, from the payload length. */
+    opt.bpg_combine = size & 1;
+    opt.chroma_qlevel = (size >> 1) & 1;
+    opt.prefix16 = (size >> 2) & 1;
+    opt.bitsave_ich = (size >> 3) & 1;
+    opt.bitsave_pred = (int)((size >> 4) % 3);
+    opt.bitsave_flat = (size >> 6) & 1;
+    opt.line_flat = (size >> 7) & 1;
     opt.stats = &stats;
     opt.trace = ignore_trace;
     dsc_decode_frame_ex(&c, &opt, data + 128, size - 128, out, 4096 * 3);

@@ -148,6 +148,41 @@ static int *delay_partial(struct dsc_options *o)
     return &o->delay_partial;
 }
 
+static int *bpg_combine(struct dsc_options *o)
+{
+    return &o->bpg_combine;
+}
+
+static int *chroma_qlevel(struct dsc_options *o)
+{
+    return &o->chroma_qlevel;
+}
+
+static int *prefix16(struct dsc_options *o)
+{
+    return &o->prefix16;
+}
+
+static int *bitsave_ich(struct dsc_options *o)
+{
+    return &o->bitsave_ich;
+}
+
+static int *bitsave_pred(struct dsc_options *o)
+{
+    return &o->bitsave_pred;
+}
+
+static int *bitsave_flat(struct dsc_options *o)
+{
+    return &o->bitsave_flat;
+}
+
+static int *line_flat(struct dsc_options *o)
+{
+    return &o->line_flat;
+}
+
 static const struct reading readings[] = {
     {"flat_restart",    "next-cycle",   flat_restart,    DSC_FLAT_RESTART_NEXT_CYCLE},
     {"flat_restart",    "in-flight",    flat_restart,    DSC_FLAT_RESTART_IN_FLIGHT},
@@ -180,6 +215,21 @@ static const struct reading readings[] = {
     {"flat_max_qp",     "previous",     flat_max_qp,     DSC_FLAT_MAX_QP_PREVIOUS},
     {"delay_partial",   "pixels",       delay_partial,   DSC_DELAY_PARTIAL_PIXELS},
     {"delay_partial",   "group-end",    delay_partial,   DSC_DELAY_PARTIAL_GROUP_END},
+    {"bpg_combine",     "replace",      bpg_combine,     DSC_BPG_COMBINE_REPLACE},
+    {"bpg_combine",     "add",          bpg_combine,     DSC_BPG_COMBINE_ADD},
+    {"chroma_qlevel",   "table",        chroma_qlevel,   DSC_CHROMA_QLEVEL_TABLE},
+    {"chroma_qlevel",   "equal-depth",  chroma_qlevel,   DSC_CHROMA_QLEVEL_EQUAL_DEPTH},
+    {"prefix16",        "15",           prefix16,        DSC_PREFIX16_15},
+    {"prefix16",        "13",           prefix16,        DSC_PREFIX16_13},
+    {"bitsave_ich",     "not",          bitsave_ich,     DSC_BITSAVE_ICH_NOT},
+    {"bitsave_ich",     "set",          bitsave_ich,     DSC_BITSAVE_ICH_SET},
+    {"bitsave_pred",    "raw",          bitsave_pred,    DSC_BITSAVE_PRED_RAW},
+    {"bitsave_pred",    "adjusted",     bitsave_pred,    DSC_BITSAVE_PRED_ADJUSTED},
+    {"bitsave_pred",    "next",         bitsave_pred,    DSC_BITSAVE_PRED_NEXT},
+    {"bitsave_flat",    "supergroup",   bitsave_flat,    DSC_BITSAVE_FLAT_SUPERGROUP},
+    {"bitsave_flat",    "group",        bitsave_flat,    DSC_BITSAVE_FLAT_GROUP},
+    {"line_flat",       "very",         line_flat,       DSC_LINE_FLAT_VERY},
+    {"line_flat",       "signaled",     line_flat,       DSC_LINE_FLAT_SIGNALED},
 };
 
 static const struct reading *find_reading(const char *name, const char *value)
@@ -365,12 +415,13 @@ int main(int argc, char **argv)
         fprintf(stderr,
                 "stats: groups=%lu threshold_equal=%lu flat_overrides=%lu flat_queue_differs=%lu frac_differs=%lu bp_groups=%lu bp_left_differs=%lu"
                 " incr_order_differs=%lu range_lag_differs=%lu partial_groups=%lu very_flat_low_qp=%lu padding_nonzero=%lu"
-                " flat_max_qp_differs=%lu delay_partial_differs=%lu\n",
+                " flat_max_qp_differs=%lu delay_partial_differs=%lu bit_save_groups=%lu line_flat=%lu\n",
                 stats.groups, stats.threshold_equal, stats.flat_overrides,
                 stats.flat_queue_differs, stats.frac_differs, stats.bp_groups,
                 stats.bp_left_differs, stats.incr_order_differs, stats.range_lag_differs,
                 stats.partial_groups, stats.very_flat_low_qp, stats.padding_nonzero,
-                stats.flat_max_qp_differs, stats.delay_partial_differs);
+                stats.flat_max_qp_differs, stats.delay_partial_differs, stats.bit_save_groups,
+                stats.line_flat);
     }
     /* OQ-17: padding the default reading accepts is reported, not hidden. */
     if (opt.partial_padding == DSC_PARTIAL_PADDING_ACCEPT && stats.padding_nonzero) {

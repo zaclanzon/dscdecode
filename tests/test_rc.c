@@ -260,6 +260,79 @@ static void delay_partial(int reading, unsigned delay, const int64_t offset[4])
     }
 }
 
+/* DSC 1.2b §6.8.4 (Figure 6-17) with every range min 4, max 8. One group of
+ * a second line reports its sizes; the step's result is the QP queued two
+ * groups ahead. prevQp starts at 6 (set directly). */
+static unsigned v12_step(unsigned fullness_bits, unsigned actual, unsigned ideal, int zero,
+                         unsigned mpp, unsigned bit_save)
+{
+    struct drm_dsc_config c = settings();
+    struct dsc_rc_group g;
+    struct dsc_rc r;
+    unsigned i;
+
+    c.dsc_version_major = 1;
+    c.dsc_version_minor = 2;
+    c.convert_rgb = 1;
+    c.slice_height = 2;
+    for (i = 0; i < 15; ++i) {
+        c.rc_range_params[i].range_min_qp = 4;
+        c.rc_range_params[i].range_max_qp = 8;
+    }
+    assert(dsc_rc_init(&r, &c) == 0);
+    /* Line 1, pixel 30: skip line 0's accounting by setting the state. */
+    r.pixels = 30;
+    r.groups = 10;
+    r.fullness = fullness_bits - actual;
+    r.last_qp = r.penultimate_qp = 6;
+    r.bit_save = bit_save;
+    r.mpp_state = bit_save ? 2 : 0;
+    memset(&g, 0, sizeof(g));
+    g.actual = actual;
+    g.ideal = ideal;
+    g.zero = zero;
+    g.mpp = mpp;
+    assert(dsc_rc_step_group(&r, 1, 10, 3, &g) == 0);
+    return r.pending_qp;
+}
+
+static void v12_short_term(void)
+{
+    /* Target 24; tgtMinus 21, tgtPlus 27. Buffer below 192: minQp 4. */
+    assert(v12_step(150, 60, 50, 0, 0, 0) == 4);
+    /* Same group with 300 bits buffered: increment from curQp 6 by
+     * (60 - 24) >> 1 = 18, edge test fails (no previous rcSizeGroup), and
+     * curQp 6 equals prev2Qp: stays 6. */
+    assert(v12_step(300, 60, 50, 0, 0, 0) == 6);
+    /* bitSaveMode 2 kept by an MPP group: prevQp + 1 = 7, below
+     * adjustedMaxQp MIN(15, 9). */
+    assert(v12_step(300, 60, 50, 0, 3, 2) == 7);
+    /* Zero residuals: prevQp - 1 = 5 with minQp lowered to MAX(8 - 4, 0) = 4. */
+    assert(v12_step(300, 3, 3, 1, 0, 0) == 5);
+    /* A small group: prevQp - 1 = 5, clamped to minQp 4 only below it. */
+    assert(v12_step(300, 10, 10, 0, 0, 0) == 5);
+}
+
+/* OQ-7 at DSC 1.2: first line, first_line_bpg_offset 15, no second-line
+ * terms. rcTgtBitsGroup is 24 + 15 = 39 (add) or 24 (replace). */
+static void bpg_combine(int reading, int64_t target)
+{
+    struct drm_dsc_config c = settings();
+    struct dsc_options o;
+    struct dsc_rc r;
+
+    c.dsc_version_major = 1;
+    c.dsc_version_minor = 2;
+    c.convert_rgb = 1;
+    c.first_line_bpg_offset = 15;
+    dsc_options_init(&o);
+    o.bpg_combine = reading;
+    assert(dsc_rc_init(&r, &c) == 0);
+    dsc_rc_set_options(&r, &o);
+    assert(dsc_rc_step(&r, 0, 0, 3, 40, 40) == 0);
+    assert(r.last_inputs.target == target);
+}
+
 /* OQ-5. Every range allows QP 8..15. Group 0 codes 100 bits: target 24,
  * so the increment branch runs with curQp = MAX(8, 0) = 8 against
  * prev2Qp 0, and the edge test fails (no previous group). Printed: curQp is
@@ -444,6 +517,9 @@ int main(void)
     flat_max_qp(DSC_FLAT_MAX_QP_PREVIOUS, 15, 11, 11);
     flat_max_qp(DSC_FLAT_MAX_QP_OWN, 12, 15, 8);
     flat_max_qp(DSC_FLAT_MAX_QP_PREVIOUS, 12, 15, 12);
+    v12_short_term();
+    bpg_combine(DSC_BPG_COMBINE_ADD, 39);
+    bpg_combine(DSC_BPG_COMBINE_REPLACE, 24);
     puts("RC hand-calculated traces passed (not a conformance oracle)");
     return 0;
 }

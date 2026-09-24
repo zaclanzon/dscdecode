@@ -48,6 +48,43 @@ enum dsc_delay_partial {             /* OQ-19, DSC 1.1 §6.8.2 and §6.8.1 */
     DSC_DELAY_PARTIAL_GROUP_END = 1  /* ... counts to each group's end as if it had three pixels */
 };
 
+/* DSC 1.2 questions. Section numbers are DSC 1.2b. */
+enum dsc_bpg_combine {             /* OQ-7, §6.8.4 rcXformBpgOffset */
+    DSC_BPG_COMBINE_REPLACE = 0,   /* second-line terms replace the first-line terms ("=", DSC 1.2a) */
+    DSC_BPG_COMBINE_ADD = 1        /* ... are added to them ("+=", DSC 1.2b) */
+};
+
+enum dsc_chroma_qlevel {                /* OQ-20, §6.8.6, 16 bpc RGB */
+    DSC_CHROMA_QLEVEL_TABLE = 0,        /* convert_rgb = 1: Table 6-3 as printed */
+    DSC_CHROMA_QLEVEL_EQUAL_DEPTH = 1   /* equal luma and chroma depths: qLevelC - 1 */
+};
+
+enum dsc_prefix16 {           /* OQ-21, Table 4-10 and §3.10.2, 16 bpc at QP 0 */
+    DSC_PREFIX16_15 = 0,      /* luma prefix of at most 15 bits (DSC 1.2b Table 4-10) */
+    DSC_PREFIX16_13 = 1       /* ... 13 bits (DSC 1.2b §3.10.2, DSC 1.2a Table 4-10) */
+};
+
+enum dsc_bitsave_ich {         /* OQ-22, §6.8.4 bitSaveMode */
+    DSC_BITSAVE_ICH_NOT = 0,   /* MPP and activity branches need !ichSelected (DSC 1.2b) */
+    DSC_BITSAVE_ICH_SET = 1    /* ... need ichSelected, as DSC 1.2a prints */
+};
+
+enum dsc_bitsave_pred {             /* OQ-23, §6.8.4 predActivity, Tables 6-2 and 7-1 */
+    DSC_BITSAVE_PRED_RAW = 0,       /* predictedSize the group was coded with, before qLevel adjustment */
+    DSC_BITSAVE_PRED_ADJUSTED = 1,  /* ... adjPredictedSize */
+    DSC_BITSAVE_PRED_NEXT = 2       /* predictedSize computed from the group's own residuals */
+};
+
+enum dsc_bitsave_flat {              /* OQ-24, §6.8.4: which flatness the bitSaveMode test sees */
+    DSC_BITSAVE_FLAT_SUPERGROUP = 0, /* the flag of the supergroup that holds the group */
+    DSC_BITSAVE_FLAT_GROUP = 1       /* the group is the supergroup's signaled flat group */
+};
+
+enum dsc_line_flat {              /* OQ-25, §6.8.5.2 first group of a non-first line */
+    DSC_LINE_FLAT_VERY = 0,       /* always the very-flat adjustment */
+    DSC_LINE_FLAT_SIGNALED = 1    /* as a signaled very-flat group, demoted below somewhatFlatQpThresh (OQ-16) */
+};
+
 enum dsc_bp_left {             /* OQ-4, DSC 1.1 §6.4.4.1 */
     DSC_BP_LEFT_REPLICATE = 0, /* previous-line samples left of the slice repeat its first sample */
     DSC_BP_LEFT_MIDPOINT = 1   /* ... are the component midpoint */
@@ -115,6 +152,8 @@ struct dsc_stats {
     unsigned long padding_nonzero;     /* partial groups with noncanonical padding (OQ-17) */
     unsigned long flat_max_qp_differs; /* flat signals the two OQ-18 readings treat differently */
     unsigned long delay_partial_differs; /* groups whose initial-delay offsets differ (OQ-19) */
+    unsigned long bit_save_groups;       /* DSC 1.2 RC steps taken in bit-saving mode 1 or 2 */
+    unsigned long line_flat;             /* DSC 1.2 first-group-of-line very-flat adjustments */
 };
 
 /* One record per decoded group, after its rate-control step. */
@@ -131,6 +170,7 @@ struct dsc_options {
     int bp_left, bp_edge, bp_sad;
     int incr_order, rc_pipeline, scale_dec, partial_target, very_flat, partial_padding, flat_max_qp;
     int delay_partial;
+    int bpg_combine, chroma_qlevel, prefix16, bitsave_ich, bitsave_pred, bitsave_flat, line_flat;
     struct dsc_stats *stats; /* optional */
     dsc_trace_fn trace;      /* optional */
     void *trace_context;

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent
- * Original implementation of DSC 1.1 sections 6.8 and 7.3.
+ * Original implementation of DSC 1.1 sections 6.8 and 7.3, with the DSC 1.2
+ * changes of DSC 1.2b §6.8.2, §6.8.4 and §6.8.5.2 (dsc_version_minor 2).
  * Prose-only timing interpretation is recorded in research/rc-ambiguities.md.
  * Where the text supports two readings, both are implemented and selected by
  * struct dsc_options (RESEARCH.md, open questions OQ-1 to OQ-3, OQ-5, OQ-11,
@@ -37,6 +38,16 @@ int dsc_rc_init(struct dsc_rc *s, const struct drm_dsc_config *c)
     dsc_options_init(&s->opt);
     if (dsc_qp_scale(c->bits_per_component, &s->max_qp, &s->flat_type_qp, &s->very_flat_qp)) {
         return fail(s);
+    }
+    s->v12 = c->dsc_version_minor == 2;
+    if (s->v12) {
+        struct dsc_format f;
+
+        if (dsc_format_init(&f, c)) {
+            return fail(s);
+        }
+        /* DSC 1.2b §6.8.4: cpntBitDepth[0] + cpntBitDepth[1] - 2. */
+        s->bit_save_thresh = f.depth[0] + f.depth[1] - 2;
     }
     if (!c->slice_width || !c->slice_height || !c->bits_per_pixel || c->bits_per_pixel > 384 ||
         !c->rc_model_size || c->initial_offset >= c->rc_model_size ||
@@ -94,6 +105,63 @@ static int permit_increment(const struct drm_dsc_config *c, unsigned cur, unsign
 
 /* Figure 6-12 and Figure 6-13 for one set of inputs. prev and prev2 are the
  * prevQp and prev2Qp of §6.8.4. */
+/* The increment branch shared by Figure 6-12 (DSC 1.1) and Figure 6-18
+ * (DSC 1.2b): MIN(maxQp, curQp + incrAmount) when permitted, else curQp. */
+static unsigned increment_qp(const struct drm_dsc_config *c, const struct dsc_rc_inputs *in,
+                             unsigned min_qp, unsigned max_qp, unsigned prev, unsigned prev2,
+                             const struct dsc_options *o)
+{
+    unsigned cur = umax(min_qp, prev), edge, permit;
+    int64_t increment;
+
+    edge = in->ideal * 2 < in->previous_ideal * c->rc_edge_factor;
+    permit = (unsigned)permit_increment(c, cur, prev2, (int)edge,
+                                        o->incr_order == DSC_INCR_ORDER_SWAPPED);
+    if (o->stats && (int)permit != permit_increment(c, cur, prev2, (int)edge,
+                                                    o->incr_order != DSC_INCR_ORDER_SWAPPED)) {
+        ++o->stats->incr_order_differs;
+    }
+    increment = floor_div((int64_t)in->actual - in->target, 2);
+    if (!permit) {
+        return cur;
+    }
+    return increment + cur > max_qp ? max_qp : (unsigned)(increment + cur);
+}
+
+/* DSC 1.2b Figure 6-17: the branches in order, then stQp clamped to the
+ * (possibly adjusted) minQp and maxQp. */
+static unsigned short_term_v12(const struct drm_dsc_config *c, const struct dsc_rc_inputs *in,
+                               unsigned prev, unsigned prev2, const struct dsc_options *o)
+{
+    int64_t low = in->target - c->rc_tgt_offset_low;
+    int64_t high = in->target + c->rc_tgt_offset_high, st;
+    unsigned min_qp = in->min_qp, max_qp = in->max_qp;
+    unsigned adjusted_max = in->max_qp + 1 < in->top_qp ? in->max_qp + 1 : in->top_qp;
+    unsigned low_min = in->max_qp > 4 ? in->max_qp - 4 : 0;
+
+    if (in->model > -172) {
+        st = max_qp = c->rc_range_params[14].range_max_qp;
+    } else if (in->fullness < 192) {
+        st = min_qp;
+    } else if (in->bit_save == 2) {
+        st = (int64_t)prev + 1;
+        max_qp = adjusted_max;
+    } else if (in->bit_save == 1) {
+        st = prev;
+        max_qp = adjusted_max;
+    } else if (in->zero) {
+        st = (int64_t)prev - 1;
+        min_qp = low_min;
+    } else if ((int64_t)in->actual < low && (int64_t)in->ideal < low) {
+        st = (int64_t)prev - 1;
+    } else if ((int64_t)in->actual > high && in->fullness >= 64) {
+        st = increment_qp(c, in, min_qp, max_qp, prev, prev2, o);
+    } else {
+        st = prev;
+    }
+    return st < min_qp ? min_qp : st > max_qp ? max_qp : (unsigned)st;
+}
+
 static unsigned short_term(const struct drm_dsc_config *c, const struct dsc_rc_inputs *in,
                            unsigned prev, unsigned prev2, const struct dsc_options *o)
 {
@@ -101,6 +169,9 @@ static unsigned short_term(const struct drm_dsc_config *c, const struct dsc_rc_i
     int64_t high = in->target + c->rc_tgt_offset_high, increment;
     unsigned cur, edge, permit, next = prev;
 
+    if (in->v12) {
+        return short_term_v12(c, in, prev, prev2, o);
+    }
     if (in->model > -172) {
         return c->rc_range_params[14].range_max_qp;
     }
@@ -130,14 +201,26 @@ static unsigned short_term(const struct drm_dsc_config *c, const struct dsc_rc_i
 
 int dsc_rc_apply_flat(struct dsc_rc *s, int flat, int very_flat)
 {
+    return dsc_rc_apply_flat_line(s, flat, very_flat, 0);
+}
+
+int dsc_rc_apply_flat_line(struct dsc_rc *s, int flat, int very_flat, int line_start)
+{
     unsigned q, master, redo, top, below;
-    int demote;
+    int demote, always_very = 0;
 
     if (!s || s->failed) {
         return -1;
     }
     s->flat_override = 0;
     q = s->qp;
+    /* DSC 1.2b §6.8.5.2: the first group of every line after the first is
+     * adjusted as very flat, never signaled. OQ-25: whether the note that
+     * demotes very flat below somewhatFlatQpThresh applies to it. */
+    if (s->v12 && line_start) {
+        flat = very_flat = 1;
+        always_very = s->opt.line_flat == DSC_LINE_FLAT_VERY;
+    }
     if (!flat) {
         return 0;
     }
@@ -159,9 +242,13 @@ int dsc_rc_apply_flat(struct dsc_rc *s, int flat, int very_flat)
     if (s->opt.stats && very_flat && (q < below || s->used_qp < below)) {
         ++s->opt.stats->very_flat_low_qp;
     }
-    demote = s->opt.very_flat == DSC_VERY_FLAT_GROUP_QP      ? q < below
+    demote = always_very                                     ? 0
+             : s->opt.very_flat == DSC_VERY_FLAT_GROUP_QP      ? q < below
              : s->opt.very_flat == DSC_VERY_FLAT_PREVIOUS_QP ? s->used_qp < below
                                                              : 0;
+    if (s->v12 && line_start && s->opt.stats) {
+        ++s->opt.stats->line_flat;
+    }
     /* Somewhat flat: MAX(stQp - 4, 0). Very flat: 1 + 2 * (bpc - 8). */
     master = (!very_flat || demote) ? (q > 4 ? q - 4 : 0) : s->very_flat_qp;
     /* Section 6.8.5.2 restarts short-term RC only when the override
@@ -233,9 +320,46 @@ static int64_t drain_pixel(const struct drm_dsc_config *c, uint64_t pixel, int l
 int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned n, unsigned actual,
                 unsigned ideal)
 {
+    struct dsc_rc_group g;
+
+    memset(&g, 0, sizeof(g));
+    g.actual = actual;
+    g.ideal = ideal;
+    g.zero = ideal == 3;
+    return dsc_rc_step_group(s, y, groupnum, n, &g);
+}
+
+/* DSC 1.2b §6.8.4: bitSaveMode and mppState after the group just decoded.
+ * OQ-22: DSC 1.2a prints ichSelected where DSC 1.2b has !ichSelected. */
+static void bit_save_update(struct dsc_rc *s, unsigned y, const struct dsc_rc_group *g)
+{
+    unsigned activity = s->last_qp + g->predicted[0] +
+                        umax(g->predicted[1], g->predicted[2]);
+    int p_mode = s->opt.bitsave_ich == DSC_BITSAVE_ICH_SET ? g->ich : !g->ich;
+
+    if (!y || g->flat) {
+        s->bit_save = s->mpp_state = 0;
+    } else if (p_mode && g->mpp >= 3) {
+        s->mpp_state = s->mpp_state + 1 < 2 ? s->mpp_state + 1 : 2;
+        if (s->mpp_state >= 2) {
+            s->bit_save = 2;
+        }
+    } else if (p_mode && activity >= s->bit_save_thresh) {
+        /* bitSaveMode is kept */
+    } else if (g->ich) {
+        s->bit_save = umax(1, s->bit_save);
+    } else {
+        s->bit_save = s->mpp_state = 0;
+    }
+}
+
+int dsc_rc_step_group(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned n,
+                      const struct dsc_rc_group *g)
+{
+    unsigned actual = g->actual, ideal = g->ideal;
     const struct drm_dsc_config *c;
     struct dsc_rc_inputs in;
-    int64_t offset, transformed, delta, target;
+    int64_t offset, transformed, delta, target, xform_bpg;
     uint64_t delayed, delay_end, group_end, reached, counted;
     unsigned range = 0, next, i, k;
     int signed_bpg, literal;
@@ -335,6 +459,15 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned n, uns
     delta = c->slice_bpg_offset +
             (y ? c->nfl_bpg_offset : -(int64_t)c->first_line_bpg_offset * 2048);
     delta -= (int64_t)delayed * c->bits_per_pixel * 128;
+    if (s->v12) {
+        /* DSC 1.2b §6.8.2 adjustments 5 and 6, and second_line_offset_adj
+         * subtracted once the first line is done. All three are zero
+         * unless native 4:2:0 is used. */
+        delta += y == 1 ? -(int64_t)c->second_line_bpg_offset * 2048 : c->nsl_bpg_offset;
+        if (y == 1 && s->pixels - n == c->slice_width) {
+            delta -= (int64_t)c->second_line_offset_adj * 2048;
+        }
+    }
     s->offset_q11 += delta;
     if (s->offset_q11 < ((int64_t)c->final_offset - c->rc_model_size) * 2048) {
         s->clamp_offset = 1;
@@ -401,11 +534,17 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned n, uns
     if (s->opt.stats && n < 3) {
         ++s->opt.stats->partial_groups;
     }
+    xform_bpg = y ? -(int64_t)(c->nfl_bpg_offset / 2048) : c->first_line_bpg_offset;
+    if (s->v12) {
+        /* DSC 1.2b §6.8.4. OQ-7: DSC 1.2b adds the second-line terms to
+         * rcXformBpgOffset ("+="); DSC 1.2a replaces it with them ("="). */
+        int64_t second = y == 1 ? c->second_line_bpg_offset : -(int64_t)(c->nsl_bpg_offset / 2048);
+
+        xform_bpg = s->opt.bpg_combine == DSC_BPG_COMBINE_ADD ? xform_bpg + second : second;
+    }
     target = ((int64_t)(s->opt.partial_target == DSC_PARTIAL_TARGET_PIXELS ? n : 3) *
                   c->bits_per_pixel + 8) / 16 +
-             signed_bpg +
-             (y ? -(int64_t)(c->nfl_bpg_offset / 2048) : c->first_line_bpg_offset) -
-             c->slice_bpg_offset / 2048;
+             signed_bpg + xform_bpg - c->slice_bpg_offset / 2048;
     in.fullness = s->fullness;
     in.model = s->fullness + offset;
     in.target = target;
@@ -414,6 +553,16 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned n, uns
     in.previous_ideal = s->previous_ideal;
     in.min_qp = c->rc_range_params[range].range_min_qp;
     in.max_qp = c->rc_range_params[range].range_max_qp;
+    in.v12 = s->v12;
+    in.zero = g->zero;
+    in.top_qp = 2u * c->bits_per_component - 1;
+    if (s->v12) {
+        bit_save_update(s, y, g);
+        if (s->bit_save && s->opt.stats) {
+            ++s->opt.stats->bit_save_groups;
+        }
+    }
+    in.bit_save = s->bit_save;
     next = short_term(c, &in, s->last_qp, s->penultimate_qp, &s->opt);
     if (next > s->max_qp) {
         return fail(s);

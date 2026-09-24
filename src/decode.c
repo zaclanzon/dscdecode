@@ -13,23 +13,27 @@
 #include <string.h>
 
 /* One substream's funnel shifter. It holds at most max_se - 1 bits plus a
- * mux word, below 128 for every supported format. */
+ * mux word, below 160 for every supported format. */
 struct reservoir {
-    uint8_t bits[128];
+    uint8_t bits[160];
     unsigned count, read;
 };
 
 struct syntax_state {
     struct reservoir s[4];
     unsigned predicted[4], last_level[4];
-    int was_ich, flat_flag, flat_type;
+    int was_ich, flat_flag, flat_type, sg_flag;
     size_t flat_group;
 };
 
-/* One group as parsed from the substreams. */
+/* One group as parsed from the substreams. The predicted sizes are the
+ * candidates for DSC 1.2's predictedSize outputs (OQ-23): the value the
+ * group was coded with, its qLevel-adjusted form, and the value computed
+ * from the group's residuals. */
 struct group_syntax {
-    unsigned level[4], idx[3], actual, ideal;
-    int res[4][3], mpp[4], ich;
+    unsigned level[4], idx[3], actual, ideal, mpp_units;
+    unsigned pred_raw[4], pred_adjusted[4], pred_next[4];
+    int res[4][3], mpp[4], ich, zero;
 };
 
 static unsigned bound(int n, unsigned hi)
@@ -54,7 +58,8 @@ static int validate(const struct drm_dsc_config *c, struct dsc_format *f)
     }
     if (!c->slice_width || !c->slice_height || !c->pic_width || !c->pic_height ||
         !c->slice_chunk_size || !c->bits_per_pixel || c->bits_per_pixel > 384 ||
-        c->line_buf_depth < 8 || c->line_buf_depth > 13 || !c->rc_model_size ||
+        c->line_buf_depth < 8 || c->line_buf_depth > (f->version == 2 ? 16 : 13) ||
+        !c->rc_model_size ||
         c->initial_scale_value < 8 || c->initial_scale_value > 63 ||
         (c->initial_scale_value > 8 && !c->scale_decrement_interval) ||
         c->initial_offset > c->rc_model_size || c->final_offset > c->rc_model_size ||
@@ -141,16 +146,25 @@ static unsigned signed_size(int n)
 /* §4.5, §6.6 and §7.2 for one group: flatness bits, the luma prefix with the
  * ICH escape, then each unit's prefix and residuals or its ICH index. */
 static int syntax(struct syntax_state *s, const struct dsc_format *f,
-                  const struct drm_dsc_config *c, unsigned group, unsigned qp,
-                  struct group_syntax *g)
+                  const struct drm_dsc_config *c, const struct dsc_options *opt, unsigned group,
+                  unsigned qp, struct group_syntax *g)
 {
     unsigned start = 0, u, k, v, z, max, pred, width, required[3], largest;
+    /* DSC 1.2b Table 4-10: at 16 bpc and QP 0 the luma prefix has at most
+     * 15 (OQ-21: or 13) bits, all zeros meaning MPP; ICH is not available and
+     * the prefix does not depend on the previous group's mode. */
+    int limited = f->version == 2 && f->bpc == 16 && qp == 0;
 
     if (qp > f->max_qp) {
         return -1;
     }
     for (u = 0; u < f->units; u++) {
         start += s->s[u].read;
+    }
+    /* A supergroup is four groups from group 1 on; its flag was read two
+     * groups before it starts (§6.6.3). */
+    if (group % 4 == 1) {
+        s->sg_flag = s->flat_flag;
     }
     if (group % 4 == 3) {
         s->flat_flag = 0;
@@ -177,11 +191,30 @@ static int syntax(struct syntax_state *s, const struct dsc_format *f,
     }
     g->ich = 0;
     g->ideal = 0;
+    g->mpp_units = 0;
+    g->zero = 1;
     for (u = 0; u < f->units; u++) {
         g->level[u] = dsc_qlevel(f, qp, u);
         max = f->depth[u] - g->level[u];
         pred = bound((int)s->predicted[u] + (int)s->last_level[u] - (int)g->level[u], max - 1);
-        if (u == 0 || !g->ich) {
+        g->pred_raw[u] = s->predicted[u];
+        g->pred_adjusted[u] = pred;
+        if (u == 0 && limited) {
+            unsigned most = opt->prefix16 == DSC_PREFIX16_13 ? 13 : 15;
+
+            for (z = 0; z < most; z++) {
+                if (take(&s->s[u], 1, &v)) {
+                    return -1;
+                }
+                if (v) {
+                    break;
+                }
+            }
+            width = z == most ? max : pred + z;
+            if (width > max) {
+                return -1;
+            }
+        } else if (u == 0 || !g->ich) {
             unsigned limit = max - pred + (u == 0);
 
             for (z = 0; z < limit; z++) {
@@ -217,6 +250,7 @@ static int syntax(struct syntax_state *s, const struct dsc_format *f,
             g->mpp[u] = 0;
         } else {
             g->mpp[u] = width == max;
+            g->mpp_units += (unsigned)g->mpp[u];
             largest = 0;
             for (k = 0; k < 3; k++) {
                 if (take(&s->s[u], width, &v)) {
@@ -233,11 +267,14 @@ static int syntax(struct syntax_state *s, const struct dsc_format *f,
             }
             s->predicted[u] = (required[0] + required[1] + 2 * required[2] + 2) / 4;
             g->ideal += 3 * largest + 1;
+            g->zero &= !largest;
         }
+        g->pred_next[u] = s->predicted[u];
         s->last_level[u] = g->level[u];
     }
     if (g->ich) {
         g->ideal = 16;
+        g->zero = 0;
     }
     s->was_ich = g->ich;
     g->actual = 0;
@@ -287,6 +324,7 @@ static int decode_slice(const struct drm_dsc_config *c, const struct dsc_format 
 {
     struct syntax_state s;
     struct group_syntax g;
+    struct dsc_rc_group report;
     struct dsc_rc rc;
     struct dsc_predict *pred;
     struct dsc_group_trace tr;
@@ -321,13 +359,13 @@ static int decode_slice(const struct drm_dsc_config *c, const struct dsc_format 
                     goto done;
                 }
             }
-            if (dsc_rc_apply_flat(&rc, s.flat_group == gn, s.flat_type)) {
+            if (dsc_rc_apply_flat_line(&rc, s.flat_group == gn, s.flat_type, !x && y)) {
                 status = DSC_RATE_CONTROL;
                 goto done;
             }
             memset(&g, 0, sizeof(g));
             qp = dsc_rc_qp(&rc);
-            if (syntax(&s, f, c, gn, qp, &g)) {
+            if (syntax(&s, f, c, opt, gn, qp, &g)) {
                 status = DSC_BITSTREAM;
                 goto done;
             }
@@ -345,7 +383,22 @@ static int decode_slice(const struct drm_dsc_config *c, const struct dsc_format 
                     out[((size_t)y * width + x + k) * f->units + u] = pixel[u][k];
                 }
             }
-            if (dsc_rc_step(&rc, y, gn, count, g.actual, g.ideal)) {
+            memset(&report, 0, sizeof(report));
+            report.actual = g.actual;
+            report.ideal = g.ideal;
+            report.mpp = g.mpp_units;
+            report.ich = g.ich;
+            report.zero = g.zero;
+            /* OQ-24: the flag of the group's supergroup, or the group being
+             * the signaled one. OQ-23: which predicted sizes. */
+            report.flat = opt->bitsave_flat == DSC_BITSAVE_FLAT_GROUP ? s.flat_group == gn
+                                                                       : s.sg_flag;
+            for (u = 0; u < f->units; u++) {
+                report.predicted[u] = opt->bitsave_pred == DSC_BITSAVE_PRED_ADJUSTED ? g.pred_adjusted[u]
+                                      : opt->bitsave_pred == DSC_BITSAVE_PRED_NEXT   ? g.pred_next[u]
+                                                                                     : g.pred_raw[u];
+            }
+            if (dsc_rc_step_group(&rc, y, gn, count, &report)) {
                 status = DSC_RATE_CONTROL;
                 goto done;
             }
@@ -400,11 +453,14 @@ static int half_floor(int v)
     return v >= 0 ? v / 2 : -((-v + 1) / 2);
 }
 
-/* §7.7: YCoCg-R to RGB, each result clamped to the component range. */
+/* §7.7: YCoCg-R to RGB, each result clamped to the component range. At
+ * 16 bpc the chroma was rounded to 16 bits; DSC 1.2b §7.7 restores the
+ * scale with (C - 0x8000) << 1. */
 static void put_pixel(const struct sink *k, const struct dsc_format *f, unsigned x, unsigned y,
                       const uint16_t *s)
 {
-    int co = (int)s[1] - (1 << f->bpc), cg = (int)s[2] - (1 << f->bpc);
+    int co = f->bpc == 16 ? ((int)s[1] - 0x8000) * 2 : (int)s[1] - (1 << f->bpc);
+    int cg = f->bpc == 16 ? ((int)s[2] - 0x8000) * 2 : (int)s[2] - (1 << f->bpc);
     int t = (int)s[0] - half_floor(cg), b = t - half_floor(co);
     unsigned top = (1u << f->bpc) - 1, rgb[3], c;
 
@@ -495,6 +551,7 @@ static int decode_single(const struct drm_dsc_config *c, const struct dsc_option
         dsc_options_init(&defaults);
         opt = &defaults;
     }
+    dsc_format_apply_options(&f, opt);
     decoded = malloc((size_t)c->slice_width * c->slice_height * f.units * sizeof(*decoded));
     if (!decoded) {
         return DSC_NOMEM;
@@ -526,6 +583,7 @@ static int decode_picture(const struct drm_dsc_config *c, const struct dsc_optio
         dsc_options_init(&defaults);
         opt = &defaults;
     }
+    dsc_format_apply_options(&f, opt);
     if (!data) {
         return DSC_INVALID;
     }

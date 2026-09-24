@@ -2,12 +2,13 @@
 
 Each input here is a DSC 1.1 PPS (`NAME.pps`) plus a one-slice payload
 (`NAME.bin`), 8 bpc RGB: 96×1 for the rate-control questions, 30×2 for the
-block-prediction one, 7×2 for OQ-19. For one open question in
+block-prediction one, 7×2 for OQ-19; the DSC 1.2 inputs below are listed
+with their sizes. For one open question in
 RESEARCH.md, the two readings decode it to different pixels. Each file below
 states which reading predicts which output. The predictions were written and
 committed before the VESA reference model decoded any of these inputs
 (OQ-1 to OQ-3 in Phase 3, OQ-4 in Phase 2, `oq2b` in Phase 5 of M2;
-`oq19` in Phase 3 of M3).
+`oq19` in Phase 3 of M3; the DSC 1.2 inputs in Phase 4 of M3).
 
 `python3 tests/make_discriminators.py` rebuilds every file here except this
 README. The generator contains a rate-control model written separately from
@@ -249,6 +250,69 @@ under the readings the decoder defaults to for the other questions
 
 Every other pixel is the same: gray 128, except (144,144,144) at x = 0 of
 line 1.
+
+## DSC 1.2 inputs — OQ-7, OQ-20 to OQ-25
+
+Added in M3, Phase 4, and committed with these predictions before the
+reference model decoded them. Each is a DSC 1.2 PPS (dsc_version_minor 2)
+and a one-slice payload, built by `tests/make_v12_discriminators.py` with
+the Python decoder model `tests/pydsc.py`, which is written separately from
+the C decoder. The builder writes the syntax under one reading; the model
+then decodes the same bits under every reading of the question, and each
+parse must succeed. `tests/test_discriminators.py` checks that dscdecode
+reproduces every prediction under every combination of the switches listed
+as `vary` in `manifest.json`, with the other questions at the readings
+listed as `assumes` (the decoder's defaults; OQ-23 and OQ-24 also assume
+`bitsave_ich=not`, DSC 1.2b's reading of OQ-22). Every input ends with a
+group whose QP the question decides; the group before it has zero residuals,
+so its prefixes parse the same way at either QP. Full QP schedules are in
+`manifest.json`.
+
+| Input | Size, bpc | Question: reading → QP of the last group | Last-group pixels |
+|---|---|---|---|
+| `oq7_bpg_combine` | 30×1, 8 | OQ-7: add → 2, replace → 8 | x = 27–29: (165,196,148) add, (172,203,155) replace |
+| `oq20_chroma_qlevel` | 24×1, 16 | OQ-20: QP 3 for both; qLevelC 1 (equal-depth) or 2 (table) | x = 21–23: (32768,32770,32772) equal-depth, (32766,32770,32774) table |
+| `oq21_prefix16` | 24×1, 16 | OQ-21: QP 0; thirteen zeros are a size-13 prefix (15) or the MPP escape (13) | x = 21: (35768,…) under 15, (12003,…) under 13 |
+| `oq22_bitsave_ich` | 15×2, 8 | OQ-22: not → 9, set → 8 | x = 12, 13 of line 1: (164,168,91), (171,175,82) not; (156,160,83), (163,167,74) set |
+| `oq23_bitsave_pred_next` | 18×2, 8 | OQ-23: raw and adjusted → 9, next → 8 | x = 16, 17 of line 1: (171,191,50), (151,183,22) raw/adjusted; (123,143,2), (146,178,17) next |
+| `oq24_bitsave_flat` | 18×2, 8 | OQ-24: group → 9, supergroup → 8 | x = 15, 16 of line 1: (164,168,91), (171,175,82) group; (156,160,83), (163,167,74) supergroup |
+| `oq25_line_flat` | 3×2, 8 | OQ-25: very → 1, signaled → 0 (line 1's only group) | x = 0 of line 1: (127,128,129) very, (128,128,129) signaled |
+
+How each is built:
+
+* `oq7_bpg_combine`: first line only, 20 bpp, first_line_bpg_offset 15, so
+  rcTgtBitsGroup is 75 (add) or 60 (replace). Ranges 6–14 pin QP 0 and
+  ranges 0–5 allow 0–8; rcModelFullness falls from group to group, and the
+  initial offset (solved by the generator) makes it cross threshold 5 after
+  group 6. With the range lag only the step after group 7 uses an unpinned
+  range. Group 7 codes 79 bits with more than 192 bits in the buffer: the
+  increment branch, from curQp 0, by (79 − 75) >> 1 or MIN(8, (79 − 60) >> 1).
+* `oq20_chroma_qlevel`: every range pins QP 3 (qLevelY 1; qLevelC 2 by
+  Table 6-3, 1 after §6.8.6's adjustment). The last group codes Co
+  residual −1: −4 or −2 after inverse quantization.
+* `oq21_prefix16`: every range pins QP 0. The last group's luma prefix is
+  thirteen zeros and a one, then three 13-bit residuals (3000, −2000, 1000),
+  which is what the 15-bit reading parses; the 13-bit reading takes the
+  zeros as MPP and reads three 16-bit residuals from the "1" on.
+* `oq22_bitsave_ich`, `oq23_bitsave_pred_next`, `oq24_bitsave_flat`: every
+  range, including range 14's maximum, pins QP 8, so DSC 1.2's line-start
+  adjustment does not apply (the QP before the line start equals range 14's
+  maximum). On line 1, two groups coded MPP in all three units set mppState
+  2 and bitSaveMode 2 under DSC 1.2b; the step that sees it returns
+  MIN(prevQp + 1, maxQp + 1) = 9. OQ-22's other reading never reaches
+  bitSaveMode 2. OQ-23: a group with zero residuals follows; predActivity is
+  9 + 5 + 4 = 18 from the MPP sizes as coded (raw), 9 + 4 + 3 = 16 after the
+  clamp (adjusted), both at least bitSaveThresh 15, and 9 from its own zero
+  residuals (next), which resets bitSaveMode; the zero-residual branch then
+  gives CLAMP(9 − 1, 4, 8) = 8. OQ-24: group 7 sends flatness flag 1 and
+  group 8 position 3, so the flat group lies beyond the slice; group 9, the
+  first of that supergroup, is MPP. Under supergroup the step after it
+  resets bitSaveMode; under group it keeps it.
+* `oq25_line_flat`: one group per line. Line 1's group follows a group
+  decoded at QP 0. DSC 1.2 adjusts the first group of every non-first line
+  as very flat: veryFlatQp 1 under very; under signaled, the QP before
+  (0) is below somewhatFlatQpThresh 7, which demotes it to somewhat flat,
+  MAX(0 − 4, 0) = 0. Its Co residual −1 becomes −2 or −1.
 
 ## Running against the reference model
 

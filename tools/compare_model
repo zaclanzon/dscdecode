@@ -63,6 +63,13 @@ READINGS = {
     'partial_padding': ('reject', 'accept'),
     'flat_max_qp': ('own', 'previous'),
     'delay_partial': ('pixels', 'group-end'),
+    'bpg_combine': ('replace', 'add'),
+    'chroma_qlevel': ('table', 'equal-depth'),
+    'prefix16': ('15', '13'),
+    'bitsave_ich': ('not', 'set'),
+    'bitsave_pred': ('raw', 'adjusted', 'next'),
+    'bitsave_flat': ('supergroup', 'group'),
+    'line_flat': ('very', 'signaled'),
 }
 RC_NAME = re.compile(r'rc_(\d+)bpc_(\d+)bpp\.cfg$')
 
@@ -473,6 +480,10 @@ def mode_discriminators(a):
             for reading in READINGS[entry['question']]:
                 verdicts[reading] = compare_images(model_out, root / f'{name}.{reading}.expected.ppm')
         supported = [r for r, v in verdicts.items() if v['match']]
+        # Readings with the same prediction count as one outcome (an input
+        # need not separate all three readings of a three-way question).
+        shas = entry.get('readings', {})
+        outcomes = {shas.get(r, {}).get('expected_sha256', r) for r in supported}
         stale = {k: v for k, v in entry.get('assumes', {}).items() if defaults.get(k) != v}
         superseded = entry.get('superseded_by')
         summary[name] = dict(question=entry['question'], supported=supported,
@@ -489,7 +500,7 @@ def mode_discriminators(a):
             print(f'  prediction {reading}: {describe(v)}')
         if superseded:
             continue
-        if len(supported) != 1:
+        if len(outcomes) != 1:
             if stale and not supported:
                 print('  inconclusive: built assuming ' +
                       ', '.join(f'{k}={v}' for k, v in stale.items()) +

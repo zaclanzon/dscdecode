@@ -1063,5 +1063,441 @@
     "group_5_qp": 8
    }
   }
+ },
+ "oq7_bpg_combine": {
+  "question": "bpg_combine",
+  "vary": [
+   "bpg_combine",
+   "chroma_qlevel",
+   "bitsave_ich",
+   "bitsave_flat",
+   "line_flat",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous"
+  },
+  "width": 30,
+  "height": 1,
+  "bpc": 8,
+  "dsc_version": "1.2",
+  "mux_bits": 480,
+  "payload_bits": 600,
+  "pps_sha256": "4bc0a2a830bad2e6a1c46f815c5f1c6870da9e36984eb2d475d98e17d40c9e2a",
+  "payload_sha256": "15732367614e7a5ac98a653cad7bdd7d610cb83011c47976111ada9e643933d7",
+  "readings": {
+   "replace": {
+    "expected_sha256": "fee5f2ae3d7b461d27d1d73c2ab8afd4ea8bca42a2a98cc566fd37bab214dbbc",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     8
+    ]
+   },
+   "add": {
+    "expected_sha256": "77de4a8f6b88ee37be8fe9c558560156024794a06007ab9c007fafb97c5ff0fc",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     2
+    ]
+   }
+  }
+ },
+ "oq20_chroma_qlevel": {
+  "question": "chroma_qlevel",
+  "vary": [
+   "chroma_qlevel",
+   "prefix16",
+   "bpg_combine",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous"
+  },
+  "width": 24,
+  "height": 1,
+  "bpc": 16,
+  "dsc_version": "1.2",
+  "mux_bits": 384,
+  "payload_bits": 576,
+  "pps_sha256": "a2db9dcce757d9d3c6296df7ceed73e3d9634208e218910273f963401fa7dc2a",
+  "payload_sha256": "d428861f65a44d832c4f026ca2097a3b9e29ba3b8fb7a2eb4f933975c7b088b8",
+  "readings": {
+   "table": {
+    "expected_sha256": "6f97385319f4fcd946acef02c48d94686d05da3676a89b4a60f22e83de241adc",
+    "qp_schedule": [
+     0,
+     0,
+     3,
+     3,
+     3,
+     3,
+     3,
+     3
+    ]
+   },
+   "equal-depth": {
+    "expected_sha256": "70464c87158dfb02868b8abbfee181660eae1a878f8449b3a681df2a1523e5e1",
+    "qp_schedule": [
+     0,
+     0,
+     3,
+     3,
+     3,
+     3,
+     3,
+     3
+    ]
+   }
+  }
+ },
+ "oq21_prefix16": {
+  "question": "prefix16",
+  "vary": [
+   "prefix16",
+   "chroma_qlevel",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous"
+  },
+  "width": 24,
+  "height": 1,
+  "bpc": 16,
+  "dsc_version": "1.2",
+  "mux_bits": 384,
+  "payload_bits": 576,
+  "pps_sha256": "3ce4a06c34f8eabed714315124a1bb757e9ba45964e535ee956834627b2fde1b",
+  "payload_sha256": "c08b07aa406053595e605e05cd371071cc5a22bb4f9d2a42f0630ebdd9bd7323",
+  "readings": {
+   "15": {
+    "expected_sha256": "0990f936398b98af643f11630a798a3ab0b386c355f66260bdc37f90c404c628",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "13": {
+    "expected_sha256": "556ec6c166236021815bf4ff771d9b3999291c4916173bf9adc97540ac4aff02",
+    "qp_schedule": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  }
+ },
+ "oq22_bitsave_ich": {
+  "question": "bitsave_ich",
+  "vary": [
+   "bitsave_ich",
+   "bitsave_pred",
+   "bitsave_flat",
+   "line_flat",
+   "bpg_combine",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous"
+  },
+  "width": 15,
+  "height": 2,
+  "bpc": 8,
+  "dsc_version": "1.2",
+  "mux_bits": 432,
+  "payload_bits": 720,
+  "pps_sha256": "558c9278ea6b3265f1f74587b13c1c88faca105fa0ce986682702b2f4da2f5c4",
+  "payload_sha256": "5f842524209a92736293870481443bcda1f2105cc2b16be8fb6216a3aaa95852",
+  "readings": {
+   "not": {
+    "expected_sha256": "e3966ce4b6c70a616585f2180e0e347a3e27961129085fe6abe19c6f93ffe176",
+    "qp_schedule": [
+     0,
+     0,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     9
+    ]
+   },
+   "set": {
+    "expected_sha256": "b8d78066adfa098b227cd6e4f0684177e89e7d3146c30f4af848d94b0b28ff06",
+    "qp_schedule": [
+     0,
+     0,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ]
+   }
+  }
+ },
+ "oq23_bitsave_pred_next": {
+  "question": "bitsave_pred",
+  "vary": [
+   "bitsave_pred",
+   "bitsave_flat",
+   "line_flat",
+   "bpg_combine",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous",
+   "bitsave_ich": "not"
+  },
+  "width": 18,
+  "height": 2,
+  "bpc": 8,
+  "dsc_version": "1.2",
+  "mux_bits": 480,
+  "payload_bits": 864,
+  "pps_sha256": "327050931f32dd4de7e62c00928f4dfc70337a91b6c2b053311d45c8de618082",
+  "payload_sha256": "3f516894785b78857de1ceb92f8c8e4915e360fcf4d1b42a23f0f14b1b023d6c",
+  "readings": {
+   "raw": {
+    "expected_sha256": "777312c3a12aa62898bcd92bd0db2224d95815de839edd4e37921aeb11f706cd",
+    "qp_schedule": [
+     0,
+     0,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     9,
+     9
+    ]
+   },
+   "adjusted": {
+    "expected_sha256": "777312c3a12aa62898bcd92bd0db2224d95815de839edd4e37921aeb11f706cd",
+    "qp_schedule": [
+     0,
+     0,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     9,
+     9
+    ]
+   },
+   "next": {
+    "expected_sha256": "7ac252e4e852e510bbd2ceb2424c811295d42de0a2c8949fd02541456722f3a2",
+    "qp_schedule": [
+     0,
+     0,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     9,
+     8
+    ]
+   }
+  }
+ },
+ "oq24_bitsave_flat": {
+  "question": "bitsave_flat",
+  "vary": [
+   "bitsave_flat",
+   "bitsave_pred",
+   "line_flat",
+   "bpg_combine",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous",
+   "bitsave_ich": "not"
+  },
+  "width": 18,
+  "height": 2,
+  "bpc": 8,
+  "dsc_version": "1.2",
+  "mux_bits": 576,
+  "payload_bits": 864,
+  "pps_sha256": "f5d3335bf991998f7d7729f90c76475bed2f688986513c7d41d4c8cbe003c9f0",
+  "payload_sha256": "2a77da62b5cbd31d78d9628efcd64dec6baa74e2e7fd66d7f58be438f73cbe0b",
+  "readings": {
+   "supergroup": {
+    "expected_sha256": "5a16f427fd9b53128c111ff37079282f01d66005cbbf9a8e1664ece44f99276a",
+    "qp_schedule": [
+     0,
+     0,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     9,
+     8
+    ]
+   },
+   "group": {
+    "expected_sha256": "cf451ff24e8a8aabe6b56f40098064535d67162d2e135841f007ba12ad526f5d",
+    "qp_schedule": [
+     0,
+     0,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     8,
+     9,
+     9
+    ]
+   }
+  }
+ },
+ "oq25_line_flat": {
+  "question": "line_flat",
+  "vary": [
+   "line_flat",
+   "bitsave_ich",
+   "bitsave_pred",
+   "bitsave_flat",
+   "flat_restart",
+   "threshold_eq",
+   "delay_offset",
+   "delay_partial"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous"
+  },
+  "width": 3,
+  "height": 2,
+  "bpc": 8,
+  "dsc_version": "1.2",
+  "mux_bits": 144,
+  "payload_bits": 144,
+  "pps_sha256": "6102ee4939549de2bc453aaace15be0b4597976f72fb4bad0c4af4628e7bb3d9",
+  "payload_sha256": "648cba69c2575f2da05901bf13618d9ab4a30c9022ed9707635582334dd43002",
+  "readings": {
+   "very": {
+    "expected_sha256": "5f9af9f91ef6d4f0ae11197530a75e120a47fbd96f0b2e67198a68b89e04a454",
+    "qp_schedule": [
+     0,
+     1
+    ]
+   },
+   "signaled": {
+    "expected_sha256": "603c1cc34e477bce2cecc6b7838da8555c8447a777ab789b0490e4925305f5ba",
+    "qp_schedule": [
+     0,
+     0
+    ]
+   }
+  }
  }
 }

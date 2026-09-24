@@ -28,4 +28,13 @@ void dsc_options_init(struct dsc_options *o)
     o->partial_padding = DSC_PARTIAL_PADDING_ACCEPT;
     o->flat_max_qp = DSC_FLAT_MAX_QP_PREVIOUS;
     o->delay_partial = DSC_DELAY_PARTIAL_GROUP_END;
+    /* DSC 1.2 readings: DSC 1.2b's text where it is explicit, otherwise the
+     * reading RESEARCH.md judges more likely, until the model decides. */
+    o->bpg_combine = DSC_BPG_COMBINE_ADD;
+    o->chroma_qlevel = DSC_CHROMA_QLEVEL_EQUAL_DEPTH;
+    o->prefix16 = DSC_PREFIX16_15;
+    o->bitsave_ich = DSC_BITSAVE_ICH_NOT;
+    o->bitsave_pred = DSC_BITSAVE_PRED_RAW;
+    o->bitsave_flat = DSC_BITSAVE_FLAT_SUPERGROUP;
+    o->line_flat = DSC_LINE_FLAT_VERY;
 }

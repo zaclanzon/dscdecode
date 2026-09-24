@@ -25,6 +25,7 @@ import json
 
 from make_vectors import multiplex
 import make_bp_vectors
+import make_v12_discriminators
 
 OUT = Path(__file__).parent / 'discriminators'
 
@@ -612,6 +613,9 @@ def main():
     manifest['oq4_bp_left'] = make_bp_vectors.oq4_bp_left(OUT)
     name, entry = oq19_delay_partial()
     manifest[name] = entry
+    # The DSC 1.2 questions, built with the Python decoder model (pydsc.py).
+    for name, entry in make_v12_discriminators.build_all():
+        manifest[name] = entry
     (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=1) + '\n')
     print(json.dumps(manifest, indent=1))
 

@@ -1309,3 +1309,38 @@ Gate:
 * 1.1 regression: 34 of 34 bit-exact (`~/dsc-runs/corpus/20260924-082559`).
 
 Logs: `~/dsc-runs/m3/phase3/gate-*.log`.
+
+## Phase 4, part 1: DSC 1.2 RGB 4:4:4 decoding, OQ-7 and OQ-20 to OQ-25 discriminators (2026-09-24)
+
+Phase 4 is not complete at this commit. This part is committed so that the
+seven DSC 1.2 discriminators and their predictions are in the history before
+the reference model decodes them. Section numbers are DSC 1.2b unless marked.
+
+* Decoder: accepts dsc_version_minor 2 for RGB 4:4:4 CBR at 8, 10, 12, 14
+  and 16 bpc (14 and 16 only with DSC 1.2, Table 4-1). 16 bpc: chroma is
+  16 bits (§6.1), the inverse colour transform scales chroma back to 17 bits
+  (§7.7), the luma prefix at QP 0 is limited (Table 4-10, OQ-21), and mux
+  words are 64 bits (§4.4). The QP-to-qLevel arithmetic covers Table 6-3
+  (every column checked); chroma qLevel drops by one where luma and chroma
+  have the same depth (§6.8.6, OQ-20).
+* Rate control, DSC 1.2 only (§6.8.4, Figures 6-17 and 6-18): the buffer
+  overflow and underflow branches with maxQp and minQp from the range and
+  the top QP 2·bpc − 1, the bit-saving modes (mppState, bitSaveMode,
+  predActivity against bitSaveThresh), the zero-residual branch, the
+  second-line target terms (second_line_bpg_offset, nsl_bpg_offset,
+  second_line_offset_adj) combined with the first-line terms per OQ-7, and
+  the very-flat adjustment of the first group of each non-first line
+  (§6.8.5.2, OQ-25). DSC 1.1 streams take the DSC 1.1 paths unchanged.
+* Seven new reading switches (`include/dsc.h`, RESEARCH.md):
+  `bpg_combine` (OQ-7), `chroma_qlevel` (OQ-20), `prefix16` (OQ-21),
+  `bitsave_ich` (OQ-22), `bitsave_pred` (OQ-23, three readings),
+  `bitsave_flat` (OQ-24), `line_flat` (OQ-25). `dscdecode --stats` counts
+  bit-saving steps and line-start adjustments.
+* Discriminators: one per question, built by `tests/make_v12_discriminators.py`
+  with a separate Python decoder model (`tests/pydsc.py`); predictions in
+  `tests/discriminators/README.md` and `manifest.json`. Discriminator
+  decodes: 104 → 2,728 (every combination of the switches each input
+  varies). Unit cases for the DSC 1.2 short-term RC and for OQ-7 in
+  `tests/test_rc.c`.
+* The fuzz target sets the new switches from input bits.
+* Gate for this part: `scripts/ci.sh` with the model unset: all steps pass.
