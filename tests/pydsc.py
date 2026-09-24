@@ -22,11 +22,31 @@ READINGS = {
     'bitsave_pred': ('raw', 'adjusted', 'next'),
     'bitsave_flat': ('supergroup', 'group', 'received', 'carrier', 'span', 'lagged'),
     'line_flat': ('very', 'signaled'),
+    'low_min': ('max-qp', 'min-qp'),
+    'decrement_test': ('both', 'size'),
+    'activity_qp': ('prev', 'prev2'),
+    'bitsave_step': ('1', '2'),
+    'target_floor': ('none', 'zero'),
+    'flat_rerun': ('changed', 'every'),
+    'rerun_bitsave': ('keep', 'redo'),
+    'mux16': ('68', '64'),
+    'flat_top': ('equal', 'at-or-above'),
+    'prefix16_scope': ('qp0', 'qlevel'),
+    'prefix16_cut': ('always', 'longer'),
 }
 # The C decoder's defaults (src/options.c).
 DEFAULTS = {'delay_partial': 'group-end', 'bpg_combine': 'add', 'chroma_qlevel': 'equal-depth',
             'prefix16': '13', 'bitsave_ich': 'not', 'bitsave_pred': 'next',
-            'bitsave_flat': 'span', 'line_flat': 'signaled'}
+            'bitsave_flat': 'lagged', 'line_flat': 'signaled',
+            'low_min': 'min-qp', 'decrement_test': 'size', 'activity_qp': 'prev2',
+            'bitsave_step': '2', 'target_floor': 'zero', 'flat_rerun': 'every',
+            'rerun_bitsave': 'redo', 'mux16': '64', 'flat_top': 'equal',
+            'prefix16_scope': 'qlevel', 'prefix16_cut': 'longer'}
+# The readings the text prints, for the questions the model decided against
+# the text (OQ-26 to OQ-33) or has not decided (OQ-34).
+TEXT = {'low_min': 'max-qp', 'decrement_test': 'both', 'activity_qp': 'prev', 'bitsave_step': '1',
+        'target_floor': 'none', 'flat_rerun': 'changed', 'rerun_bitsave': 'keep', 'mux16': '68',
+        'flat_top': 'equal', 'prefix16_scope': 'qp0', 'prefix16_cut': 'always'}
 
 
 def clamp(v, lo, hi):
@@ -110,6 +130,8 @@ class Format:
         self.depth = (b, b + 1 if b < 16 else 16, b + 1 if b < 16 else 16)
         self.mux = 48 if b <= 10 else 64
         self.max_se = (4 * b + 4, 4 * self.depth[1], 4 * self.depth[2])
+        if b == 16 and readings['mux16'] == '64':
+            self.max_se = (self.mux,) + self.max_se[1:]
         self.max_qp = 15 + 2 * (b - 8)
         self.flat_type_qp = 7 + 2 * (b - 8)
         self.very_flat_qp = 1 + 2 * (b - 8)
@@ -145,6 +167,7 @@ class RateControl:
         self.lag = None
         self.saved = None
         self.bit_save = self.mpp_state = 0
+        self.step_state = None
         self.log = []
 
     # §6.8.4, Figures 6-12/6-13 (DSC 1.1), 6-17/6-18 (DSC 1.2b)
@@ -180,12 +203,13 @@ class RateControl:
         elif i['fullness'] < 192:
             st = min_qp
         elif i['bit_save'] == 2:
-            st, max_qp = prev + 1, min(2 * self.f.bpc - 1, i['max'] + 1)
+            step = 2 if self.r['bitsave_step'] == '2' else 1
+            st, max_qp = prev + step, min(2 * self.f.bpc - 1, i['max'] + 1)
         elif i['bit_save'] == 1:
             st, max_qp = prev, min(2 * self.f.bpc - 1, i['max'] + 1)
         elif i['zero']:
-            st, min_qp = prev - 1, max(i['max'] - 4, 0)
-        elif i['actual'] < lo and i['ideal'] < lo:
+            st, min_qp = prev - 1, max((i['min'] if self.r['low_min'] == 'min-qp' else i['max']) - 4, 0)
+        elif i['ideal'] < lo and (self.r['decrement_test'] == 'size' or i['actual'] < lo):
             st = prev - 1
         elif i['actual'] > hi and i['fullness'] >= 64:
             st = increment(min_qp, max_qp)
@@ -203,14 +227,28 @@ class RateControl:
         if not flat:
             return
         q = self.qp
-        if self.used == self.p.ranges[14][1]:
+        top = self.p.ranges[14][1]
+        # DSC 1.2b §6.8.5.2: a line start is adjusted only below range 14's
+        # maximum; OQ-34 for signaled flatness.
+        if self.v12 and (line_start or self.r['flat_top'] == 'at-or-above'):
+            if self.used >= top:
+                return
+        elif self.used == top:
             return
         demote = False if always_very else self.used < self.f.flat_type_qp
-        master = max(q - 4, 0) if (not very_flat or demote) else self.f.very_flat_qp
-        if master == q:
+        adjust = (lambda v: max(v - 4, 0)) if (not very_flat or demote) else (lambda v: self.f.very_flat_qp)
+        master = adjust(q)
+        if master == q and not (self.v12 and self.r['flat_rerun'] == 'every'):
             return
         self.qp = master
-        redo = self.short_term(self.saved, master, self.used) if self.saved else self.pending
+        prev2 = self.used
+        if self.v12:
+            prev2 = adjust(prev2)                     # DSC 1.2b §6.8.4
+            if self.r['rerun_bitsave'] == 'redo' and self.saved and self.step_state:
+                y, g, self.bit_save, self.mpp_state = self.step_state
+                self.bit_save_update(y, g, master, prev2)
+                self.saved = dict(self.saved, bit_save=self.bit_save)
+        redo = self.short_term(self.saved, master, prev2) if self.saved else self.pending
         self.pending, self.prev2, self.last = redo, master, redo
 
     def drain(self):
@@ -229,9 +267,9 @@ class RateControl:
             self.frac = 0
         return removed
 
-    def bit_save_update(self, y, g):
+    def bit_save_update(self, y, g, prev, prev2):
         pr = g['predicted']
-        activity = self.last + pr[0] + max(pr[1], pr[2])
+        activity = (prev2 if self.r['activity_qp'] == 'prev2' else prev) + pr[0] + max(pr[1], pr[2])
         thresh = self.f.depth[0] + self.f.depth[1] - 2
         p_mode = g['ich'] if self.r['bitsave_ich'] == 'set' else not g['ich']
         if y == 0 or g['flat']:
@@ -300,8 +338,11 @@ class RateControl:
             second = p.second_line_bpg if y == 1 else -(p.nsl_bpg >> 11)
             xform = xform + second if self.r['bpg_combine'] == 'add' else second
         target = (n * p.bpp16 + 8) // 16 + off + xform - (p.slice_bpg >> 11)
+        if self.v12 and self.r['target_floor'] == 'zero':
+            target = max(target, 0)
         if self.v12:
-            self.bit_save_update(y, g)
+            self.step_state = (y, g, self.bit_save, self.mpp_state)
+            self.bit_save_update(y, g, self.last, self.qp)
         # The overflow test uses bufferFullness + rcXformOffset, unscaled.
         i = dict(fullness=self.fullness, model=self.fullness + offset, target=target, actual=g['actual'],
                  ideal=g['ideal'], prev_ideal=self.prev_ideal, min=lo_qp, max=hi_qp,
@@ -478,15 +519,21 @@ class Builder(Slice):
             bits[0] += format(pos, '02b')
             self.flat_group = g + 1 + pos
         levels = [f.qlevel(qp, u) for u in range(3)]
-        limited = f.version == 2 and f.bpc == 16 and qp == 0
+        limited = f.version == 2 and f.bpc == 16 and (f.qlevel(qp, 0) <= 1 if self.r['prefix16_scope'] == 'qlevel' else qp == 0)
         pred_raw, pred_adj = list(self.predicted), [0, 0, 0]
         ideal, actual = 0, 0
         for u in range(3):
             mx = f.depth[u] - levels[u]
             pred = clamp(self.predicted[u] + self.last_level[u] - levels[u], 0, mx - 1)
             pred_adj[u] = pred
+            # DSC 1.2b Table 4-10, §3.10.2: a cut 16 bpc luma prefix (OQ-21,
+            # OQ-35, OQ-36): all zeros means MPP, and no ICH.
+            limit = mx - pred + 1
+            most = 15 if levels[0] else (13 if self.r['prefix16'] == '13' else 15)
+            cut = u == 0 and limited and (self.r['prefix16_cut'] == 'always' or limit > most)
+            cap = most if cut else limit
             if ich is not None:
-                assert not limited
+                assert not cut, 'no ICH under a cut prefix'
                 if u == 0:
                     bits[0] += '1' if self.was_ich else '0' * (mx - pred + 1)
                 bits[u] += format(ich[u], '05b')
@@ -495,11 +542,10 @@ class Builder(Slice):
                 width = mx if mpp[u] else max(pred, max(need)) if not widths or widths[u] is None else widths[u]
                 assert max(need) <= width <= mx and width >= pred and (mpp[u] or width < mx), \
                     ('size', g, u, pred, need, width, mx)
-                if u == 0 and limited:
-                    most = 13 if self.r['prefix16'] == '13' else 15
+                if cut:
                     z = width - pred
-                    bits[0] += '0' * most if width == mx and z >= most else '0' * z + '1'
-                    assert z < most or width == mx
+                    assert z < cap or width == mx, ('cut prefix', g, pred, width)
+                    bits[0] += '0' * cap if z >= cap else '0' * z + '1'
                 elif u == 0 and self.was_ich:
                     bits[0] += '0' * (width - pred + 1) + ('1' if width < mx else '')
                 elif u == 0:
@@ -572,27 +618,27 @@ class Decoder(Slice):
                 self.flat_type = int(take(0, 1)) if qp >= f.flat_type_qp else 0
                 self.flat_group = g + 1 + int(take(0, 2), 2)
             levels = [f.qlevel(qp, u) for u in range(3)]
-            limited = f.version == 2 and f.bpc == 16 and qp == 0
+            limited = f.version == 2 and f.bpc == 16 and (f.qlevel(qp, 0) <= 1 if self.r['prefix16_scope'] == 'qlevel' else qp == 0)
             res, mpp, idx, ich = [[0] * 3 for _ in range(3)], [False] * 3, [0, 0, 0], False
             pred_raw, pred_adj, ideal = list(self.predicted), [0, 0, 0], 0
             for u in range(3):
                 mx = f.depth[u] - levels[u]
                 pred = clamp(self.predicted[u] + self.last_level[u] - levels[u], 0, mx - 1)
                 pred_adj[u] = pred
-                if u == 0 and limited:
-                    most = 13 if self.r['prefix16'] == '13' else 15
-                    z = 0
-                    while z < most and take(0, 1) == '0':
-                        z += 1
-                    width = mx if z == most else pred + z
-                elif u == 0 or not ich:
+                if u == 0 or not ich:
                     limit = mx - pred + (u == 0)
+                    most = 15 if levels[0] else (13 if self.r['prefix16'] == '13' else 15)
+                    cut = u == 0 and limited and (self.r['prefix16_cut'] == 'always' or limit > most)
+                    cap = most if cut else limit
                     z = 0
-                    while z < limit and take(u, 1) == '0':
+                    while z < cap and take(u, 1) == '0':
                         z += 1
                     width = pred + z
                     if u == 0:
-                        if self.was_ich:
+                        if cut:
+                            if z == cap:
+                                width = mx
+                        elif self.was_ich:
                             if z == 0:
                                 ich = True
                             else:

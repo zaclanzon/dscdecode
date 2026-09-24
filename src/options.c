@@ -29,13 +29,25 @@ void dsc_options_init(struct dsc_options *o)
     o->flat_max_qp = DSC_FLAT_MAX_QP_PREVIOUS;
     o->delay_partial = DSC_DELAY_PARTIAL_GROUP_END;
     /* DSC 1.2 readings, set by the model's decodes of the discriminators
-     * (RESEARCH.md). OQ-24's default is the reading judged more likely
-     * until its discriminators decide. */
+     * (RESEARCH.md). */
     o->bpg_combine = DSC_BPG_COMBINE_ADD;
     o->chroma_qlevel = DSC_CHROMA_QLEVEL_EQUAL_DEPTH;
     o->prefix16 = DSC_PREFIX16_13;
     o->bitsave_ich = DSC_BITSAVE_ICH_NOT;
     o->bitsave_pred = DSC_BITSAVE_PRED_NEXT;
-    o->bitsave_flat = DSC_BITSAVE_FLAT_SPAN;
+    o->bitsave_flat = DSC_BITSAVE_FLAT_LAGGED;
     o->line_flat = DSC_LINE_FLAT_SIGNALED;
+    /* Found on model-encoded DSC 1.2 streams (PROGRESS.md, Phase 4); each
+     * is pending its discriminator. OQ-34 has no evidence yet: the text. */
+    o->low_min = DSC_LOW_MIN_MIN_QP;
+    o->decrement_test = DSC_DECREMENT_SIZE;
+    o->activity_qp = DSC_ACTIVITY_PREV2;
+    o->bitsave_step = DSC_BITSAVE_STEP_2;
+    o->target_floor = DSC_TARGET_FLOOR_ZERO;
+    o->flat_rerun = DSC_FLAT_RERUN_EVERY;
+    o->rerun_bitsave = DSC_RERUN_BITSAVE_REDO;
+    o->mux16 = DSC_MUX16_WORD;
+    o->flat_top = DSC_FLAT_TOP_EQUAL;
+    o->prefix16_scope = DSC_PREFIX16_SCOPE_QLEVEL;
+    o->prefix16_cut = DSC_PREFIX16_CUT_LONGER;
 }

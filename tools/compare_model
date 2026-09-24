@@ -70,6 +70,17 @@ READINGS = {
     'bitsave_pred': ('raw', 'adjusted', 'next'),
     'bitsave_flat': ('supergroup', 'group', 'received', 'carrier', 'span', 'lagged'),
     'line_flat': ('very', 'signaled'),
+    'low_min': ('max-qp', 'min-qp'),
+    'decrement_test': ('both', 'size'),
+    'activity_qp': ('prev', 'prev2'),
+    'bitsave_step': ('1', '2'),
+    'target_floor': ('none', 'zero'),
+    'flat_rerun': ('changed', 'every'),
+    'rerun_bitsave': ('keep', 'redo'),
+    'mux16': ('68', '64'),
+    'flat_top': ('equal', 'at-or-above'),
+    'prefix16_scope': ('qp0', 'qlevel'),
+    'prefix16_cut': ('always', 'longer'),
 }
 RC_NAME = re.compile(r'rc_(\d+)bpc_(\d+)bpp\.cfg$')
 
@@ -131,15 +142,35 @@ def image_size(path):
     return w, h
 
 
+def to_maxval(maxval, body, target):
+    """The samples of a PNM body written at a larger maxval, back at the
+    smaller one. The model writes 14-bit pictures as 16-bit PPM, each sample
+    v as floor(v * 65535 / 16383). Each value is mapped back and checked to
+    map forward to the same value; returns None if one does not."""
+    if not 0 < target < maxval:
+        return None
+    out = []
+    for value in samples(maxval, body):
+        v = value * target // maxval
+        if v * maxval // target != value:
+            v += 1
+        if v > target or v * maxval // target != value:
+            return None
+        out.append(v)
+    return out
+
+
 def compare_images(expected_path, actual_path):
     """First differing sample and counts. Expected is the model's output."""
     ew, eh, em, e = read_pnm(expected_path)
     aw, ah, am, a = read_pnm(actual_path)
     if (ew, eh) != (aw, ah):
         return dict(match=False, size_mismatch=[ew, eh, aw, ah])
+    if em > am and to_maxval(em, e, am) is not None:
+        e, em, a = to_maxval(em, e, am), am, samples(am, a)
     if em != am:
         return dict(match=False, maxval_mismatch=[em, am])
-    if e != a:
+    if e != a and isinstance(e, bytes):
         e, a = samples(em, e), samples(am, a)
     diffs = [i for i in range(len(e)) if e[i] != a[i]] if e != a else []
     result = dict(match=not diffs, samples_differing=len(diffs),
@@ -179,14 +210,24 @@ class Model:
         self.cfg_dir = Path(os.environ.get('DSCDECODE_MODEL_CFG_DIR', '/usr/local/share/dsc-ref'))
         self.dir = run_dir
         self.dir.mkdir(parents=True, exist_ok=True)
+        self.encode_signal = None
 
-    def run(self, cfg_name, cfg_text, list_lines):
+    def run(self, cfg_name, cfg_text, list_lines, done_file=None):
         (self.dir / f'{cfg_name}.list').write_text(''.join(l + '\n' for l in list_lines))
         (self.dir / f'{cfg_name}.cfg').write_text(cfg_text.replace('@LIST@', f'{cfg_name}.list'))
         p = subprocess.run([self.bin, '-F', f'{cfg_name}.cfg'], cwd=self.dir,
                            capture_output=True, text=True, timeout=1800)
         (self.dir / f'{cfg_name}.log').write_text(p.stdout + p.stderr)
-        if p.returncode:
+        # At 14 bpc the model's encoder dies from a signal while shutting
+        # down, after it has written every output (PROGRESS.md, M3 Phase 4).
+        # Such an encode is accepted, and recorded, only when its log reports
+        # the last slice and the output file exists; the model's own decode of
+        # the bitstream then runs as a separate process.
+        slices = re.findall(r'Processing slice (\d+) / (\d+)', p.stdout)
+        if (p.returncode < 0 and done_file and (self.dir / done_file).exists() and slices and
+                slices[-1][0] == slices[-1][1]):
+            self.encode_signal = -p.returncode
+        elif p.returncode:
             raise HarnessError(f'model {cfg_name} failed ({p.returncode}): {(p.stdout + p.stderr)[-400:]}')
         return p.stdout
 
@@ -220,7 +261,7 @@ class Model:
             settings.update(SWAP_R_AND_B='0', DPXR_DATUM_ORDER='1', DPXR_PAD_ENDS='1')
         if slice_height:
             settings['SLICE_HEIGHT'] = str(slice_height)
-        self.run('encode', edit_cfg(template, settings, rc), [link.name])
+        self.run('encode', edit_cfg(template, settings, rc), [link.name], done_file='input.dsc')
         dsc = self.dir / 'input.dsc'
         if not dsc.exists():
             raise HarnessError('model wrote no input.dsc')
@@ -235,7 +276,11 @@ class Model:
             return None
         if not ref.exists():
             raise HarnessError('model wrote no input.ref.ppm to check its input against')
-        if read_pnm(master) != read_pnm(ref):
+        mw, mh, mm, mb = read_pnm(master)
+        rw, rh, rm, rb = read_pnm(ref)
+        same = (mw, mh) == (rw, rh) and (
+            (mm, mb) == (rm, rb) or (rm > mm and to_maxval(rm, rb, mm) == samples(mm, mb)))
+        if not same:
             raise HarnessError(f'the model read {image} differently from {master}')
         return 'match' 
 
@@ -401,11 +446,11 @@ def parse_readings(pairs):
 def run_image(image, bpp=8.0, slices=1, slice_height=None, bp=False, line_buffer=None,
               readings_list=None, run_dir=None, bpc=8, version=1):
     """Model encodes image; model and dscdecode decode it. Returns a summary.
-    line_buffer defaults to bpc + 1."""
+    line_buffer defaults to bpc + 1, at most 16 (the model's limit)."""
     label = f"{Path(image).stem}-bpc{bpc}-v1{version}-bpp{bpp:g}-s{slices}-bp{int(bp)}"
     run_dir = Path(run_dir) if run_dir else new_run_dir(label)
     model = Model(run_dir)
-    line_buffer = line_buffer or bpc + 1
+    line_buffer = line_buffer or min(bpc + 1, 16)
     dsc = model.encode(image, bpp, slices, slice_height, bp, line_buffer, bpc, version)
     source = model.check_source(image)
     model_out = model.decode(dsc)
@@ -415,6 +460,8 @@ def run_image(image, bpp=8.0, slices=1, slice_height=None, bp=False, line_buffer
                    bpp=bpp, slices=slices, block_pred=int(bp), slice_height=slice_height,
                    line_buffer=line_buffer, source_check=source, run_dir=str(run_dir),
                    dscdecode=str(dscdecode_binary()), results=results)
+    if model.encode_signal:
+        summary['model_encode_signal'] = model.encode_signal
     (run_dir / 'result.json').write_text(json.dumps(summary, indent=1))
     return summary
 
@@ -427,6 +474,9 @@ def mode_image(a):
     if not a.json:
         print(f'{a.image}: DSC 1.{a.dsc_version}, {a.bpc} bpc, bpp {a.bpp:g}, '
               f'{a.slices} slice(s)/line, BP {int(a.bp)}  [{run_dir}]')
+        if summary.get('model_encode_signal'):
+            print(f"  note: the model's encoder died from signal {summary['model_encode_signal']} "
+                  'after writing its bitstream and reference picture')
     report(results, a.json)
     return 0 if any(r['match'] for r in results) else 1
 
@@ -560,7 +610,7 @@ def main():
     im.add_argument('--bpc', type=int, default=8, help='bits per component (rc_<bpc>bpc_* configs)')
     im.add_argument('--dsc-version', type=int, choices=(1, 2), default=1,
                     help='DSC_VERSION_MINOR (default 1)')
-    im.add_argument('--line-buffer', type=int, default=None, help='default: bpc + 1')
+    im.add_argument('--line-buffer', type=int, default=None, help='default: bpc + 1, at most 16')
     bs = sub.add_parser('bitstream', parents=[common])
     bs.add_argument('pps')
     bs.add_argument('payload')

@@ -74,6 +74,22 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     opt.bitsave_pred = (int)((size >> 4) % 3);
     opt.bitsave_flat = (int)(((size >> 6) & 7) % 6);
     opt.line_flat = (size >> 7) & 1;
+    /* OQ-26 to OQ-34, from a mix of the others. */
+    {
+        unsigned bits = sum ^ (mix << 4) ^ (unsigned)(size >> 8);
+
+        opt.low_min = bits & 1;
+        opt.decrement_test = (bits >> 1) & 1;
+        opt.activity_qp = (bits >> 2) & 1;
+        opt.bitsave_step = (bits >> 3) & 1;
+        opt.target_floor = (bits >> 4) & 1;
+        opt.flat_rerun = (bits >> 5) & 1;
+        opt.rerun_bitsave = (bits >> 6) & 1;
+        opt.mux16 = (bits >> 7) & 1;
+        opt.flat_top = (bits >> 8) & 1;
+        opt.prefix16_scope = (bits >> 9) & 1;
+        opt.prefix16_cut = (bits >> 10) & 1;
+    }
     opt.stats = &stats;
     opt.trace = ignore_trace;
     dsc_decode_frame_ex(&c, &opt, data + 128, size - 128, out, 4096 * 3);

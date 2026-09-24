@@ -263,8 +263,26 @@ static void delay_partial(int reading, unsigned delay, const int64_t offset[4])
 /* DSC 1.2b §6.8.4 (Figure 6-17) with every range min 4, max 8. One group of
  * a second line reports its sizes; the step's result is the QP queued two
  * groups ahead. prevQp starts at 6 (set directly). */
-static unsigned v12_step(unsigned fullness_bits, unsigned actual, unsigned ideal, int zero,
-                         unsigned mpp, unsigned bit_save)
+/* The printed DSC 1.2b rules for OQ-26 to OQ-32, where the reference
+ * model differs (RESEARCH.md). */
+static void text_readings(struct dsc_options *o)
+{
+    dsc_options_init(o);
+    o->low_min = DSC_LOW_MIN_MAX_QP;
+    o->decrement_test = DSC_DECREMENT_BOTH;
+    o->activity_qp = DSC_ACTIVITY_PREV;
+    o->bitsave_step = DSC_BITSAVE_STEP_1;
+    o->target_floor = DSC_TARGET_FLOOR_NONE;
+    o->flat_rerun = DSC_FLAT_RERUN_CHANGED;
+    o->rerun_bitsave = DSC_RERUN_BITSAVE_KEEP;
+}
+
+/* One group of a second line with every range min_qp..max_qp and
+ * range_bpg_offset bpg (6-bit field); prevQp is prev, and prev2Qp, the QP
+ * the group was decoded with, is prev2. */
+static unsigned v12_group(const struct dsc_options *o, unsigned min_qp, unsigned max_qp, unsigned bpg,
+                          unsigned prev, unsigned prev2, unsigned fullness_bits, unsigned actual, unsigned ideal,
+                          int zero, unsigned mpp, unsigned bit_save)
 {
     struct drm_dsc_config c = settings();
     struct dsc_rc_group g;
@@ -276,15 +294,18 @@ static unsigned v12_step(unsigned fullness_bits, unsigned actual, unsigned ideal
     c.convert_rgb = 1;
     c.slice_height = 2;
     for (i = 0; i < 15; ++i) {
-        c.rc_range_params[i].range_min_qp = 4;
-        c.rc_range_params[i].range_max_qp = 8;
+        c.rc_range_params[i].range_min_qp = (uint8_t)min_qp;
+        c.rc_range_params[i].range_max_qp = (uint8_t)max_qp;
+        c.rc_range_params[i].range_bpg_offset = (uint8_t)bpg;
     }
     assert(dsc_rc_init(&r, &c) == 0);
+    dsc_rc_set_options(&r, o);
     /* Line 1, pixel 30: skip line 0's accounting by setting the state. */
     r.pixels = 30;
     r.groups = 10;
     r.fullness = fullness_bits - actual;
-    r.last_qp = r.penultimate_qp = 6;
+    r.last_qp = prev;
+    r.qp = r.penultimate_qp = prev2;
     r.bit_save = bit_save;
     r.mpp_state = bit_save ? 2 : 0;
     memset(&g, 0, sizeof(g));
@@ -296,9 +317,21 @@ static unsigned v12_step(unsigned fullness_bits, unsigned actual, unsigned ideal
     return r.pending_qp;
 }
 
+static unsigned v12_step(unsigned fullness_bits, unsigned actual, unsigned ideal, int zero,
+                         unsigned mpp, unsigned bit_save)
+{
+    struct dsc_options o;
+
+    text_readings(&o);
+    return v12_group(&o, 4, 8, 0, 6, 6, fullness_bits, actual, ideal, zero, mpp, bit_save);
+}
+
 static void v12_short_term(void)
 {
-    /* Target 24; tgtMinus 21, tgtPlus 27. Buffer below 192: minQp 4. */
+    struct dsc_options o;
+
+    /* The printed rules. Target 24; tgtMinus 21, tgtPlus 27. Buffer below
+     * 192: minQp 4. */
     assert(v12_step(150, 60, 50, 0, 0, 0) == 4);
     /* Same group with 300 bits buffered: increment from curQp 6 by
      * (60 - 24) >> 1 = 18, edge test fails (no previous rcSizeGroup), and
@@ -311,6 +344,30 @@ static void v12_short_term(void)
     assert(v12_step(300, 3, 3, 1, 0, 0) == 5);
     /* A small group: prevQp - 1 = 5, clamped to minQp 4 only below it. */
     assert(v12_step(300, 10, 10, 0, 0, 0) == 5);
+
+    /* The model's readings (the defaults), one question at a time. */
+    dsc_options_init(&o);
+    /* OQ-29: prevQp + 2 = 8, below adjustedMaxQp 9. */
+    assert(v12_group(&o, 4, 8, 0, 6, 6, 300, 60, 50, 0, 3, 2) == 8);
+    /* OQ-26: zero residuals from prevQp 4: lowMinQp MAX(4 - 4, 0) = 0 lets
+     * the QP reach 3; the printed MAX(8 - 4, 0) = 4 holds it at 4. */
+    assert(v12_group(&o, 4, 8, 0, 4, 4, 300, 3, 3, 1, 0, 0) == 3);
+    text_readings(&o);
+    assert(v12_group(&o, 4, 8, 0, 4, 4, 300, 3, 3, 1, 0, 0) == 4);
+    /* OQ-27: codedGroupSize 25 is not below 21, rcSizeGroup 15 is. size:
+     * prevQp - 1 = 5; both: neither branch, 6. */
+    dsc_options_init(&o);
+    assert(v12_group(&o, 4, 8, 0, 6, 6, 300, 25, 15, 0, 0, 0) == 5);
+    text_readings(&o);
+    assert(v12_group(&o, 4, 8, 0, 6, 6, 300, 25, 15, 0, 0, 0) == 6);
+    /* OQ-30: range_bpg_offset -30 (field 34) makes the target 24 - 30 =
+     * -6. With prevQp 0 below prev2Qp 2 the increment is permitted (curQp
+     * 0 < rc_quant_incr_limit1): codedGroupSize 12 adds (12 + 6) >> 1 = 9
+     * (none) or (12 - 0) >> 1 = 6 (zero); ranges 0-15. */
+    dsc_options_init(&o);
+    assert(v12_group(&o, 0, 15, 34, 0, 2, 300, 12, 9, 0, 0, 0) == 6);
+    text_readings(&o);
+    assert(v12_group(&o, 0, 15, 34, 0, 2, 300, 12, 9, 0, 0, 0) == 9);
 }
 
 /* OQ-7 at DSC 1.2: first line, first_line_bpg_offset 15, no second-line

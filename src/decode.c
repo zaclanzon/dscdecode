@@ -154,7 +154,10 @@ static int syntax(struct syntax_state *s, const struct dsc_format *f,
     /* DSC 1.2b Table 4-10: at 16 bpc and QP 0 the luma prefix has at most
      * 15 (OQ-21: or 13) bits, all zeros meaning MPP; ICH is not available and
      * the prefix does not depend on the previous group's mode. */
-    int limited = f->version == 2 && f->bpc == 16 && qp == 0;
+    /* DSC 1.2b Table 4-10: 16 bpc luma prefixes may be cut (OQ-21, OQ-35,
+     * OQ-36). */
+    int limited = f->version == 2 && f->bpc == 16 &&
+                  (opt->prefix16_scope == DSC_PREFIX16_SCOPE_QLEVEL ? dsc_qlevel(f, qp, 0) <= 1 : qp == 0);
 
     if (qp > f->max_qp) {
         return -1;
@@ -201,25 +204,25 @@ static int syntax(struct syntax_state *s, const struct dsc_format *f,
         pred = bound((int)s->predicted[u] + (int)s->last_level[u] - (int)g->level[u], max - 1);
         g->pred_raw[u] = s->predicted[u];
         g->pred_adjusted[u] = pred;
-        if (u == 0 && limited) {
-            unsigned most = opt->prefix16 == DSC_PREFIX16_13 ? 13 : 15;
+        if (u == 0 || !g->ich) {
+            unsigned limit = max - pred + (u == 0), cap = limit;
+            int cut = 0;
 
-            for (z = 0; z < most; z++) {
-                if (take(&s->s[u], 1, &v)) {
-                    return -1;
-                }
-                if (v) {
-                    break;
+            /* DSC 1.2b Table 4-10 and §3.10.2: the 16 bpc luma prefix is
+             * at most 13 bits at QP 0 (OQ-21); under OQ-35's qLevel reading
+             * also at luma qLevel 0, and 15 bits at qLevel 1. A cut prefix
+             * of all zeros means MPP, and ICH is neither signaled nor
+             * continued. OQ-36: in every such group, or only where the
+             * uncut prefix could be longer than the cut. */
+            if (u == 0 && limited) {
+                unsigned most = g->level[0] ? 15 : opt->prefix16 == DSC_PREFIX16_13 ? 13 : 15;
+
+                if (opt->prefix16_cut == DSC_PREFIX16_CUT_ALWAYS || limit > most) {
+                    cap = most;
+                    cut = 1;
                 }
             }
-            width = z == most ? max : pred + z;
-            if (width > max) {
-                return -1;
-            }
-        } else if (u == 0 || !g->ich) {
-            unsigned limit = max - pred + (u == 0);
-
-            for (z = 0; z < limit; z++) {
+            for (z = 0; z < cap; z++) {
                 if (take(&s->s[u], 1, &v)) {
                     return -1;
                 }
@@ -229,7 +232,11 @@ static int syntax(struct syntax_state *s, const struct dsc_format *f,
             }
             width = pred + z;
             if (u == 0) {
-                if (s->was_ich) {
+                if (cut) {
+                    if (z == cap) {
+                        width = max;
+                    }
+                } else if (s->was_ich) {
                     if (z == 0) {
                         g->ich = 1;
                     } else {

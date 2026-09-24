@@ -89,6 +89,64 @@ enum dsc_line_flat {              /* OQ-25, §6.8.5.2 first group of a non-first
     DSC_LINE_FLAT_SIGNALED = 1    /* as a signaled very-flat group, demoted below somewhatFlatQpThresh (OQ-16) */
 };
 
+/* DSC 1.2 short-term RC (§6.8.4, Figures 6-17 and 6-18) where the reference
+ * model's output departs from the printed text; the first value of each is
+ * the text (RESEARCH.md, OQ-26 to OQ-34). */
+enum dsc_low_min {              /* OQ-26, lowMinQp of the zero-residual branch */
+    DSC_LOW_MIN_MAX_QP = 0,     /* MAX(maxQp - 4, 0), as printed */
+    DSC_LOW_MIN_MIN_QP = 1      /* MAX(minQp - 4, 0) */
+};
+
+enum dsc_decrement_test {       /* OQ-27, the decrement branch */
+    DSC_DECREMENT_BOTH = 0,     /* codedGroupSize and rcSizeGroup below tgtMinusOffset, as printed */
+    DSC_DECREMENT_SIZE = 1      /* rcSizeGroup below tgtMinusOffset */
+};
+
+enum dsc_activity_qp {          /* OQ-28, the QP in predActivity */
+    DSC_ACTIVITY_PREV = 0,      /* prevQp, as printed */
+    DSC_ACTIVITY_PREV2 = 1      /* prev2Qp: the QP of the group whose sizes are used */
+};
+
+enum dsc_bitsave_step {         /* OQ-29, stQp in bitSaveMode 2 */
+    DSC_BITSAVE_STEP_1 = 0,     /* prevQp + 1, as printed */
+    DSC_BITSAVE_STEP_2 = 1      /* prevQp + 2 */
+};
+
+enum dsc_target_floor {         /* OQ-30, a negative rcTgtBitsGroup */
+    DSC_TARGET_FLOOR_NONE = 0,  /* used as computed */
+    DSC_TARGET_FLOOR_ZERO = 1   /* raised to 0 */
+};
+
+enum dsc_flat_rerun {           /* OQ-31, re-running the step after a flatness adjustment */
+    DSC_FLAT_RERUN_CHANGED = 0, /* only when the adjustment changes the QP (§6.8.5.2, as in DSC 1.1) */
+    DSC_FLAT_RERUN_EVERY = 1    /* whenever a flat group or line start is adjusted, changed or not */
+};
+
+enum dsc_rerun_bitsave {        /* OQ-32, bitSaveMode in that re-run */
+    DSC_RERUN_BITSAVE_KEEP = 0, /* as the step computed it */
+    DSC_RERUN_BITSAVE_REDO = 1  /* computed again with the re-run's prevQp and prev2Qp */
+};
+
+enum dsc_mux16 {                /* OQ-33, luma refill threshold at 16 bpc (§4.4) */
+    DSC_MUX16_ELEMENT = 0,      /* 4 * bpc + 4 = 68, the longest luma unit */
+    DSC_MUX16_WORD = 1          /* 64, the mux word */
+};
+
+enum dsc_prefix16_scope {       /* OQ-35, which 16 bpc groups have a cut luma prefix (Table 4-10) */
+    DSC_PREFIX16_SCOPE_QP0 = 0, /* primaryQp 0, as printed */
+    DSC_PREFIX16_SCOPE_QLEVEL = 1 /* luma qLevel 0 (cut as OQ-21) and qLevel 1 (cut at 15) */
+};
+
+enum dsc_prefix16_cut {         /* OQ-36, when Table 4-10's cut and its rules apply */
+    DSC_PREFIX16_CUT_ALWAYS = 0, /* in every such group: at most N bits, no ICH, no adjustment after ICH */
+    DSC_PREFIX16_CUT_LONGER = 1  /* only where the uncut prefix could be longer than the cut */
+};
+
+enum dsc_flat_top {             /* OQ-34, §6.8.5.2 no adjustment at range 14's maximum QP */
+    DSC_FLAT_TOP_EQUAL = 0,     /* only at that QP, as printed */
+    DSC_FLAT_TOP_AT_OR_ABOVE = 1 /* also above it, which DSC 1.2's bitSaveMode can reach */
+};
+
 enum dsc_bp_left {             /* OQ-4, DSC 1.1 §6.4.4.1 */
     DSC_BP_LEFT_REPLICATE = 0, /* previous-line samples left of the slice repeat its first sample */
     DSC_BP_LEFT_MIDPOINT = 1   /* ... are the component midpoint */
@@ -175,6 +233,8 @@ struct dsc_options {
     int incr_order, rc_pipeline, scale_dec, partial_target, very_flat, partial_padding, flat_max_qp;
     int delay_partial;
     int bpg_combine, chroma_qlevel, prefix16, bitsave_ich, bitsave_pred, bitsave_flat, line_flat;
+    int low_min, decrement_test, activity_qp, bitsave_step, target_floor, flat_rerun, rerun_bitsave,
+        mux16, flat_top, prefix16_scope, prefix16_cut;
     struct dsc_stats *stats; /* optional */
     dsc_trace_fn trace;      /* optional */
     void *trace_context;

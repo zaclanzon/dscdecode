@@ -1446,3 +1446,125 @@ covered?). The four windows give four different pairs of outcomes
 (`tests/discriminators/README.md`). `oq24b` and `oq24c` keep predictions for
 the four readings they were built with. Discriminator decodes: 6,312 →
 10,664.
+
+OQ-24 result. After ae904ee the model decoded `oq24d_bitsave_flat` and
+`oq24e_bitsave_flat` (`~/dsc-runs/m3/phase4/disc-model3.log`, runs
+`~/dsc-runs/m3/phase4/runs/compare/20260924-123040-*`):
+
+| Input | Model output matches | Does not match |
+|---|---|---|
+| `oq24d_bitsave_flat` | supergroup, group, lagged | received, carrier, span: 6 samples in 2 pixels |
+| `oq24e_bitsave_flat` | group, received, carrier, lagged | supergroup, span: 9 samples in 3 pixels |
+
+The flag's own group is not covered and the supergroup's last group is not
+covered: of the windows that fitted the first three inputs, only lagged
+(8–11) gives these outcomes, and it fits all five inputs. `bitsave_flat`
+now defaults to `lagged`; RESEARCH.md marks OQ-24 resolved, noting that the
+interior groups 9 and 10 are inferred, not tested on their own. Every other
+discriminator gave its earlier verdict; `tools/compare_model
+discriminators` exits 0.
+
+## Phase 4, part 4: DSC 1.2 short-term RC and 16 bpc prefix, OQ-26 to OQ-36 (2026-09-24)
+
+Phase 4 is not complete at this commit. The model has not decoded the eleven
+inputs committed here.
+
+### How the model's DSC 1.2 behavior was found
+
+A first DSC 1.2 comparison at 8 bpc (s01, s02, s07 of the synthetic set
+reduced to 8 bits; 6 to 15 bpp, BP off/on, 1, 2 and 4 slices; 90 runs,
+`~/dsc-runs/m3/phase4/runs/corpus/20260924-123129`) matched in 14 runs. The
+method was the one used for OQ-19, all outside the repository
+(`~/dsc-runs/m3/phase4/dbg`, `dbg2`, `exp`):
+
+* A debug build forces chosen QPs (optionally carrying them into the RC
+  state), keeps decoding after errors, and logs the RC inputs of each step
+  and each flatness or line-start re-run. Searches over forced QPs give the
+  QPs the model used at the first divergence; the RC inputs at the steps
+  that produced them show which rule differs.
+* Controlled encodes: the model's configuration files accept explicit rate
+  control parameters (README.TXT), so the same picture was encoded with
+  every range pinned to one QP (the decodes then matched exactly: entropy
+  coding, prediction, bit-saving at a pinned QP and flatness agree), with
+  flatness signaling disabled (flatness QP window 15..15), with one range
+  for all levels and zero bpg offsets, and with pinned ranges at higher QPs.
+  Each removes some of the RC's paths from the comparison.
+* Each candidate rule was switched on in the debug build and scored on all
+  retained runs; a rule was kept only if it made runs match without
+  breaking others. Near alternatives were scored too and rejected
+  (lowMinQp 0 instead of MAX(minQp − 4, 0): 62 of 88; "+2 only when
+  bitSaveMode 2 begins": 33 of 88; flatness restart, increment order and
+  range-lag switches: no gain).
+
+What the model does, against the DSC 1.2b text (details in RESEARCH.md):
+
+| Question | Text | Model streams |
+|---|---|---|
+| OQ-26 lowMinQp | MAX(maxQp − 4, 0) | MAX(minQp − 4, 0) |
+| OQ-27 decrement | codedGroupSize and rcSizeGroup below tgtMinusOffset | rcSizeGroup below it |
+| OQ-28 predActivity | prevQp | prev2Qp |
+| OQ-29 bitSaveMode 2 | prevQp + 1 | prevQp + 2 |
+| OQ-30 negative target | used as computed | raised to 0 |
+| OQ-31 flatness re-run | when the QP changes | at every adjusted flat group and line start |
+| OQ-32 bitSaveMode in the re-run | kept | computed again |
+| OQ-33 16 bpc luma refill threshold | 68 by the formula | 64 |
+| OQ-35 16 bpc cut prefix | QP 0 | luma qLevel 0 (13 bits) and 1 (15 bits) |
+| OQ-36 cut prefix rules | in every such group | only where the uncut prefix is longer |
+
+Two corrections follow the text and are not questions: a DSC 1.2 line
+start is adjusted only while the previous group's QP is below range 14's
+maximum (the decoder had used the DSC 1.1 "equal" test, which misses QPs
+that bitSaveMode raises above it), and the re-run after a flatness
+adjustment uses prev2Qp flatness-adjusted (§6.8.4). Also fixed: the 16 bpc
+luma prefix at QP 0 replaced the prefix instead of limiting it, which made
+a large predicted size uncodable. OQ-34 (signaled flatness above range
+14's maximum) came from reading the text, not from a stream; its default is
+the text.
+
+With all of these, the real decoder matches the model on every retained
+run: 332 of 332 (the 76 failing 8 bpc runs above, 14 controlled encodes,
+the 240 16 bpc runs of the synthetic-16 probe, and two single runs). Probes
+of the synthetic 10-bit and 12-bit sets (240 runs each) and three corpus
+images at 8 bpc (54 runs) matched with a debug wrapper that had most of the
+rules; the full Phase 4 matrix will be run with the final decoder.
+
+### 14 and 16 bpc input
+
+* 16 bpc: 16-bit DPX in the layout of `tools/make_pictures` is read
+  exactly. Line buffer 17 is refused by the model (8 to 16), so the harness
+  default is now bpc + 1, at most 16.
+* 14 bpc: the model reads no 14-bit DPX, and did not read a 16-bit DPX
+  holding 14-bit values exactly (its source check failed), so 14-bit
+  pictures are written as PPM with maxval 16383, which it reads exactly.
+  The model writes 14-bit pictures as 16-bit PPM, each sample v as
+  floor(v × 65535 / 16383); the harness maps them back and checks that each
+  maps forward again.
+* The model's encoder dies from a signal (SIGSEGV or SIGABRT) at every 14
+  bpc encode tried, in each output mode, after its log shows the last slice
+  processed and after it has written the bitstream and the reference
+  picture; the files are complete (the bitstream is the same size on every
+  repetition, and the model's own decode of it, a separate process, runs
+  normally). The harness accepts such an encode only under those three
+  conditions, records the signal in `result.json`
+  (`model_encode_signal`) and prints a note. Cores went to the system
+  handler; none was opened.
+* `tools/run_corpus` accepts PPM at any maxval and makes run directory
+  names unique within a second.
+
+### Implementation and tests
+
+* Eleven switches, `low_min`, `decrement_test`, `activity_qp`,
+  `bitsave_step`, `target_floor`, `flat_rerun`, `rerun_bitsave`, `mux16`,
+  `flat_top`, `prefix16_scope` and `prefix16_cut`; defaults are the model
+  streams' readings (OQ-34: the text). `tests/pydsc.py` implements all of
+  them; the inputs built before these switches existed are rebuilt under the
+  text's readings and regenerate byte-for-byte.
+* Discriminators `oq26_low_min` to `oq36_prefix16_cut`, one per question,
+  predictions in
+  `tests/discriminators/README.md`. Discriminator decodes: 10,664 → 11,816.
+* `tests/test_rc.c`: the DSC 1.2 cases keep their printed-rule expectations
+  under the text readings, and new cases check OQ-26, OQ-27, OQ-29 and
+  OQ-30 under the model readings.
+* `tests/test_compare_model.py`: the stand-in model decodes with
+  `flat_restart=in-flight` (OQ-1's model reading), which the OQ-31 and
+  OQ-32 inputs assume.

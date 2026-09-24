@@ -31,6 +31,17 @@ READINGS = {
     'bitsave_pred': ('raw', 'adjusted', 'next'),
     'bitsave_flat': ('supergroup', 'group', 'received', 'carrier', 'span', 'lagged'),
     'line_flat': ('very', 'signaled'),
+    'low_min': ('max-qp', 'min-qp'),
+    'decrement_test': ('both', 'size'),
+    'activity_qp': ('prev', 'prev2'),
+    'bitsave_step': ('1', '2'),
+    'target_floor': ('none', 'zero'),
+    'flat_rerun': ('changed', 'every'),
+    'rerun_bitsave': ('keep', 'redo'),
+    'mux16': ('68', '64'),
+    'flat_top': ('equal', 'at-or-above'),
+    'prefix16_scope': ('qp0', 'qlevel'),
+    'prefix16_cut': ('always', 'longer'),
 }
 # The statistic that shows each question's condition occurred.
 EXERCISED = {

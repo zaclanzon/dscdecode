@@ -143,11 +143,13 @@ def main():
         # oq2b: its match is printed for the record and never counted.
         m1 = ('incr_order=printed rc_pipeline=same-group scale_dec=from-group-1 '
               'partial_target=three very_flat=group-qp partial_padding=reject flat_max_qp=own')
-        chosen = 'flat_restart=next-cycle threshold_eq=lower frac_reset=chunk bp_left=replicate '
+        # flat_restart is OQ-1's model reading: the DSC 1.2 inputs for OQ-31
+        # and OQ-32 assume it.
+        chosen = 'flat_restart=in-flight threshold_eq=lower frac_reset=chunk bp_left=replicate '
         superseded = ('oq2_threshold_equality (threshold_eq): SUPERSEDED by '
                       'oq2b_threshold_equality; not part of the verdict')
         code, out = run(['discriminators'], FAKE_MODEL_READINGS=chosen + m1, **fake)
-        for line in ('oq1_flat_restart (flat_restart): model output matches next-cycle',
+        for line in ('oq1_flat_restart (flat_restart): model output matches in-flight',
                      superseded, 'for the record, model output matches lower',
                      'oq2b_threshold_equality (threshold_eq): model output matches NEITHER',
                      'oq3_fractional_bpp (frac_reset): model output matches chunk',
@@ -158,7 +160,7 @@ def main():
         # With the default pipeline readings, oq2b gets the verdict. oq2
         # matches neither prediction, which is not a failure: it is superseded.
         code, out = run(['discriminators'], FAKE_MODEL_READINGS=chosen, **fake)
-        for line in ('oq1_flat_restart (flat_restart): model output matches next-cycle',
+        for line in ('oq1_flat_restart (flat_restart): model output matches in-flight',
                      'oq2b_threshold_equality (threshold_eq): model output matches lower',
                      'oq3_fractional_bpp (frac_reset): model output matches chunk',
                      'oq4_bp_left (bp_left): model output matches replicate',

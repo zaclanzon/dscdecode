@@ -111,7 +111,7 @@ def prepare(images, work):
     for src in images:
         ext = src.suffix.lower()
         try:
-            if ext in ('.ppm', '.pnm') and cm.read_ppm(src):
+            if ext in ('.ppm', '.pnm') and cm.read_pnm(src):
                 ready.append(src)
             elif ext == '.dpx':
                 cm.image_size(src)
@@ -156,7 +156,7 @@ def main():
     ap.add_argument('--bpc', type=int, default=8, help='bits per component of the encode')
     ap.add_argument('--dsc-version', type=int, choices=(1, 2), default=1,
                     help='DSC_VERSION_MINOR of the encode')
-    ap.add_argument('--line-buffer', type=int, default=None, help='default: bpc + 1')
+    ap.add_argument('--line-buffer', type=int, default=None, help='default: bpc + 1, at most 16')
     ap.add_argument('--jobs', type=int, default=1, help='runs in parallel')
     ap.add_argument('--keep', action='store_true',
                     help='keep the images and bitstreams of matching runs too')
@@ -188,7 +188,10 @@ def main():
         print(f'SKIP: no images in {corpus}')
         return cm.SKIP
     root = Path(os.environ.get('DSCDECODE_RUNS', Path.home() / 'dsc-runs')) / 'corpus'
-    work = root / datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+    stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+    work, k = root / stamp, 1
+    while work.exists():
+        work, k = root / f'{stamp}-{k}', k + 1
     work.mkdir(parents=True)
     ready, skipped = prepare(images, work)
     for s in skipped:

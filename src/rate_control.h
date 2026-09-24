@@ -38,6 +38,11 @@ struct dsc_rc {
     unsigned max_qp, flat_type_qp, very_flat_qp; /* scaled by bpc (dsc_qp_scale) */
     int v12;                                     /* dsc_version_minor 2 */
     unsigned bit_save, mpp_state, bit_save_thresh; /* DSC 1.2b §6.8.4 */
+    /* The last step's group and bitSaveMode state before its update, for a
+     * re-run that computes bitSaveMode again (OQ-32). */
+    struct dsc_rc_group step_group;
+    unsigned step_y, step_bit_save, step_mpp_state;
+    int have_step_group;
     int64_t fullness, offset_q11;
     uint64_t pixels, groups;
     uint64_t delay_group_end; /* end of the previous group, three pixels per group (OQ-19) */

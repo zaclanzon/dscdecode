@@ -183,6 +183,61 @@ static int *line_flat(struct dsc_options *o)
     return &o->line_flat;
 }
 
+static int *low_min(struct dsc_options *o)
+{
+    return &o->low_min;
+}
+
+static int *decrement_test(struct dsc_options *o)
+{
+    return &o->decrement_test;
+}
+
+static int *activity_qp(struct dsc_options *o)
+{
+    return &o->activity_qp;
+}
+
+static int *bitsave_step(struct dsc_options *o)
+{
+    return &o->bitsave_step;
+}
+
+static int *target_floor(struct dsc_options *o)
+{
+    return &o->target_floor;
+}
+
+static int *flat_rerun(struct dsc_options *o)
+{
+    return &o->flat_rerun;
+}
+
+static int *rerun_bitsave(struct dsc_options *o)
+{
+    return &o->rerun_bitsave;
+}
+
+static int *mux16(struct dsc_options *o)
+{
+    return &o->mux16;
+}
+
+static int *flat_top(struct dsc_options *o)
+{
+    return &o->flat_top;
+}
+
+static int *prefix16_scope(struct dsc_options *o)
+{
+    return &o->prefix16_scope;
+}
+
+static int *prefix16_cut(struct dsc_options *o)
+{
+    return &o->prefix16_cut;
+}
+
 static const struct reading readings[] = {
     {"flat_restart",    "next-cycle",   flat_restart,    DSC_FLAT_RESTART_NEXT_CYCLE},
     {"flat_restart",    "in-flight",    flat_restart,    DSC_FLAT_RESTART_IN_FLIGHT},
@@ -234,6 +289,28 @@ static const struct reading readings[] = {
     {"bitsave_flat",    "lagged",       bitsave_flat,    DSC_BITSAVE_FLAT_LAGGED},
     {"line_flat",       "very",         line_flat,       DSC_LINE_FLAT_VERY},
     {"line_flat",       "signaled",     line_flat,       DSC_LINE_FLAT_SIGNALED},
+    {"low_min",         "max-qp",       low_min,         DSC_LOW_MIN_MAX_QP},
+    {"low_min",         "min-qp",       low_min,         DSC_LOW_MIN_MIN_QP},
+    {"decrement_test",  "both",         decrement_test,  DSC_DECREMENT_BOTH},
+    {"decrement_test",  "size",         decrement_test,  DSC_DECREMENT_SIZE},
+    {"activity_qp",     "prev",         activity_qp,     DSC_ACTIVITY_PREV},
+    {"activity_qp",     "prev2",        activity_qp,     DSC_ACTIVITY_PREV2},
+    {"bitsave_step",    "1",            bitsave_step,    DSC_BITSAVE_STEP_1},
+    {"bitsave_step",    "2",            bitsave_step,    DSC_BITSAVE_STEP_2},
+    {"target_floor",    "none",         target_floor,    DSC_TARGET_FLOOR_NONE},
+    {"target_floor",    "zero",         target_floor,    DSC_TARGET_FLOOR_ZERO},
+    {"flat_rerun",      "changed",      flat_rerun,      DSC_FLAT_RERUN_CHANGED},
+    {"flat_rerun",      "every",        flat_rerun,      DSC_FLAT_RERUN_EVERY},
+    {"rerun_bitsave",   "keep",         rerun_bitsave,   DSC_RERUN_BITSAVE_KEEP},
+    {"rerun_bitsave",   "redo",         rerun_bitsave,   DSC_RERUN_BITSAVE_REDO},
+    {"mux16",           "68",           mux16,           DSC_MUX16_ELEMENT},
+    {"mux16",           "64",           mux16,           DSC_MUX16_WORD},
+    {"prefix16_scope",  "qp0",          prefix16_scope,  DSC_PREFIX16_SCOPE_QP0},
+    {"prefix16_scope",  "qlevel",       prefix16_scope,  DSC_PREFIX16_SCOPE_QLEVEL},
+    {"prefix16_cut",    "always",       prefix16_cut,    DSC_PREFIX16_CUT_ALWAYS},
+    {"prefix16_cut",    "longer",       prefix16_cut,    DSC_PREFIX16_CUT_LONGER},
+    {"flat_top",        "equal",        flat_top,        DSC_FLAT_TOP_EQUAL},
+    {"flat_top",        "at-or-above",  flat_top,        DSC_FLAT_TOP_AT_OR_ABOVE},
 };
 
 static const struct reading *find_reading(const char *name, const char *value)

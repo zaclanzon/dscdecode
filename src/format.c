@@ -17,7 +17,8 @@
  * agrees with the 83-unit balance FIFO of §3.7.1 (48 + 36 - 1). At 16 bpc
  * the luma formula gives 68 against 64-bit mux words; DSC 1.2b §3.10.2 and
  * Table 4-10 limit the luma prefix at QP 0 to keep elements within a mux
- * word, but the text does not restate the refill threshold. */
+ * word, but the text does not restate the refill threshold (OQ-33,
+ * dsc_format_apply_options). */
 static void set_units(struct dsc_format *f)
 {
     unsigned u;
@@ -82,6 +83,11 @@ void dsc_format_apply_options(struct dsc_format *f, const struct dsc_options *o)
 {
     if (f && o && f->version == 2 && f->depth[1] == f->depth[0]) {
         f->chroma_adjust = !f->rgb || o->chroma_qlevel == DSC_CHROMA_QLEVEL_EQUAL_DEPTH;
+    }
+    /* OQ-33: at 16 bpc the luma threshold is 68 by the formula above, or
+     * the 64-bit mux word, which the limited prefix keeps elements within. */
+    if (f && o && f->bpc == 16 && o->mux16 == DSC_MUX16_WORD) {
+        f->max_se[0] = f->mux_word;
     }
 }
 

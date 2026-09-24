@@ -137,14 +137,22 @@ static unsigned short_term_v12(const struct drm_dsc_config *c, const struct dsc_
     int64_t high = in->target + c->rc_tgt_offset_high, st;
     unsigned min_qp = in->min_qp, max_qp = in->max_qp;
     unsigned adjusted_max = in->max_qp + 1 < in->top_qp ? in->max_qp + 1 : in->top_qp;
-    unsigned low_min = in->max_qp > 4 ? in->max_qp - 4 : 0;
+    /* OQ-26: lowMinQp from maxQp as printed, or from minQp. */
+    unsigned from = o->low_min == DSC_LOW_MIN_MIN_QP ? in->min_qp : in->max_qp;
+    unsigned low_min = from > 4 ? from - 4 : 0;
+    /* OQ-27: rcSizeGroup never exceeds codedGroupSize, so the size reading
+     * is the test on rcSizeGroup alone. */
+    int decrement = o->decrement_test == DSC_DECREMENT_SIZE
+                        ? (int64_t)in->ideal < low
+                        : (int64_t)in->actual < low && (int64_t)in->ideal < low;
 
     if (in->model > -172) {
         st = max_qp = c->rc_range_params[14].range_max_qp;
     } else if (in->fullness < 192) {
         st = min_qp;
     } else if (in->bit_save == 2) {
-        st = (int64_t)prev + 1;
+        /* OQ-29: prevQp + 1 as printed, or + 2. */
+        st = (int64_t)prev + (o->bitsave_step == DSC_BITSAVE_STEP_2 ? 2 : 1);
         max_qp = adjusted_max;
     } else if (in->bit_save == 1) {
         st = prev;
@@ -152,7 +160,7 @@ static unsigned short_term_v12(const struct drm_dsc_config *c, const struct dsc_
     } else if (in->zero) {
         st = (int64_t)prev - 1;
         min_qp = low_min;
-    } else if ((int64_t)in->actual < low && (int64_t)in->ideal < low) {
+    } else if (decrement) {
         st = (int64_t)prev - 1;
     } else if ((int64_t)in->actual > high && in->fullness >= 64) {
         st = increment_qp(c, in, min_qp, max_qp, prev, prev2, o);
@@ -199,6 +207,9 @@ static unsigned short_term(const struct drm_dsc_config *c, const struct dsc_rc_i
     return next;
 }
 
+static void bit_save_update(struct dsc_rc *s, unsigned y, const struct dsc_rc_group *g,
+                            unsigned prev, unsigned prev2);
+
 int dsc_rc_apply_flat(struct dsc_rc *s, int flat, int very_flat)
 {
     return dsc_rc_apply_flat_line(s, flat, very_flat, 0);
@@ -206,7 +217,7 @@ int dsc_rc_apply_flat(struct dsc_rc *s, int flat, int very_flat)
 
 int dsc_rc_apply_flat_line(struct dsc_rc *s, int flat, int very_flat, int line_start)
 {
-    unsigned q, master, redo, top, below;
+    unsigned q, master, redo, top, below, prev2, current;
     int demote, always_very = 0;
 
     if (!s || s->failed) {
@@ -230,7 +241,13 @@ int dsc_rc_apply_flat_line(struct dsc_rc *s, int flat, int very_flat, int line_s
     if (s->opt.stats && (q == top) != (s->used_qp == top)) {
         ++s->opt.stats->flat_max_qp_differs;
     }
-    if ((s->opt.flat_max_qp == DSC_FLAT_MAX_QP_PREVIOUS ? s->used_qp : q) == top) {
+    current = s->opt.flat_max_qp == DSC_FLAT_MAX_QP_PREVIOUS ? s->used_qp : q;
+    /* DSC 1.2b §6.8.5.2 adjusts a line start only while the QP is below
+     * range 14's maximum; DSC 1.2's bitSaveMode can raise the QP above it.
+     * OQ-34: for signaled flatness the text skips only at that QP. */
+    if (s->v12 && (line_start || s->opt.flat_top == DSC_FLAT_TOP_AT_OR_ABOVE)
+            ? current >= top
+            : current == top) {
         return 0;
     }
     /* OQ-16: the type bit is only sent when the signaling group's QP is at
@@ -252,18 +269,31 @@ int dsc_rc_apply_flat_line(struct dsc_rc *s, int flat, int very_flat, int line_s
     /* Somewhat flat: MAX(stQp - 4, 0). Very flat: 1 + 2 * (bpc - 8). */
     master = (!very_flat || demote) ? (q > 4 ? q - 4 : 0) : s->very_flat_qp;
     /* Section 6.8.5.2 restarts short-term RC only when the override
-     * actually changes masterQp. */
-    if (master == q) {
+     * actually changes masterQp. OQ-31: in DSC 1.2 the model re-runs it at
+     * every adjusted group. */
+    if (master == q && !(s->v12 && s->opt.flat_rerun == DSC_FLAT_RERUN_EVERY)) {
         return 0;
     }
     s->qp = master;
-    s->flat_override = 1;
+    s->flat_override = master != q;
     /* OQ-1: the cycle already run for the next group, re-run from the
-     * overridden QP. prev2Qp is the QP that decoded the previous group. */
-    redo = s->have_inputs ? short_term(s->cfg, &s->last_inputs, master, s->used_qp, &s->opt)
+     * overridden QP. prev2Qp is the QP that decoded the previous group; DSC
+     * 1.2b §6.8.4 adjusts it for flatness like the current group. */
+    prev2 = s->used_qp;
+    if (s->v12) {
+        prev2 = (!very_flat || demote) ? (prev2 > 4 ? prev2 - 4 : 0) : s->very_flat_qp;
+        /* OQ-32: compute that step's bitSaveMode again with these QPs. */
+        if (s->opt.rerun_bitsave == DSC_RERUN_BITSAVE_REDO && s->have_step_group && s->have_inputs) {
+            s->bit_save = s->step_bit_save;
+            s->mpp_state = s->step_mpp_state;
+            bit_save_update(s, s->step_y, &s->step_group, master, prev2);
+            s->last_inputs.bit_save = s->bit_save;
+        }
+    }
+    redo = s->have_inputs ? short_term(s->cfg, &s->last_inputs, master, prev2, &s->opt)
                           : s->pending_qp;
     if (s->opt.stats) {
-        ++s->opt.stats->flat_overrides;
+        s->opt.stats->flat_overrides += (unsigned long)s->flat_override;
         if (redo != s->pending_qp) {
             ++s->opt.stats->flat_queue_differs;
         }
@@ -331,10 +361,12 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned n, uns
 
 /* DSC 1.2b §6.8.4: bitSaveMode and mppState after the group just decoded.
  * OQ-22: DSC 1.2a prints ichSelected where DSC 1.2b has !ichSelected. */
-static void bit_save_update(struct dsc_rc *s, unsigned y, const struct dsc_rc_group *g)
+static void bit_save_update(struct dsc_rc *s, unsigned y, const struct dsc_rc_group *g,
+                            unsigned prev, unsigned prev2)
 {
-    unsigned activity = s->last_qp + g->predicted[0] +
-                        umax(g->predicted[1], g->predicted[2]);
+    /* OQ-28: prevQp as printed, or prev2Qp. */
+    unsigned activity = (s->opt.activity_qp == DSC_ACTIVITY_PREV2 ? prev2 : prev) +
+                        g->predicted[0] + umax(g->predicted[1], g->predicted[2]);
     int p_mode = s->opt.bitsave_ich == DSC_BITSAVE_ICH_SET ? g->ich : !g->ich;
 
     if (!y || g->flat) {
@@ -545,6 +577,11 @@ int dsc_rc_step_group(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned 
     target = ((int64_t)(s->opt.partial_target == DSC_PARTIAL_TARGET_PIXELS ? n : 3) *
                   c->bits_per_pixel + 8) / 16 +
              signed_bpg + xform_bpg - c->slice_bpg_offset / 2048;
+    /* OQ-30: a negative target (a short group at a line end with a large
+     * negative range offset) is used as computed, or raised to 0. */
+    if (s->v12 && s->opt.target_floor == DSC_TARGET_FLOOR_ZERO && target < 0) {
+        target = 0;
+    }
     in.fullness = s->fullness;
     in.model = s->fullness + offset;
     in.target = target;
@@ -557,7 +594,13 @@ int dsc_rc_step_group(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned 
     in.zero = g->zero;
     in.top_qp = 2u * c->bits_per_component - 1;
     if (s->v12) {
-        bit_save_update(s, y, g);
+        s->step_group = *g;
+        s->step_y = y;
+        s->step_bit_save = s->bit_save;
+        s->step_mpp_state = s->mpp_state;
+        s->have_step_group = 1;
+        /* prevQp is the QP generated last; prev2Qp decoded this group. */
+        bit_save_update(s, y, g, s->last_qp, s->qp);
         if (s->bit_save && s->opt.stats) {
             ++s->opt.stats->bit_save_groups;
         }

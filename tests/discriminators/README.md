@@ -362,6 +362,62 @@ How each is built:
   (0) is below somewhatFlatQpThresh 7, which demotes it to somewhat flat,
   MAX(0 − 4, 0) = 0. Its Co residual −1 becomes −2 or −1.
 
+## DSC 1.2 inputs — OQ-26 to OQ-36
+
+Added in M3, Phase 4, part 4, and committed with these predictions before
+the reference model decoded them. Each question is a place where the
+model-encoded DSC 1.2 streams of Phase 4 departed from the printed text
+(OQ-34: no evidence yet), recorded with the text as reading A (RESEARCH.md).
+Built by `tests/make_v12_discriminators.py` with `tests/pydsc.py`, which now
+implements every reading. Each input decides one QP (OQ-33, OQ-35 and
+OQ-36: one parse) near the end of the slice; `manifest.json` lists the
+switches each input is decoded under in all combinations (`vary`) and the
+readings it relies on (`assumes`: the decoder's defaults, including the
+model's readings of OQ-1, OQ-22 to OQ-25 and the observed readings of
+OQ-27 and OQ-29 where the input needs them). The generator's docstrings
+give the arithmetic of each input.
+
+| Input | Size, bpc | Question: the decisive QP | Pixels |
+|---|---|---|---|
+| `oq26_low_min` | 45×1, 8 | low_min: last group QP max-qp → 6, min-qp → 5 | first difference x = 42, y = 0: (132, 213, 0) max-qp; (136, 213, 0) min-qp; 3 pixels differ |
+| `oq27_decrement_test` | 48×1, 8 | decrement_test: last group QP both → 8, size → 7 | first difference x = 45, y = 0: (139, 166, 85) both; (147, 166, 77) size; 3 pixels differ |
+| `oq28_activity_qp` | 24×2, 8 | activity_qp: last group QP prev → 12, prev2 → 9 | first difference x = 21, y = 1: (177, 197, 134) prev; (177, 181, 102) prev2; 3 pixels differ |
+| `oq29_bitsave_step` | 15×2, 8 | bitsave_step: last group QP 1 → 5, 2 → 6 | first difference x = 12, y = 1: (137, 139, 118) 1; (141, 139, 114) 2; 3 pixels differ |
+| `oq30_target_floor` | 54×1, 8 | target_floor: last group QP none → 15, zero → 12 | first difference x = 51, y = 0: (130, 130, 129) none; (161, 164, 154) zero; 3 pixels differ |
+| `oq31_flat_rerun` | 48×1, 8 | flat_rerun: last group QP changed → 4, every → 0 | first difference x = 45, y = 0: (142, 148, 114) changed; (138, 147, 117) every; 3 pixels differ |
+| `oq32_rerun_bitsave` | 9×4, 8 | rerun_bitsave: last group QP keep → 8, redo → 6 | first difference x = 6, y = 3: (185, 212, 60) keep; (177, 220, 52) redo; 3 pixels differ |
+| `oq33_mux16` | 24×1, 16 | mux16: last group QP 68 → 2, 64 → 2 | first difference x = 21, y = 0: (0, 37934, 24106) 68; (0, 38768, 24768) 64; 3 pixels differ |
+| `oq34_flat_top` | 33×2, 8 | flat_top: last group QP equal → 9, at-or-above → 13 | first difference x = 31, y = 1: (83, 85, 76) equal; (163, 165, 156) at-or-above; 2 pixels differ |
+| `oq35_prefix16_scope` | 24×1, 16 | prefix16_scope: last group QP qp0 → 3, qlevel → 3 | first difference x = 21, y = 0: (58306, 58306, 58306) qp0; (12768, 12768, 12768) qlevel; 3 pixels differ |
+| `oq36_prefix16_cut` | 27×1, 16 | prefix16_cut: last group QP always → 4, longer → 4 | first difference x = 21, y = 0: (33792, 33970, 33436) always; (32948, 33126, 32592) longer; 6 pixels differ |
+
+In short:
+
+* `oq26_low_min`: a zero-residual group at QP 6 with ranges 6–10:
+  prevQp − 1 = 5 is kept above MAX(10 − 4, 0) = 6 only under max-qp.
+* `oq27_decrement_test`: a group coded at the predicted size 4 with
+  size-1 residuals: codedGroupSize 39, rcSizeGroup 12, tgtMinusOffset 33.
+* `oq28_activity_qp`: in bitSaveMode 2 the QP climbs by 2 a step; a non-MPP
+  group with predicted sizes 3 and 2 has predActivity 15 with prevQp 10
+  (kept) and 13 with prev2Qp 8 (reset).
+* `oq29_bitsave_step`: bitSaveMode 2 from QP 4 with adjustedMaxQp 13.
+* `oq30_target_floor`: every range offset −32 at 8 bpp: target −8.
+* `oq31_flat_rerun`: a signaled somewhat-flat group already at QP 0 after a
+  group at QP 1: re-running the step with prev2Qp 0 turns an increment
+  into no change.
+* `oq32_rerun_bitsave`: a line start re-runs the previous step; recomputing
+  bitSaveMode with prev2Qp 1 resets it, and the MPP line-start group then
+  does or does not bring bitSaveMode 2 back.
+* `oq33_mux16`: 16 bpc; the luma funnel holds 64 to 67 bits when chroma
+  words are due, so the two thresholds order the mux words differently.
+* `oq34_flat_top`: bitSaveMode raises the QP to 13, above range 14's
+  maximum 12, before a signaled somewhat-flat group.
+* `oq35_prefix16_scope`: 16 bpc at QP 3: fifteen zeros are MPP (qlevel) or
+  the start of a sixteen-bit prefix (qp0).
+* `oq36_prefix16_cut`: 16 bpc at QP 4 with predicted sizes of 2 or more: an
+  ICH group and a continued ICH group, which the always reading reads as
+  P-mode groups.
+
 ## Running against the reference model
 
 `tools/compare_model bitstream tests/discriminators/NAME.pps
