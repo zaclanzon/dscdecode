@@ -1139,3 +1139,173 @@ reference model decodes it (rule for open questions, RESEARCH.md).
   `tests/discriminators/README.md` (discriminator decodes: 72 → 104). How
   it was found is recorded with the Phase 3 results.
 * Gate for this part: `scripts/ci.sh` with the model unset: all steps pass.
+
+## Phase 3, part 2: model comparison at 10 and 12 bpc, OQ-19 resolved (2026-09-24)
+
+Phase 3 is complete with this part. The decoder code is the code committed in
+part 1 (4f164ba): the release binary used for every run below
+(`~/dsc-runs/m3/phase3/bin/dscdecode`, SHA-256 d736d40b…4033) is
+byte-identical to `build/release/dscdecode` built from 4f164ba. This part
+adds only records.
+
+### How the model reads and writes more than 8 bits
+
+Learned from `/usr/local/share/dsc-ref/README.TXT` and from the files the
+model writes; the scratch files are in `~/dsc-runs/m3/phase3/discovery/`.
+
+* The model reads PPM and DPX. For the comparison the input is DPX, in the
+  layout the model writes itself when it converts an input: DPX 2.0, one RGB
+  image element, packing method A, big-endian. 10-bit: one pixel per 32-bit
+  word, B in bits 31–22, G in 21–12, R in 11–2. 12-bit: one 16-bit word per
+  sample, value in the top 12 bits, in the order B, G, R, with no padding
+  at line ends and the image data padded to a whole number of 32-bit words.
+  With `SWAP_R_AND_B 0`, `DPXR_DATUM_ORDER 1` and `DPXR_PAD_ENDS 1` the model
+  reads this layout back unchanged at every size tried, including the odd
+  width 637.
+* Layouts that did not work: a 10-bit V1.0 header was read with another
+  packing; 12-bit samples in R, G, B order came back with R and B swapped;
+  per-line padding of odd-width 12-bit rows shifted every row after the
+  first; 16-bit DPX samples were rescaled on input.
+* Every run checks what the model read: the model's `input.ref.ppm` must equal
+  the master PPM that `tools/make_pictures` writes beside each DPX. The first
+  12-bit matrix found the odd-width misread this way (30 runs refused before
+  any comparison), which led to the end-of-image padding above.
+* The model's decoded output is compared as a PPM with maxval 2^bpc − 1.
+
+### Pictures
+
+`tools/make_pictures`, output in `~/dsc-runs/hbd-pictures/` (outside the
+repository):
+
+* synthetic-10, synthetic-12: eight pictures per bit depth, 640×216 except
+  s08 (637×125): s01 gradient, s02 full-range noise, s03 fine text strokes,
+  s04 flat blocks whose neighbours differ by one LSB, s05 sine waves, s06
+  low-bit texture around mid-grey, s07 a mix of these, s08 the mix at an odd
+  size. The 640-pixel width gives a one-pixel partial group at the end of
+  each line with 4 slices (160 pixels per slice); 637 gives partial groups
+  with 1, 2 and 4 slices.
+* derived-10, derived-12: the 17 corpus images, each sample scaled as
+  round(v × (2^bpc − 1) / 255) plus noise uniform in
+  [−(2^(bpc−8) − 1), 2^(bpc−8) − 1] (±3 at 10 bpc, ±15 at 12 bpc), clamped;
+  the noise generator is seeded from SHA-256 of image name, bit depth and
+  component, so the pictures are reproducible.
+
+### Model comparison, DSC 1.1 RGB 4:4:4 CBR
+
+Every run: the model encodes the picture with the `rc_<bpc>bpc_<bpp>bpp.cfg`
+of the rate (these are all the 4:4:4 rates installed: 6, 8, 10, 12, 15 bpp),
+DSC 1.1, line buffer bpc + 1, block prediction off and on, 1, 2 and 4
+slices per line; the model decodes its stream, and dscdecode (release build,
+default readings) decodes the same PPS and payload. "Match" is bit-exact
+equality of all samples. Command: `tools/run_corpus --dir <pictures> --bpc
+<bpc> --bpp 6 8 10 12 15 --bp 0 1 --slices 1 2 4 --jobs 8`
+(`~/dsc-runs/m3/phase3/matrix.sh`).
+
+10 bpc:
+
+| Pictures | bpp | Runs | Bit-exact | Differing samples | Model input check |
+|---|---|---|---|---|---|
+| synthetic (8) | 6 | 48 | 48 | 0 | 48 / 48 |
+| synthetic (8) | 8 | 48 | 48 | 0 | 48 / 48 |
+| synthetic (8) | 10 | 48 | 48 | 0 | 48 / 48 |
+| synthetic (8) | 12 | 48 | 48 | 0 | 48 / 48 |
+| synthetic (8) | 15 | 48 | 48 | 0 | 48 / 48 |
+| derived (17) | 6 | 102 | 102 | 0 | 102 / 102 |
+| derived (17) | 8 | 102 | 102 | 0 | 102 / 102 |
+| derived (17) | 10 | 102 | 102 | 0 | 102 / 102 |
+| derived (17) | 12 | 102 | 102 | 0 | 102 / 102 |
+| derived (17) | 15 | 102 | 102 | 0 | 102 / 102 |
+| total | | 750 | 750 | 0 | |
+
+12 bpc:
+
+| Pictures | bpp | Runs | Bit-exact | Differing samples | Model input check |
+|---|---|---|---|---|---|
+| synthetic (8) | 6 | 48 | 48 | 0 | 48 / 48 |
+| synthetic (8) | 8 | 48 | 48 | 0 | 48 / 48 |
+| synthetic (8) | 10 | 48 | 48 | 0 | 48 / 48 |
+| synthetic (8) | 12 | 48 | 48 | 0 | 48 / 48 |
+| synthetic (8) | 15 | 48 | 48 | 0 | 48 / 48 |
+| derived (17) | 6 | 102 | 102 | 0 | 102 / 102 |
+| derived (17) | 8 | 102 | 102 | 0 | 102 / 102 |
+| derived (17) | 10 | 102 | 102 | 0 | 102 / 102 |
+| derived (17) | 12 | 102 | 102 | 0 | 102 / 102 |
+| derived (17) | 15 | 102 | 102 | 0 | 102 / 102 |
+| total | | 750 | 750 | 0 | |
+
+Results: `~/dsc-runs/m3/phase3/runs/corpus/20260924-074757` (synthetic-10),
+`20260924-074804` (synthetic-12), `20260924-074813` (derived-10),
+`20260924-075231` (derived-12). Each `results.json` records the dscdecode
+path.
+
+The six hand-derived fixtures of part 1 (`hbd10_*`, `hbd12_*`): the model's
+decode of each fixture PPS and payload is identical to the committed
+`.expected.ppm`.
+
+### OQ-19: found, discriminated, resolved
+
+The first run of the matrix (before `delay_partial` existed, so with the
+pixels reading) failed 8 of 240 synthetic-10 runs and 4 of 240 synthetic-12
+runs, all with 4 slices, all with dscdecode rejecting the stream as invalid
+(the decode had gone wrong earlier in the slice); the derived pictures (480-pixel slices, no partial groups) did not fail. In each
+failing slice the first difference was a QP two groups after a one-pixel
+partial group at the end of a line inside the initial transmission delay.
+Following the M2 method, a scratch build (outside the repository) forced
+single-group QPs and added offsets to rcXformOffset to find what the model
+used. A change of −24 at the partial group (bits_per_pixel = 8, so three
+pixels' worth instead of one) and +24 at the first group of the next line
+reproduced the model's pixels through the end of the delay. Hypotheses that
+did not fit: counting three pixels for every group (fails where the delay
+ends), and changes to the range thresholds. The rule that
+fits every failing case is OQ-19 reading B (group-end), RESEARCH.md.
+
+The discriminator `oq19_delay_partial` and both predictions were committed in
+4f164ba before the model saw it. The model then decoded it
+(`~/dsc-runs/m3/phase3/oq19-model.log`, run
+`~/dsc-runs/m3/phase3/runs/compare/20260924-074743-094127-oq19_delay_partial`):
+its output matches the group-end prediction bit-exact; the pixels
+prediction differs in 3 samples of 1 pixel (x = 6, y = 1). The default
+`delay_partial=group-end` stays, and every run of the matrix above used it.
+
+The case is not specific to high bit depths. At 8 bpc, three synthetic-10
+pictures reduced to 8 bits (s01, s02 and s07, each sample shifted right by
+2; `~/dsc-runs/m3/debug/pics8/`) were run at 6, 8, 10, 12 and 15 bpp, block
+prediction off and on, 1, 2 and 4 slices: 90 of 90 bit-exact with this
+branch (`~/dsc-runs/m3/phase3/runs/corpus/20260924-081509`). The v0.1.0
+decoder (6382dae, pixels reading) on the 30 four-slice runs of that set:
+27 bit-exact, 3 rejected (`20260924-081925`). v0.1.0's comparisons had used
+slice widths without one-pixel partial groups inside the initial delay. The
+README Status section is not changed (rule for M3); this note is the record.
+
+### Harness changes made during the matrix
+
+* `tools/run_corpus --jobs N` runs comparisons in parallel. A matching run
+  deletes its pictures, streams and model outputs unless `--keep`, and
+  `tools/compare_model` copies only the rate-control file it uses into the
+  run directory. The first matrix filled the disk during the derived-10
+  set; the matrix was restarted from the start after these changes.
+* `tools/compare_model` checks the model's input against the master PPM
+  (above) and reads PNM with any maxval.
+
+### Tests and gate
+
+| Suite | Phase 0 | Now |
+|---|---|---|
+| Image fixtures, bit-exact | 10 | 16 (adds the six `hbd*` fixtures) |
+| CLI checks | 26 | 32 |
+| Discriminator decodes | 72 | 104 |
+| `test_rc` cases | 29 | 33 (`delay_partial`, 4 cases) |
+| `test_predict` cases | 7 | 7 |
+
+Gate:
+
+* `scripts/ci.sh` with `DSCDECODE_MODEL_BIN` unset: all steps pass, model
+  SKIP. libFuzzer 489,022 executions in 61 s (fewer than in Phase 2 because
+  each input now also runs the planes API); deterministic smoke 960,000.
+* With `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref`: all steps pass (release
+  build; self-test match; `oq1` in-flight, `oq2b` lower, `oq3` chunk, `oq4`
+  midpoint, `oq19` group-end, `oq2` superseded). libFuzzer 417,024 executions
+  in 61 s; deterministic smoke 960,000.
+* 1.1 regression: 34 of 34 bit-exact (`~/dsc-runs/corpus/20260924-082559`).
+
+Logs: `~/dsc-runs/m3/phase3/gate-*.log`.
