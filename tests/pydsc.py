@@ -40,7 +40,7 @@ DEFAULTS = {'delay_partial': 'group-end', 'bpg_combine': 'add', 'chroma_qlevel':
             'bitsave_flat': 'lagged', 'line_flat': 'signaled',
             'low_min': 'min-qp', 'decrement_test': 'size', 'activity_qp': 'prev2',
             'bitsave_step': '2', 'target_floor': 'zero', 'flat_rerun': 'every',
-            'rerun_bitsave': 'redo', 'mux16': '64', 'flat_top': 'equal',
+            'rerun_bitsave': 'redo', 'mux16': '64', 'flat_top': 'at-or-above',
             'prefix16_scope': 'qlevel', 'prefix16_cut': 'longer'}
 # The readings the text prints, for the questions the model decided against
 # the text (OQ-26 to OQ-33) or has not decided (OQ-34).

@@ -37,8 +37,8 @@ void dsc_options_init(struct dsc_options *o)
     o->bitsave_pred = DSC_BITSAVE_PRED_NEXT;
     o->bitsave_flat = DSC_BITSAVE_FLAT_LAGGED;
     o->line_flat = DSC_LINE_FLAT_SIGNALED;
-    /* Found on model-encoded DSC 1.2 streams (PROGRESS.md, Phase 4); each
-     * is pending its discriminator. OQ-34 has no evidence yet: the text. */
+    /* Found on model-encoded DSC 1.2 streams and decided by the model's
+     * decodes of the discriminators (PROGRESS.md, Phase 4). */
     o->low_min = DSC_LOW_MIN_MIN_QP;
     o->decrement_test = DSC_DECREMENT_SIZE;
     o->activity_qp = DSC_ACTIVITY_PREV2;
@@ -47,7 +47,7 @@ void dsc_options_init(struct dsc_options *o)
     o->flat_rerun = DSC_FLAT_RERUN_EVERY;
     o->rerun_bitsave = DSC_RERUN_BITSAVE_REDO;
     o->mux16 = DSC_MUX16_WORD;
-    o->flat_top = DSC_FLAT_TOP_EQUAL;
+    o->flat_top = DSC_FLAT_TOP_AT_OR_ABOVE;
     o->prefix16_scope = DSC_PREFIX16_SCOPE_QLEVEL;
     o->prefix16_cut = DSC_PREFIX16_CUT_LONGER;
 }

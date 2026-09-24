@@ -91,10 +91,10 @@ must be removed upstream. No hardware access occurs.
 of 16-bit samples per component for every supported format
 (`dsc_plane_size` gives the plane sizes). The parser uses the kernel's
 `struct drm_dsc_config` and also parses 1.2 PPS fields. The decoder accepts
-DSC 1.1 RGB 4:4:4 CBR at 8, 10 and 12 bits per component. The CLI writes a
-binary PPM with maxval 2^bpc − 1: one byte per sample at 8 bpc, two bytes
-(most significant first) above. Thresholds retain PPS units and signed BPG
-offsets retain six-bit encoding.
+RGB 4:4:4 CBR: DSC 1.1 at 8, 10 and 12 bits per component, and DSC 1.2 at
+8, 10, 12, 14 and 16. The CLI writes a binary PPM with maxval 2^bpc − 1: one
+byte per sample at 8 bpc, two bytes (most significant first) above.
+Thresholds retain PPS units and signed BPG offsets retain six-bit encoding.
 
 Limits: 16,777,216 pixels for both a frame and an individual slice; at most 255
 horizontal slices in the reused configuration representation; 256MiB CLI
@@ -137,6 +137,23 @@ fatal and report leaks; on a host where LeakSanitizer cannot run, set
 the path of the binary they use. `--build sanitize` (for `scripts/ci.sh`,
 `CI_MODEL_BUILD=sanitize`) selects `build/sanitize/dscdecode`;
 `DSCDECODE_BIN` names any other binary.
+
+`tests/make_discriminators.py` regenerates `tests/discriminators/`; the DSC
+1.2 inputs come from `tests/make_v12_discriminators.py`, which builds and
+decodes them with `tests/pydsc.py`, a small Python decoder model kept
+separate from the C decoder.
+
+`tools/make_pictures synthetic|derived --bpc N...` writes test pictures
+outside the repository (default `~/dsc-runs/hbd-pictures`): DPX at 10, 12
+and 16 bits in the layout the model writes, PPM at 8 and 14 bits, and a
+master PPM of each. `tools/compare_model` and `tools/run_corpus` take
+`--bpc` and `--dsc-version`; they check what the model read against the
+master PPM, map the model's 16-bit output of 14-bit pictures back to 14
+bits (checking the mapping), and default the line buffer to bpc + 1, at most
+16. At 14 bpc the model's encoder dies from a signal after writing all its
+output; the harness accepts such an encode only when the model's log
+reports the last slice and the bitstream exists, and records the signal in
+`result.json`.
 
 `tools/verify_refactor BASE HEAD` checks that a refactor between two commits,
 such as reformatting or brace insertion, leaves the compiled code and the

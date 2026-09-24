@@ -1568,3 +1568,95 @@ rules; the full Phase 4 matrix will be run with the final decoder.
 * `tests/test_compare_model.py`: the stand-in model decodes with
   `flat_restart=in-flight` (OQ-1's model reading), which the OQ-31 and
   OQ-32 inputs assume.
+
+Results. After f589964 the model decoded every discriminator
+(`~/dsc-runs/m3/phase4/disc-model4.log`, runs
+`~/dsc-runs/m3/phase4/runs/compare/20260924-181844-*`). The earlier inputs
+gave their earlier verdicts; the new ones:
+
+| Input | Model output matches | Other prediction |
+|---|---|---|
+| `oq26_low_min` | min-qp | max-qp: 3 samples in 3 pixels differ |
+| `oq27_decrement_test` | size | both: 6 samples in 3 pixels |
+| `oq28_activity_qp` | prev2 | prev: 7 samples in 3 pixels |
+| `oq29_bitsave_step` | 2 | 1: 4 samples in 3 pixels |
+| `oq30_target_floor` | zero | none: 9 samples in 3 pixels |
+| `oq31_flat_rerun` | every | changed: 9 samples in 3 pixels |
+| `oq32_rerun_bitsave` | redo | keep: 9 samples in 3 pixels |
+| `oq33_mux16` | 64 | 68: 8 samples in 3 pixels |
+| `oq34_flat_top` | at-or-above | equal: 6 samples in 2 pixels |
+| `oq35_prefix16_scope` | qlevel | qp0: 9 samples in 3 pixels |
+| `oq36_prefix16_cut` | longer | always: 18 samples in 6 pixels |
+
+Ten confirm the readings the model streams showed. OQ-34, whose default
+was the text, went the other way: `flat_top` now defaults to
+`at-or-above`. RESEARCH.md marks OQ-26 to OQ-36 resolved. The committed
+inputs regenerate unchanged under the new default, and all 11,816
+discriminator decodes pass.
+
+## Phase 4, part 5: model comparison, DSC 1.2 RGB 4:4:4 (2026-09-24)
+
+Phase 4 is complete with this part. The decoder is the tree of this commit
+(release build, SHA-256 7a6afb3c…c11e, copied to
+`~/dsc-runs/m3/phase4/bin/dscdecode` for the runs); the only code change
+since f589964 is the OQ-34 default.
+
+Every run: the model encodes the picture in DSC 1.2 mode
+(`DSC_VERSION_MINOR 2`) with the `rc_<bpc>bpc_<bpp>bpp.cfg` of the rate
+(6, 8, 10, 12 and 15 bpp: every installed 4:4:4 rate at every depth), line
+buffer bpc + 1 (16 at 16 bpc), block prediction off and on, 1, 2 and 4
+slices per line; the model decodes its stream and dscdecode decodes the same
+PPS and payload with its default readings. "Match" is bit-exact equality
+of all samples. `~/dsc-runs/m3/phase4/matrix.sh`; synthetic pictures from
+`tools/make_pictures` (8 bits added in this part), the corpus from
+`~/vesa-corpus`, the derived corpus as in Phase 3.
+
+| Pictures | bpc | Runs per rate (6 / 8 / 10 / 12 / 15 bpp) | Bit-exact | Differing samples | Model input check |
+|---|---|---|---|---|---|
+| synthetic (8) | 8 | 48 each | 240 / 240 | 0 | 240 / 240 |
+| synthetic (8) | 10 | 48 each | 240 / 240 | 0 | 240 / 240 |
+| synthetic (8) | 12 | 48 each | 240 / 240 | 0 | 240 / 240 |
+| synthetic (8) | 14 | 48 each | 240 / 240 | 0 | 240 / 240 |
+| synthetic (8) | 16 | 48 each | 240 / 240 | 0 | 240 / 240 |
+| corpus (17) | 8 | 102 each | 510 / 510 | 0 | (8-bit PPM, read directly) |
+| derived (17) | 10 | 102 each | 510 / 510 | 0 | 510 / 510 |
+| derived (17) | 12 | 102 each | 510 / 510 | 0 | 510 / 510 |
+| total | | | 2,730 / 2,730 | 0 | |
+
+Every rate row of every set matched in full (per-rate counts in each
+`results.json`). At 14 bpc all 240 encodes ended with the model's encoder
+dying from a signal after writing its output (part 4); every one of them
+decoded bit-exact. Results: `~/dsc-runs/m3/phase4/runs/corpus/`
+`20260924-182001` (synthetic-8), `-182009` (10), `-182018` (12), `-182028`
+(14), `-182432` (16), `-182442` (corpus-8), `-182919` (derived-10),
+`-183548` (derived-12).
+
+README: "Build and use" now lists the DSC 1.2 RGB 4:4:4 profiles the
+decoder accepts, and "Verification and fuzzing" describes
+`tools/make_pictures`, the high-bit-depth handling of the harness and the
+DSC 1.2 discriminator generator. "Remaining correctness work" still
+describes v0.1.0 (only those two sections may change in M3); this log is the
+record.
+
+Tests at this commit:
+
+| Suite | Phase 0 | Now |
+|---|---|---|
+| Image fixtures, bit-exact | 10 | 16 |
+| CLI checks | 26 | 32 |
+| Discriminator decodes | 72 | 11,816 (37 inputs) |
+| `test_rc` cases | 29 | 33, plus the DSC 1.2 short-term and OQ-7 cases |
+| `test_predict` cases | 7 | 7 |
+
+Gate:
+
+* `scripts/ci.sh` with `DSCDECODE_MODEL_BIN` unset: all steps pass, model
+  SKIP. libFuzzer 305,755 executions in 61 s (the model matrix was running
+  on the same CPUs); deterministic smoke 1,840,000.
+* With `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref`: all steps pass; every
+  discriminator's verdict equals the decoder's default reading (OQ-1, 2b,
+  3, 4, 7, 19 to 36; oq2 and oq24 superseded). libFuzzer 368,900
+  executions in 61 s; deterministic smoke 1,840,000.
+* 1.1 regression: 34 of 34 bit-exact (`~/dsc-runs/corpus/20260924-184142`).
+
+Logs: `~/dsc-runs/m3/phase4/gate-*.log`, `matrix-*.log`.

@@ -12,7 +12,7 @@ the low bits carry information: sample = clamp(round(v * (2^bpc - 1) / 255)
 + n), with n uniform in [-(2^(bpc-8) - 1), 2^(bpc-8) - 1], drawn from a
 generator seeded by the image name and the component.
 
-Output (default ~/dsc-runs/hbd-pictures): DIR/<kind>-<bpc>/NAME.dpx (NAME.ppm at 14 bpc), the
+Output (default ~/dsc-runs/hbd-pictures): DIR/<kind>-<bpc>/NAME.dpx (NAME.ppm at 8 and 14 bpc), the
 model's input, and DIR/<kind>-<bpc>/master/NAME.ppm, the same samples as a
 binary PPM with maxval 2^bpc - 1 (two bytes per sample, most significant
 first), which tools/compare_model uses to check what the model read.
@@ -26,6 +26,7 @@ image data padded to a whole number of 32-bit words. 16-bit samples use the
 same layout. The model reads no 14-bit DPX, and did not read a 16-bit DPX
 holding 14-bit values back exactly, so 14-bit pictures are written as
 NAME.ppm (maxval 16383) instead of NAME.dpx; the model reads that exactly.
+8-bit pictures (synthetic only) are written as NAME.ppm too.
 """
 import argparse
 import array
@@ -75,6 +76,8 @@ def dpx_bytes(w, h, bpc, samples):
 
 
 def ppm_bytes(w, h, bpc, samples):
+    if bpc == 8:
+        return f'P6\n{w} {h}\n255\n'.encode() + bytes(samples)
     body = array.array('H', samples)
     if sys.byteorder == 'little':
         body.byteswap()
@@ -84,7 +87,7 @@ def ppm_bytes(w, h, bpc, samples):
 def write(out, name, w, h, bpc, samples):
     assert len(samples) == 3 * w * h and max(samples) < (1 << bpc) and min(samples) >= 0
     (out / 'master').mkdir(parents=True, exist_ok=True)
-    if bpc == 14:
+    if bpc in (8, 14):
         (out / f'{name}.ppm').write_bytes(ppm_bytes(w, h, bpc, samples))
     else:
         (out / f'{name}.dpx').write_bytes(dpx_bytes(w, h, bpc, samples))
@@ -206,7 +209,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('kind', choices=('synthetic', 'derived'))
-    ap.add_argument('--bpc', type=int, nargs='+', default=[10, 12], choices=(10, 12, 14, 16))
+    ap.add_argument('--bpc', type=int, nargs='+', default=[10, 12], choices=(8, 10, 12, 14, 16))
     ap.add_argument('--out', default=str(Path.home() / 'dsc-runs' / 'hbd-pictures'))
     ap.add_argument('--corpus', default=str(Path.home() / 'vesa-corpus'))
     ap.add_argument('--jobs', type=int, default=os.cpu_count() or 1)
@@ -221,12 +224,12 @@ def main():
         if a.kind == 'synthetic':
             for name, w, h, samples in synthetic(bpc):
                 write(out, name, w, h, bpc, samples)
-                print(f'{out}/{name}.{"ppm" if bpc == 14 else "dpx"} {w}x{h}')
+                print(f'{out}/{name}.{"ppm" if bpc in (8, 14) else "dpx"} {w}x{h}')
         else:
             images = sorted(Path(a.corpus).expanduser().glob('*.ppm'))
             with concurrent.futures.ProcessPoolExecutor(a.jobs) as pool:
                 for name in pool.map(derive, [(p, bpc, out) for p in images]):
-                    print(f'{out}/{name}.{"ppm" if bpc == 14 else "dpx"}')
+                    print(f'{out}/{name}.{"ppm" if bpc in (8, 14) else "dpx"}')
     return 0
 
 
