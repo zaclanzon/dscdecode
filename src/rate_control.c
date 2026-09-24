@@ -35,8 +35,11 @@ int dsc_rc_init(struct dsc_rc *s, const struct drm_dsc_config *c)
     memset(s, 0, sizeof(*s));
     s->cfg = c;
     dsc_options_init(&s->opt);
+    if (dsc_qp_scale(c->bits_per_component, &s->max_qp, &s->flat_type_qp, &s->very_flat_qp)) {
+        return fail(s);
+    }
     if (!c->slice_width || !c->slice_height || !c->bits_per_pixel || c->bits_per_pixel > 384 ||
-        c->bits_per_component != 8 || !c->rc_model_size || c->initial_offset >= c->rc_model_size ||
+        !c->rc_model_size || c->initial_offset >= c->rc_model_size ||
         c->final_offset >= c->rc_model_size || c->initial_scale_value < 8 ||
         (c->initial_scale_value > 8 && !c->scale_decrement_interval) || !c->slice_chunk_size ||
         c->vbr_enable) {
@@ -44,7 +47,7 @@ int dsc_rc_init(struct dsc_rc *s, const struct drm_dsc_config *c)
     }
     for (i = 0; i < 15; ++i) {
         if (c->rc_range_params[i].range_min_qp > c->rc_range_params[i].range_max_qp ||
-            c->rc_range_params[i].range_max_qp > 15) {
+            c->rc_range_params[i].range_max_qp > s->max_qp) {
             return fail(s);
         }
     }
@@ -127,7 +130,7 @@ static unsigned short_term(const struct drm_dsc_config *c, const struct dsc_rc_i
 
 int dsc_rc_apply_flat(struct dsc_rc *s, int flat, int very_flat)
 {
-    unsigned q, master, redo, top;
+    unsigned q, master, redo, top, below;
     int demote;
 
     if (!s || s->failed) {
@@ -148,16 +151,19 @@ int dsc_rc_apply_flat(struct dsc_rc *s, int flat, int very_flat)
         return 0;
     }
     /* OQ-16: the type bit is only sent when the signaling group's QP is at
-     * least 7 (§4.5). §6.8.5.2 demotes very flat to somewhat flat when the
-     * current QP is below 7 without saying which group's QP that is. At
-     * apply time used_qp is the QP that decoded the previous group. */
-    if (s->opt.stats && very_flat && (q < 7 || s->used_qp < 7)) {
+     * least somewhatFlatQpThresh, 7 + 2 * (bpc - 8) (§4.5). §6.8.5.2 demotes
+     * very flat to somewhat flat when the current QP is below it without
+     * saying which group's QP that is. At apply time used_qp is the QP that
+     * decoded the previous group. */
+    below = s->flat_type_qp;
+    if (s->opt.stats && very_flat && (q < below || s->used_qp < below)) {
         ++s->opt.stats->very_flat_low_qp;
     }
-    demote = s->opt.very_flat == DSC_VERY_FLAT_GROUP_QP      ? q < 7
-             : s->opt.very_flat == DSC_VERY_FLAT_PREVIOUS_QP ? s->used_qp < 7
+    demote = s->opt.very_flat == DSC_VERY_FLAT_GROUP_QP      ? q < below
+             : s->opt.very_flat == DSC_VERY_FLAT_PREVIOUS_QP ? s->used_qp < below
                                                              : 0;
-    master = (!very_flat || demote) ? (q > 4 ? q - 4 : 0) : 1;
+    /* Somewhat flat: MAX(stQp - 4, 0). Very flat: 1 + 2 * (bpc - 8). */
+    master = (!very_flat || demote) ? (q > 4 ? q - 4 : 0) : s->very_flat_qp;
     /* Section 6.8.5.2 restarts short-term RC only when the override
      * actually changes masterQp. */
     if (master == q) {
@@ -176,7 +182,7 @@ int dsc_rc_apply_flat(struct dsc_rc *s, int flat, int very_flat)
         }
     }
     if (s->opt.flat_restart == DSC_FLAT_RESTART_IN_FLIGHT) {
-        if (redo > 15) {
+        if (redo > s->max_qp) {
             return fail(s);
         }
         s->pending_qp = redo;
@@ -230,7 +236,7 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned n, uns
     const struct drm_dsc_config *c;
     struct dsc_rc_inputs in;
     int64_t offset, transformed, delta, target;
-    uint64_t delayed, delay_end;
+    uint64_t delayed, delay_end, group_end, reached, counted;
     unsigned range = 0, next, i, k;
     int signed_bpg, literal;
 
@@ -309,6 +315,23 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned n, uns
     if (delayed > n) {
         delayed = n;
     }
+    /* OQ-19: §6.8.2 lowers the offset by bits_per_pixel * 3 per group during
+     * the initial delay; §6.8.1 counts the pixels actually in a group. The
+     * group-end reading counts to each group's end as if every group had
+     * three pixels, from the group's real position: a partial group at the
+     * end of a line counts three pixels, and the next line's first group
+     * only the rest. The total over the delay is the same. */
+    group_end = s->pixels - n + 3;
+    reached = group_end < delay_end ? group_end : delay_end;
+    counted = s->delay_group_end < delay_end ? s->delay_group_end : delay_end;
+    counted = reached > counted ? reached - counted : 0;
+    if (s->opt.stats && counted != delayed) {
+        ++s->opt.stats->delay_partial_differs;
+    }
+    if (s->opt.delay_partial == DSC_DELAY_PARTIAL_GROUP_END) {
+        delayed = counted;
+    }
+    s->delay_group_end = group_end;
     delta = c->slice_bpg_offset +
             (y ? c->nfl_bpg_offset : -(int64_t)c->first_line_bpg_offset * 2048);
     delta -= (int64_t)delayed * c->bits_per_pixel * 128;
@@ -392,7 +415,7 @@ int dsc_rc_step(struct dsc_rc *s, unsigned y, unsigned groupnum, unsigned n, uns
     in.min_qp = c->rc_range_params[range].range_min_qp;
     in.max_qp = c->rc_range_params[range].range_max_qp;
     next = short_term(c, &in, s->last_qp, s->penultimate_qp, &s->opt);
-    if (next > 15) {
+    if (next > s->max_qp) {
         return fail(s);
     }
     s->last_inputs = in;

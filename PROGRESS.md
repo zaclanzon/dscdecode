@@ -1107,3 +1107,35 @@ Gate:
   midpoint, `oq2` superseded). libFuzzer 785,152 executions in 61 s;
   deterministic smoke 680,000.
 * 1.1 regression: 34 of 34 bit-exact (`~/dsc-runs/corpus/20260924-025529`).
+
+## Phase 3, part 1: 10 and 12 bpc decoding, fixtures, OQ-19 discriminator (2026-09-24)
+
+Phase 3 is not complete at this commit. This part is committed so that the
+OQ-19 discriminator and its predictions are in the history before the
+reference model decodes it (rule for open questions, RESEARCH.md).
+
+* Decoder: DSC 1.1 RGB 4:4:4 CBR at 10 and 12 bpc. A new `src/format.c`
+  derives per-substream sample depths (§6.1), mux word size (§4.4),
+  maximum syntax element sizes, the QP scale and the flatness QPs
+  (Table 6-2, §4.5, §6.8.5.2) from the PPS; the entropy decoder, the
+  predictor (MPP midpoint, clamps, BP shift and edge threshold, line
+  storage) and the rate control use them. The 8 bpc path is unchanged
+  (all v0.1.0 suites pass).
+* API: `dsc_decode_frame_planes`, `dsc_decode_slice_planes` and
+  `dsc_plane_size` write 16-bit sample planes for every supported format;
+  the RGB888 functions serve 8 bpc RGB only. The CLI writes PPM with maxval
+  2^bpc − 1 (two bytes per sample above 8 bpc).
+* Fixtures: six hand-derived fixtures at 10 and 12 bpc
+  (`tests/make_hbd_vectors.py`, derivations in
+  `research/hbd-worked-note.md`). CLI checks: 26 → 32.
+* Pictures and harness: `tools/make_pictures` writes synthetic and derived
+  10/12-bit pictures to `~/dsc-runs/hbd-pictures/`; `tools/compare_model`
+  and `tools/run_corpus` take `--bpc`, `--dsc-version`, `--jobs`, check the
+  model's `.ref.ppm` against a master PPM, and delete the images of matching
+  runs unless `--keep`.
+* New open question OQ-19 (initial-delay offset at a partial group), switch
+  `delay_partial`, default `group-end`; unit test `delay_partial` (4
+  cases); discriminator `oq19_delay_partial` with its predictions in
+  `tests/discriminators/README.md` (discriminator decodes: 72 → 104). How
+  it was found is recorded with the Phase 3 results.
+* Gate for this part: `scripts/ci.sh` with the model unset: all steps pass.

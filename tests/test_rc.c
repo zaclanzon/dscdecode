@@ -234,6 +234,32 @@ static void delay_boundary(int reading, int64_t offset)
     assert(r.fullness == 56);
 }
 
+/* OQ-19. Slice 4 pixels wide: a full group and a one-pixel group per line;
+ * 8 bpp, offset -2048 at the start, no BPG offsets. Pixels: the offset
+ * falls 24, 8, 24, 8 bits per group while the delay lasts. Group-end: each
+ * group counts to its end as if it had three pixels, from its real
+ * position (ends 3, 6, 7, 10): 24, 24, 8, 24. With initial_xmit_delay 5
+ * both readings stop after five pixels' worth, 40 bits. */
+static void delay_partial(int reading, unsigned delay, const int64_t offset[4])
+{
+    struct drm_dsc_config c = settings();
+    struct dsc_options o;
+    struct dsc_rc r;
+    unsigned g;
+
+    c.slice_width = 4;
+    c.slice_chunk_size = 4;
+    c.initial_xmit_delay = (u16)delay;
+    dsc_options_init(&o);
+    o.delay_partial = reading;
+    assert(dsc_rc_init(&r, &c) == 0);
+    dsc_rc_set_options(&r, &o);
+    for (g = 0; g < 4; ++g) {
+        assert(dsc_rc_step(&r, g / 2, g, g % 2 ? 1 : 3, 12, 12) == 0);
+        assert(r.offset_q11 == offset[g] * 2048);
+    }
+}
+
 /* OQ-5. Every range allows QP 8..15. Group 0 codes 100 bits: target 24,
  * so the increment branch runs with curQp = MAX(8, 0) = 8 against
  * prev2Qp 0, and the edge test fails (no previous group). Printed: curQp is
@@ -385,6 +411,17 @@ int main(void)
     fractional_literal();
     delay_boundary(DSC_DELAY_OFFSET_INCLUSIVE, -2048 - 32);
     delay_boundary(DSC_DELAY_OFFSET_EXCLUSIVE, -2048 - 24);
+    {
+        static const int64_t pixels[4] = {-2072, -2080, -2104, -2112};
+        static const int64_t group_end[4] = {-2072, -2096, -2104, -2128};
+        static const int64_t pixels5[4] = {-2072, -2080, -2088, -2088};
+        static const int64_t group_end5[4] = {-2072, -2088, -2088, -2088};
+
+        delay_partial(DSC_DELAY_PARTIAL_PIXELS, 512, pixels);
+        delay_partial(DSC_DELAY_PARTIAL_GROUP_END, 512, group_end);
+        delay_partial(DSC_DELAY_PARTIAL_PIXELS, 5, pixels5);
+        delay_partial(DSC_DELAY_PARTIAL_GROUP_END, 5, group_end5);
+    }
     increment_order(DSC_INCR_ORDER_PRINTED, 15);
     increment_order(DSC_INCR_ORDER_SWAPPED, 8);
     range_pipeline(DSC_RC_PIPELINE_SAME_GROUP, 12);

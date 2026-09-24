@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include "dsc.h"
+#include "format.h"
 
 /* Inputs of one short-term RC evaluation (DSC 1.1 §6.8.4, Figure 6-12),
  * kept so the OQ-1 in-flight reading can re-run it after a flatness override. */
@@ -23,8 +24,10 @@ struct dsc_rc_drain {
 struct dsc_rc {
     const struct drm_dsc_config *cfg;
     struct dsc_options opt;
+    unsigned max_qp, flat_type_qp, very_flat_qp; /* scaled by bpc (dsc_qp_scale) */
     int64_t fullness, offset_q11;
     uint64_t pixels, groups;
+    uint64_t delay_group_end; /* end of the previous group, three pixels per group (OQ-19) */
     uint32_t fractional_bits, chunk_bits, chunk_pixels; /* selected OQ-3 reading */
     int64_t removed;
     struct dsc_rc_drain shadow; /* the other OQ-3 reading */

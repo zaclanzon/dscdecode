@@ -3,9 +3,9 @@ AR ?= ar
 CFLAGS ?= -O2 -g
 CPPFLAGS += -Iinclude
 WARN = -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion
-LIBSRC = src/pps.c src/decode.c src/predict.c src/rate_control.c src/options.c
+LIBSRC = src/pps.c src/format.c src/decode.c src/predict.c src/rate_control.c src/options.c
 LIBOBJ = $(LIBSRC:.c=.o)
-HEADERS = include/dsc.h include/drm/display/drm_dsc.h src/predict.h src/rate_control.h
+HEADERS = include/dsc.h include/drm/display/drm_dsc.h src/format.h src/predict.h src/rate_control.h
 FUZZSRC = $(LIBSRC) fuzz/fuzz_decode.c
 
 # Each build flavor has its own directory under build/. The file .flags in
@@ -60,9 +60,9 @@ $(BUILD)/%/libdsc.a: $(addprefix $(BUILD)/%/,$(LIBOBJ))
 	$(AR) rcs $@ $^
 $(BUILD)/%/dscdecode: $(BUILD)/%/src/main.o $(BUILD)/%/libdsc.a
 	$(CC) $(FLAGS) $^ -o $@
-$(BUILD)/%/test_rc: src/rate_control.c src/options.c tests/test_rc.c $(HEADERS) $(BUILD)/%/.flags
+$(BUILD)/%/test_rc: src/rate_control.c src/format.c src/options.c tests/test_rc.c $(HEADERS) $(BUILD)/%/.flags
 	$(CC) $(CPPFLAGS) -Isrc $(FLAGS) $(WARN) $(filter %.c,$^) -o $@
-$(BUILD)/%/test_predict: src/predict.c src/options.c tests/test_predict.c $(HEADERS) $(BUILD)/%/.flags
+$(BUILD)/%/test_predict: src/predict.c src/format.c src/options.c tests/test_predict.c $(HEADERS) $(BUILD)/%/.flags
 	$(CC) $(CPPFLAGS) -Isrc $(FLAGS) $(WARN) $(filter %.c,$^) -o $@
 
 test: all $(REL)/test_rc $(REL)/test_predict

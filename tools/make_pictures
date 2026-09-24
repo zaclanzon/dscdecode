@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""Test pictures for high bit depths, written outside the repository.
+
+  make_pictures synthetic [--bpc 10 12] [--out DIR]
+  make_pictures derived [--bpc 10 12] [--corpus ~/vesa-corpus] [--out DIR]
+
+synthetic writes eight pictures per bit depth that use the full range and the
+low bits: gradients, noise, fine text, flat areas, sine waves, low-bit
+texture, a mix, and an odd size (637x125). derived scales each 8-bit corpus
+image to the bit depth and adds deterministic noise of a few LSBs, so that
+the low bits carry information: sample = clamp(round(v * (2^bpc - 1) / 255)
++ n), with n uniform in [-(2^(bpc-8) - 1), 2^(bpc-8) - 1], drawn from a
+generator seeded by the image name and the component.
+
+Output (default ~/dsc-runs/hbd-pictures): DIR/<kind>-<bpc>/NAME.dpx, the
+model's input, and DIR/<kind>-<bpc>/master/NAME.ppm, the same samples as a
+binary PPM with maxval 2^bpc - 1 (two bytes per sample, most significant
+first), which tools/compare_model uses to check what the model read.
+
+The DPX files follow the layout the reference model writes itself, which its
+README.TXT names as its 10- and 12-bit input format: DPX 2.0, RGB element,
+packing method A. 10-bit samples are packed one pixel per 32-bit big-endian
+word, B in bits 31-22, G in 21-12, R in 11-2; 12-bit samples take one 16-bit
+big-endian word each, in the top 12 bits, in the order B, G, R, with the
+image data padded to a whole number of 32-bit words.
+"""
+import argparse
+import array
+import concurrent.futures
+import hashlib
+import math
+import os
+from pathlib import Path
+import random
+import struct
+import sys
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parent
+
+
+def dpx_bytes(w, h, bpc, samples):
+    """samples: array of R, G, B values per pixel, raster order."""
+    hdr = bytearray(8192)
+    hdr[0:4] = b'SDPX'
+    struct.pack_into('>I', hdr, 4, 8192)
+    hdr[8:12] = b'V2.0'
+    struct.pack_into('>IIII', hdr, 20, 0xffffffff, 1664, 384, 0)
+    hdr[36:49] = b'dscdecode m3'[:13].ljust(13, b'\0')
+    struct.pack_into('>I', hdr, 660, 0xffffffff)
+    struct.pack_into('>HHII', hdr, 768, 0, 1, w, h)
+    struct.pack_into('>IIfIfBBBBHHIII', hdr, 780, 0, 0, 0.0, (1 << bpc) - 1, 700.0,
+                     50, 4, 4, bpc, 1, 0, 8192, 0, 0)
+    hdr[852:1356] = b'\xff' * 504
+    if bpc == 10:
+        words = array.array('I', (samples[i + 2] << 22 | samples[i + 1] << 12 | samples[i] << 2
+                                  for i in range(0, len(samples), 3)))
+    elif bpc in (12, 16):
+        # As the model writes them: no padding between lines, and the image
+        # data padded to a whole number of 32-bit words.
+        shift = 16 - bpc
+        words = array.array('H', (samples[i + 2 - k] << shift
+                                  for i in range(0, len(samples), 3) for k in range(3)))
+        words.extend([0] * (len(words) % 2))
+    else:
+        raise ValueError(f'no DPX layout for {bpc} bits')
+    if sys.byteorder == 'little':
+        words.byteswap()
+    data = words.tobytes()
+    struct.pack_into('>I', hdr, 16, 8192 + len(data))
+    return bytes(hdr) + data
+
+
+def ppm_bytes(w, h, bpc, samples):
+    body = array.array('H', samples)
+    if sys.byteorder == 'little':
+        body.byteswap()
+    return f'P6\n{w} {h}\n{(1 << bpc) - 1}\n'.encode() + body.tobytes()
+
+
+def write(out, name, w, h, bpc, samples):
+    assert len(samples) == 3 * w * h and max(samples) < (1 << bpc) and min(samples) >= 0
+    (out / 'master').mkdir(parents=True, exist_ok=True)
+    (out / f'{name}.dpx').write_bytes(dpx_bytes(w, h, bpc, samples))
+    (out / 'master' / f'{name}.ppm').write_bytes(ppm_bytes(w, h, bpc, samples))
+    return name
+
+
+# --- synthetic pictures -------------------------------------------------------
+
+def glyph(x, y):
+    """A deterministic pattern of 1-3 pixel strokes on a 6x9 cell grid."""
+    cx, cy = x % 6, y % 9
+    code = (x // 6 * 7 + y // 9 * 13) % 29
+    if cx == 5 or cy == 8:
+        return 0
+    return (code >> (cx % 5) & 1 and cy in (1, 4, 7)) or (code >> (cy % 5) & 1 and cx in (0, 2))
+
+
+def synthetic(bpc):
+    top = (1 << bpc) - 1
+    fine = 1 << (bpc - 8)   # one 8-bit step
+    pictures = {}
+
+    def make(name, w, h, fn, seed=0):
+        r = random.Random(f'{name}-{bpc}-{seed}')
+        pictures[name] = (w, h, fn, r)
+
+    W, H = 640, 216
+    make('s01_gradient', W, H, lambda x, y, r: (
+        x * top // (W - 1), y * top // (H - 1), (x + y) * top // (W + H - 2)))
+    make('s02_noise', W, H, lambda x, y, r: (r.randrange(top + 1), r.randrange(top + 1),
+                                              r.randrange(top + 1)))
+
+    def text(x, y, r):
+        bg = (80 * fine + (x // 40) * fine * 3 + (y & 3), 700 * fine // 4 + (x & 3), 200 * fine)
+        if glyph(x, y):
+            return (top - (x % 3), (y * 37 + x) % (top + 1), 3 * fine + (x & 7))
+        return bg
+    make('s03_text', W, H, text)
+
+    def flat(x, y, r):
+        block = (x // 64) + 10 * (y // 54)
+        base = (block * 97 * fine + block * 5) % (top + 1)
+        # Neighbouring blocks differ by one LSB in green and blue.
+        return (base, (base + (x // 64 & 1)) % (top + 1), (top - base + (y // 54 & 1)) % (top + 1))
+    make('s04_flat_blocks', W, H, flat)
+
+    def waves(x, y, r):
+        return tuple(int(round(top / 2 + (top / 2 - 1) * math.sin(x * f + y * g + p)))
+                     for f, g, p in ((0.07, 0.013, 0), (0.021, 0.05, 1.3), (0.3, 0.002, 2.1)))
+    make('s05_waves', W, H, waves)
+
+    def lowbits(x, y, r):
+        mid = top // 2 + ((x // 80) - 4) * 2
+        return (mid + r.randrange(-3, 4), mid + ((x + y) & 3) - 1, mid + ((x ^ y) & 7) - 3)
+    make('s06_low_bits', W, H, lowbits)
+
+    def mixed(x, y, r):
+        if x < 160:
+            return waves(x, y, r)
+        if x < 320:
+            return text(x, y, r)
+        if x < 480:
+            return flat(x, y, r)
+        return (r.randrange(top + 1), x * top // (W - 1), r.randrange(fine * 4))
+    make('s07_mixed', W, H, mixed)
+    make('s08_odd_size', 637, 125, mixed, seed=1)
+
+    out = []
+    for name, (w, h, fn, r) in pictures.items():
+        samples = array.array('H')
+        for y in range(h):
+            for x in range(w):
+                samples.extend(min(top, max(0, v)) for v in fn(x, y, r))
+        out.append((name, w, h, samples))
+    return out
+
+
+# --- derived corpus -----------------------------------------------------------
+
+def read_ppm8(path):
+    data = Path(path).read_bytes()
+    fields, pos = [], 0
+    while len(fields) < 4:
+        while data[pos:pos + 1].isspace():
+            pos += 1
+        if data[pos:pos + 1] == b'#':
+            pos = data.index(b'\n', pos) + 1
+            continue
+        end = pos
+        while not data[end:end + 1].isspace():
+            end += 1
+        fields.append(data[pos:end])
+        pos = end
+    if fields[0] != b'P6' or int(fields[3]) != 255:
+        raise ValueError(f'{path}: not an 8-bit binary PPM')
+    w, h = int(fields[1]), int(fields[2])
+    return w, h, data[pos + 1:pos + 1 + 3 * w * h]
+
+
+def derive(job):
+    src, bpc, out = job
+    w, h, rgb = read_ppm8(src)
+    top = (1 << bpc) - 1
+    k = (1 << (bpc - 8)) - 1
+    scale = [(v * top * 2 + 255) // 510 for v in range(256)]   # round(v * top / 255)
+    samples = array.array('H', bytes(2 * len(rgb)))
+    for c in range(3):
+        seed = int.from_bytes(hashlib.sha256(f'{src.stem}/{bpc}/{c}'.encode()).digest()[:8], 'big')
+        noise = random.Random(seed).randbytes(len(rgb) // 3)
+        span = 2 * k + 1
+        for i, n in enumerate(noise):
+            v = scale[rgb[3 * i + c]] + n % span - k
+            samples[3 * i + c] = 0 if v < 0 else top if v > top else v
+    return write(out, src.stem, w, h, bpc, samples)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('kind', choices=('synthetic', 'derived'))
+    ap.add_argument('--bpc', type=int, nargs='+', default=[10, 12], choices=(10, 12, 16))
+    ap.add_argument('--out', default=str(Path.home() / 'dsc-runs' / 'hbd-pictures'))
+    ap.add_argument('--corpus', default=str(Path.home() / 'vesa-corpus'))
+    ap.add_argument('--jobs', type=int, default=os.cpu_count() or 1)
+    a = ap.parse_args()
+    root = Path(a.out).expanduser().resolve()
+    if root == REPO or REPO in root.parents:
+        print(f'ERROR: {root} is inside the repository; pictures stay outside it', file=sys.stderr)
+        return 2
+    for bpc in a.bpc:
+        out = root / f'{a.kind}-{bpc}'
+        out.mkdir(parents=True, exist_ok=True)
+        if a.kind == 'synthetic':
+            for name, w, h, samples in synthetic(bpc):
+                write(out, name, w, h, bpc, samples)
+                print(f'{out}/{name}.dpx {w}x{h}')
+        else:
+            images = sorted(Path(a.corpus).expanduser().glob('*.ppm'))
+            with concurrent.futures.ProcessPoolExecutor(a.jobs) as pool:
+                for name in pool.map(derive, [(p, bpc, out) for p in images]):
+                    print(f'{out}/{name}.dpx')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -43,6 +43,11 @@ enum dsc_delay_offset {             /* OQ-12, DSC 1.1 §6.8.1 and §6.8.2 */
     DSC_DELAY_OFFSET_EXCLUSIVE = 1  /* ... covers only the pixels that remove no bits (one fewer) */
 };
 
+enum dsc_delay_partial {             /* OQ-19, DSC 1.1 §6.8.2 and §6.8.1 */
+    DSC_DELAY_PARTIAL_PIXELS = 0,    /* initial-delay offset decrement counts the pixels in each group */
+    DSC_DELAY_PARTIAL_GROUP_END = 1  /* ... counts to each group's end as if it had three pixels */
+};
+
 enum dsc_bp_left {             /* OQ-4, DSC 1.1 §6.4.4.1 */
     DSC_BP_LEFT_REPLICATE = 0, /* previous-line samples left of the slice repeat its first sample */
     DSC_BP_LEFT_MIDPOINT = 1   /* ... are the component midpoint */
@@ -109,6 +114,7 @@ struct dsc_stats {
     unsigned long very_flat_low_qp;    /* very-flat overrides where the OQ-16 readings can differ */
     unsigned long padding_nonzero;     /* partial groups with noncanonical padding (OQ-17) */
     unsigned long flat_max_qp_differs; /* flat signals the two OQ-18 readings treat differently */
+    unsigned long delay_partial_differs; /* groups whose initial-delay offsets differ (OQ-19) */
 };
 
 /* One record per decoded group, after its rate-control step. */
@@ -124,6 +130,7 @@ struct dsc_options {
     int flat_restart, threshold_eq, frac_reset, delay_offset;
     int bp_left, bp_edge, bp_sad;
     int incr_order, rc_pipeline, scale_dec, partial_target, very_flat, partial_padding, flat_max_qp;
+    int delay_partial;
     struct dsc_stats *stats; /* optional */
     dsc_trace_fn trace;      /* optional */
     void *trace_context;
@@ -137,10 +144,11 @@ void dsc_options_init(struct dsc_options *);
  */
 int dsc_parse_pps(const uint8_t *pps, size_t size, struct drm_dsc_config *out);
 
-/* Output is RGB888, tightly packed. All functions are reentrant. On failure
- * output is unspecified (and may be partially written). No pointer is retained.
- * One slice requires exactly chunk_size*slice_height bytes in CBR mode;
- * VBR is rejected as unsupported.
+/* Output is RGB888, tightly packed, for 8 bpc RGB pictures; other formats
+ * return DSC_UNSUPPORTED here and use the planes functions below. All
+ * functions are reentrant. On failure output is unspecified (and may be
+ * partially written). No pointer is retained. One slice requires exactly
+ * chunk_size*slice_height bytes in CBR mode; VBR is rejected as unsupported.
  */
 int dsc_decode_slice(const struct drm_dsc_config *cfg, const uint8_t *data, size_t size,
                      uint8_t *rgb, size_t capacity);
@@ -157,6 +165,25 @@ int dsc_decode_slice_ex(const struct drm_dsc_config *cfg, const struct dsc_optio
                         const uint8_t *data, size_t size, uint8_t *rgb, size_t capacity);
 int dsc_decode_frame_ex(const struct drm_dsc_config *cfg, const struct dsc_options *opt,
                         const uint8_t *data, size_t size, uint8_t *rgb, size_t capacity);
+
+/* Output with 16-bit samples, one plane per component: R, G, B when
+ * convert_rgb is set. Samples are in the low bits_per_component bits. stride
+ * and capacity count samples; each plane needs capacity of at least
+ * stride * (height - 1) + width, stride at least width. */
+struct dsc_planes {
+    uint16_t *plane[3];
+    size_t stride[3], capacity[3];
+};
+
+/* Size of each output plane for the picture, or for one slice (slice != 0). */
+int dsc_plane_size(const struct drm_dsc_config *cfg, int slice, unsigned width[3],
+                   unsigned height[3]);
+
+/* As dsc_decode_slice_ex and dsc_decode_frame_ex, for every supported format. */
+int dsc_decode_slice_planes(const struct drm_dsc_config *cfg, const struct dsc_options *opt,
+                            const uint8_t *data, size_t size, const struct dsc_planes *out);
+int dsc_decode_frame_planes(const struct drm_dsc_config *cfg, const struct dsc_options *opt,
+                            const uint8_t *data, size_t size, const struct dsc_planes *out);
 
 const char *dsc_strerror(int status);
 

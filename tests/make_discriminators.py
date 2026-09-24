@@ -463,6 +463,99 @@ def oq1_flat_restart():
     return 'oq1_flat_restart', 'flat_restart', p, groups
 
 
+def oq19_delay_partial():
+    """OQ-19: the initial-delay offset at a partial group (DSC 1.1 §6.8.2).
+
+    A 7x2 slice at 16 bpp, 8 bpc, DSC 1.1. Each line has groups at x = 0, 3
+    and a one-pixel group at x = 6. initial_xmit_delay 512 covers the whole
+    slice, so no bits are removed and rcXformOffset falls by bits_per_pixel
+    per delayed pixel. BPG offsets, first_line_bpg_offset and nfl_bpg_offset
+    are 0 and the scale stays 1.0. Line 0 codes zero residuals (3 bits per
+    group); line 1 codes Y (16, 0, 0) in group 3 (27 bits), zeros in group 4
+    and Y (3, pad, pad) in group 5, the last group.
+
+    After group 2 (the one-pixel group) the pixels reading has lowered the
+    offset by 3 + 3 + 1 = 7 pixels' worth, the group-end reading by 9. The
+    initial offset puts rcModelFullness 16 bits above threshold 7 under the
+    first reading (range 8) and 16 bits below it under the second (range 7).
+    With the range lag (OQ-11), the RC step after group 3 uses that range;
+    its decrement branch returns the range's minQp, which becomes group 5's
+    QP: range 8 pins QP 0, range 7 pins QP 8. Every other step uses ranges
+    0 or 8, both pinned to QP 0, so groups 0-4 decode at QP 0 under both
+    readings. Group 5's luma prefix parses the same at both QPs (predicted
+    size 0), and its residual 3 becomes 3 at QP 0 or 3 << 3 = 24 at QP 8.
+    """
+    width, height, bpp16, model_size = 7, 2, 256, 8192
+    bpp = bpp16 // 16
+    thresholds = (10, 20, 30, 40, 50, 60, 99, 100, 102, 104, 106, 108, 110, 112)
+    t7 = thresholds[7] * 64 - model_size
+    # Coded bits per group (the syntax below) and the offset decrease per
+    # group in delayed pixels under each reading.
+    sizes = [3, 3, 3]
+    pixels = {'pixels': [3, 3, 1], 'group-end': [3, 3, 3]}
+    model = {r: sum(sizes) - bpp * sum(d) for r, d in pixels.items()}   # without the initial offset
+    offset = t7 + 16 - model['pixels']                                   # initial_offset - model_size
+    assert offset + model['group-end'] == t7 - 16
+    initial_offset = offset + model_size
+    for g in (0, 1):   # groups 0 and 1 end in range 8: above threshold 7, at or below threshold 8
+        m = offset + sum(sizes[:g + 1]) - bpp * 3 * (g + 1)
+        assert t7 < m <= thresholds[8] * 64 - model_size and m < -172, m
+
+    p = bytearray(128)
+
+    def word(i, v):
+        p[i:i + 2] = v.to_bytes(2, 'big')
+    p[0], p[3], p[4], p[5] = 0x11, 0x89, 0x10 | (bpp16 >> 8), bpp16 & 0xff
+    for i, v in [(6, height), (8, width), (10, height), (12, width),
+                 (14, (width * bpp16 + 127) // 128), (16, 512), (18, 512),
+                 (32, initial_offset), (34, model_size - 1), (38, model_size)]:
+        word(i, v)
+    p[21] = 8
+    p[36] = p[37] = 15
+    p[40], p[41], p[42], p[43] = 6, 15, 15, 0x33
+    p[44:58] = bytes(thresholds)
+    ranges = [(0, 0, 0)] + [(8, 8, 0)] * 6 + [(8, 8, 31), (0, 0, 31)] + [(0, 0, 0)] * 6
+    for i, (lo, hi, off) in enumerate(ranges):
+        word(58 + 2 * i, (lo << 11) | (hi << 6) | (off & 63))
+
+    # Syntax (§4.5, §6.6.1): all groups P-mode; units Y, Co, Cg.
+    zero = ['1', '1', '1']
+    units = [zero, zero, zero,
+             ['0' * 6 + '1' + format(16, '06b') + '000000' * 2, '1', '1'],   # sizes 6, 0, 0
+             ['1' + '00' * 3, '1', '1'],                                     # predicted size 2
+             ['0' * 3 + '1' + '011' + '000' * 2, '1', '1']]                  # predicted size 0
+    assert [sum(map(len, u)) for u in units[:3]] == sizes
+    payload, used, _ = multiplex(units, (width * bpp16 + 127) // 128 * height)
+
+    # Pixels: every sample 128 (Y), 256 (Co, Cg) except line 1: x = 0 is
+    # 128 + 16 (MMAP predicts the midpoint 128, §6.4.1), and x = 6 is its
+    # left neighbour 128 plus 3 (QP 0) or 24 (QP 8, qLevelY 3).
+    expected = {}
+    for reading, last in (('pixels', 131), ('group-end', 152)):
+        rows = [[128] * 7, [144] + [128] * 5 + [last]]
+        expected[reading] = f'P6\n{width} {height}\n255\n'.encode() + bytes(
+            v for row in rows for g in row for v in (g, g, g))
+    assert expected['pixels'] != expected['group-end']
+    name = 'oq19_delay_partial'
+    (OUT / f'{name}.pps').write_bytes(bytes(p))
+    (OUT / f'{name}.bin').write_bytes(payload)
+    (OUT / f'{name}.syntax.txt').write_text(''.join(' '.join(u) + '\n' for u in units))
+    entry = dict(question='delay_partial',
+                 vary=['delay_partial', 'flat_restart', 'threshold_eq', 'frac_reset', 'delay_offset'],
+                 assumes=MODEL_TIMING, width=width, height=height, mux_bits=used,
+                 payload_bits=len(payload) * 8, initial_offset=initial_offset,
+                 pps_sha256=hashlib.sha256(bytes(p)).hexdigest(),
+                 payload_sha256=hashlib.sha256(payload).hexdigest(), readings={})
+    for reading, ppm in expected.items():
+        (OUT / f'{name}.{reading}.expected.ppm').write_bytes(ppm)
+        entry['readings'][reading] = dict(
+            expected_sha256=hashlib.sha256(ppm).hexdigest(),
+            model_fullness_after_group_2=offset + model[reading],
+            range_after_group_2=8 if reading == 'pixels' else 7,
+            group_5_qp=0 if reading == 'pixels' else 8)
+    return name, entry
+
+
 # A discriminator replaced by a later one. It stays a decoder-side test under
 # the readings it assumes; tools/compare_model leaves it out of the verdict.
 SUPERSEDED = {'oq2_threshold_equality': 'oq2b_threshold_equality'}
@@ -517,6 +610,8 @@ def main():
     manifest[name] = build(name, question, p, groups, MODEL_TIMING, (28, 29, 30, 31))
     # OQ-4 (block prediction) is built by the BP constructor.
     manifest['oq4_bp_left'] = make_bp_vectors.oq4_bp_left(OUT)
+    name, entry = oq19_delay_partial()
+    manifest[name] = entry
     (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=1) + '\n')
     print(json.dumps(manifest, indent=1))
 

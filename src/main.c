@@ -143,6 +143,11 @@ static int *flat_max_qp(struct dsc_options *o)
     return &o->flat_max_qp;
 }
 
+static int *delay_partial(struct dsc_options *o)
+{
+    return &o->delay_partial;
+}
+
 static const struct reading readings[] = {
     {"flat_restart",    "next-cycle",   flat_restart,    DSC_FLAT_RESTART_NEXT_CYCLE},
     {"flat_restart",    "in-flight",    flat_restart,    DSC_FLAT_RESTART_IN_FLIGHT},
@@ -173,6 +178,8 @@ static const struct reading readings[] = {
     {"partial_padding", "accept",       partial_padding, DSC_PARTIAL_PADDING_ACCEPT},
     {"flat_max_qp",     "own",          flat_max_qp,     DSC_FLAT_MAX_QP_OWN},
     {"flat_max_qp",     "previous",     flat_max_qp,     DSC_FLAT_MAX_QP_PREVIOUS},
+    {"delay_partial",   "pixels",       delay_partial,   DSC_DELAY_PARTIAL_PIXELS},
+    {"delay_partial",   "group-end",    delay_partial,   DSC_DELAY_PARTIAL_GROUP_END},
 };
 
 static const struct reading *find_reading(const char *name, const char *value)
@@ -231,15 +238,52 @@ static int usage(const char *self)
     return 2;
 }
 
+/* Binary PPM. Samples of up to 8 bits take one byte, deeper samples two,
+ * most significant first, with maxval 2^bits - 1. */
+static int write_ppm(FILE *out, const struct dsc_planes *o, unsigned w, unsigned h, unsigned bits)
+{
+    unsigned x, y, c, bytes = bits > 8 ? 2 : 1;
+    uint8_t *row = malloc((size_t)w * 3 * bytes);
+    int status = 0;
+
+    if (!row) {
+        return -1;
+    }
+    if (fprintf(out, "P6\n%u %u\n%u\n", w, h, (1u << bits) - 1) < 0) {
+        status = -1;
+    }
+    for (y = 0; y < h && !status; y++) {
+        for (x = 0; x < w; x++) {
+            for (c = 0; c < 3; c++) {
+                unsigned v = o->plane[c][(size_t)y * o->stride[c] + x];
+                uint8_t *at = row + ((size_t)x * 3 + c) * bytes;
+
+                if (bytes == 2) {
+                    at[0] = (uint8_t)(v >> 8);
+                    at[1] = (uint8_t)v;
+                } else {
+                    at[0] = (uint8_t)v;
+                }
+            }
+        }
+        if (fwrite(row, 1, (size_t)w * 3 * bytes, out) != (size_t)w * 3 * bytes) {
+            status = -1;
+        }
+    }
+    free(row);
+    return status;
+}
+
 int main(int argc, char **argv)
 {
     int single = 0, want_stats = 0, status, exitcode = 1, off = 1;
-    unsigned w, h;
-    size_t pps_n, n, cap;
+    unsigned w, h, pw[3], ph[3], i;
+    size_t pps_n, n;
     struct drm_dsc_config c;
     struct dsc_options opt;
     struct dsc_stats stats = {0};
-    uint8_t *pps = NULL, *input = NULL, *rgb = NULL;
+    struct dsc_planes planes = {{NULL}, {0}, {0}};
+    uint8_t *pps = NULL, *input = NULL;
     FILE *output = NULL, *trace = NULL;
 
     dsc_options_init(&opt);
@@ -292,33 +336,41 @@ int main(int argc, char **argv)
         fprintf(stderr, "PPS: %s\n", dsc_strerror(status));
         goto done;
     }
-    w = single ? c.slice_width : c.pic_width;
-    h = single ? c.slice_height : c.pic_height;
+    status = dsc_plane_size(&c, single, pw, ph);
+    if (status) {
+        fprintf(stderr, "decode: %s\n", dsc_strerror(status));
+        goto done;
+    }
+    w = pw[0];
+    h = ph[0];
     if ((size_t)w * h > DSC_MAX_PIXELS) {
         fprintf(stderr, "image exceeds pixel limit\n");
         goto done;
     }
-    cap = (size_t)w * h * 3;
     input = read_file(argv[off + 1], 256u * 1024u * 1024u, &n);
     if (!input) {
         goto done;
     }
-    rgb = malloc(cap);
-    if (!rgb) {
-        goto done;
+    for (i = 0; i < 3; i++) {
+        planes.stride[i] = pw[i];
+        planes.capacity[i] = (size_t)pw[i] * ph[i];
+        planes.plane[i] = malloc(planes.capacity[i] * sizeof(uint16_t));
+        if (!planes.plane[i]) {
+            goto done;
+        }
     }
-    status = single ? dsc_decode_slice_ex(&c, &opt, input, n, rgb, cap)
-                    : dsc_decode_frame_ex(&c, &opt, input, n, rgb, cap);
+    status = single ? dsc_decode_slice_planes(&c, &opt, input, n, &planes)
+                    : dsc_decode_frame_planes(&c, &opt, input, n, &planes);
     if (want_stats) {
         fprintf(stderr,
                 "stats: groups=%lu threshold_equal=%lu flat_overrides=%lu flat_queue_differs=%lu frac_differs=%lu bp_groups=%lu bp_left_differs=%lu"
                 " incr_order_differs=%lu range_lag_differs=%lu partial_groups=%lu very_flat_low_qp=%lu padding_nonzero=%lu"
-                " flat_max_qp_differs=%lu\n",
+                " flat_max_qp_differs=%lu delay_partial_differs=%lu\n",
                 stats.groups, stats.threshold_equal, stats.flat_overrides,
                 stats.flat_queue_differs, stats.frac_differs, stats.bp_groups,
                 stats.bp_left_differs, stats.incr_order_differs, stats.range_lag_differs,
                 stats.partial_groups, stats.very_flat_low_qp, stats.padding_nonzero,
-                stats.flat_max_qp_differs);
+                stats.flat_max_qp_differs, stats.delay_partial_differs);
     }
     /* OQ-17: padding the default reading accepts is reported, not hidden. */
     if (opt.partial_padding == DSC_PARTIAL_PADDING_ACCEPT && stats.padding_nonzero) {
@@ -337,7 +389,7 @@ int main(int argc, char **argv)
         perror(argv[off + 2]);
         goto done;
     }
-    if (fprintf(output, "P6\n%u %u\n255\n", w, h) < 0 || fwrite(rgb, 1, cap, output) != cap) {
+    if (write_ppm(output, &planes, w, h, c.bits_per_component)) {
         fprintf(stderr, "output write failed\n");
         goto done;
     }
@@ -357,6 +409,8 @@ done:
     }
     free(pps);
     free(input);
-    free(rgb);
+    for (i = 0; i < 3; i++) {
+        free(planes.plane[i]);
+    }
     return exitcode;
 }

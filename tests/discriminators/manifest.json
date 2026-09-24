@@ -1023,5 +1023,45 @@
     ]
    }
   }
+ },
+ "oq19_delay_partial": {
+  "question": "delay_partial",
+  "vary": [
+   "delay_partial",
+   "flat_restart",
+   "threshold_eq",
+   "frac_reset",
+   "delay_offset"
+  ],
+  "assumes": {
+   "incr_order": "swapped",
+   "rc_pipeline": "range-lag",
+   "scale_dec": "from-group-0",
+   "partial_target": "pixels",
+   "very_flat": "previous-qp",
+   "partial_padding": "accept",
+   "flat_max_qp": "previous"
+  },
+  "width": 7,
+  "height": 2,
+  "mux_bits": 192,
+  "payload_bits": 224,
+  "initial_offset": 6519,
+  "pps_sha256": "1b7661c07970a4d2ae6a934f050ec546df2a0f1ff6082f3ea905e4de785eec8f",
+  "payload_sha256": "7fedf535983062a671601c43625611734a6a0994fe03416a9735a3442c1ca2b7",
+  "readings": {
+   "pixels": {
+    "expected_sha256": "7cca6d77f56acca3c177e3a7fc617b4946d0bae4a277eb8d11ec353b87f6047b",
+    "model_fullness_after_group_2": -1776,
+    "range_after_group_2": 8,
+    "group_5_qp": 0
+   },
+   "group-end": {
+    "expected_sha256": "589aba68d29a189c443b7514aadb94017167ee45c97a5cddc6daedac449ce5e3",
+    "model_fullness_after_group_2": -1808,
+    "range_after_group_2": 7,
+    "group_5_qp": 8
+   }
+  }
  }
 }

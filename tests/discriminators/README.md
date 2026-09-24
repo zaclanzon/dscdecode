@@ -2,11 +2,12 @@
 
 Each input here is a DSC 1.1 PPS (`NAME.pps`) plus a one-slice payload
 (`NAME.bin`), 8 bpc RGB: 96×1 for the rate-control questions, 30×2 for the
-block-prediction one. For one open question in
+block-prediction one, 7×2 for OQ-19. For one open question in
 RESEARCH.md, the two readings decode it to different pixels. Each file below
 states which reading predicts which output. The predictions were written and
 committed before the VESA reference model decoded any of these inputs
-(OQ-1 to OQ-3 in Phase 3, OQ-4 in Phase 2, `oq2b` in Phase 5).
+(OQ-1 to OQ-3 in Phase 3, OQ-4 in Phase 2, `oq2b` in Phase 5 of M2;
+`oq19` in Phase 3 of M3).
 
 `python3 tests/make_discriminators.py` rebuilds every file here except this
 README. The generator contains a rate-control model written separately from
@@ -210,6 +211,44 @@ what they hold.
 
 Full hashes, QP schedules, BP decisions and per-group buffer values for
 the decisive groups are in `manifest.json`.
+
+## oq19_delay_partial — OQ-19, the initial-delay offset at a partial group
+
+Switch: `--reading delay_partial=pixels|group-end`. Added in M3, Phase 3,
+and committed with these predictions before the reference model decoded
+it. Built by `oq19_delay_partial()` in `tests/make_discriminators.py`,
+under the readings the decoder defaults to for the other questions
+(`assumes` in `manifest.json`; the range lag of OQ-11 matters here).
+
+* 7×2, one slice, 16 bpp, gray. Each line has groups at x = 0 and 3 and a
+  one-pixel group at x = 6. initial_xmit_delay is 512, so the whole slice is
+  inside the initial delay: no bits are removed, and rcXformOffset falls by
+  16 bits per delayed pixel (§6.8.2). The scale is 1.0 and every BPG offset
+  is 0.
+* Line 0 codes zero residuals. Line 1: group 3 codes Y (16, 0, 0), group 4
+  zeros, group 5 (the one-pixel group, the last of the slice) Y (3, 0, 0),
+  whose third and second residuals are padding.
+* Ranges 0 and 8 to 14 pin QP 0; ranges 1 to 7 pin QP 8. The initial offset
+  (6519) places rcModelFullness after group 2 at −1776 under **pixels**
+  (the one-pixel group counts one pixel), 16 bits above threshold 7
+  (−1792): range 8. Under **group-end** (it counts three) it is −1808:
+  range 7. Groups 0 and 1 end in range 8 under both.
+* With the range lag, the step after group 3 uses the range selected after
+  group 2. Group 3 is small against the target of 79 (range offset +31), so
+  the decrement branch returns that range's minQp, which group 5 decodes
+  at: **QP 0 (pixels)** or **QP 8 (group-end)**. Every other group decodes
+  at QP 0 under both readings.
+* Group 5's luma prefix parses the same at both QPs (predicted size 0), so
+  the syntax is identical; its residual 3 adds 3 at QP 0 and 3 × 2³ = 24 at
+  QP 8 (qLevelY 3) to the prediction 128.
+
+| Reading | Group 5 QP | RGB at x = 6, y = 1 | SHA-256 of expected PPM |
+|---|---|---|---|
+| pixels | 0 | (131,131,131) | `7cca6d77f56acca3…` |
+| group-end | 8 | (152,152,152) | `589aba68d29a189c…` |
+
+Every other pixel is the same: gray 128, except (144,144,144) at x = 0 of
+line 1.
 
 ## Running against the reference model
 

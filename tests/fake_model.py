@@ -38,7 +38,7 @@ def main():
             data = Path(name).read_bytes()
             Path('fake.pps').write_bytes(data[4:132])
             Path('fake.bin').write_bytes(data[132:])
-            exe = os.environ.get('DSCDECODE_BIN', str(ROOT / 'dscdecode'))
+            exe = os.environ.get('DSCDECODE_BIN', str(ROOT / 'build' / 'release' / 'dscdecode'))
             readings = [a for r in os.environ.get('FAKE_MODEL_READINGS', '').split()
                         for a in ('--reading', r)]
             subprocess.run([exe, *readings, 'fake.pps', 'fake.bin', stem + '.out.ppm'], check=True)

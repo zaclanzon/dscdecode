@@ -57,6 +57,15 @@ def main():
                 assert out.read_bytes() == expected, f'{name}: {left} {edge} {sad}'
             count += 1
             print(f'PASS {name}: exact expected PPM under all 8 BP readings')
+        # 10 and 12 bpc (research/hbd-worked-note.md): PPM with two bytes per
+        # sample and maxval 1023 or 4095.
+        for name in ('hbd10_color', 'hbd10_ich', 'hbd10_qp', 'hbd12_color', 'hbd12_ich', 'hbd12_qp'):
+            out = tmp/f'{name}.ppm'
+            err = invoke([FIXTURES/f'{name}.pps',FIXTURES/f'{name}.bin',out])
+            assert not warnings(err), (name, err)
+            assert out.read_bytes() == (FIXTURES/f'{name}.expected.ppm').read_bytes(), name
+            count += 1
+            print(f'PASS {name}: exact expected PPM')
         out = tmp/'slice.ppm'
         invoke(['--slice',FIXTURES/'checker.pps',FIXTURES/'checker.slice0.bin',out])
         expected = b'P6\n96 3\n255\n'+bytes(

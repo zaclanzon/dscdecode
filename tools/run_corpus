@@ -2,6 +2,7 @@
 """Run tools/compare_model over a corpus of real images kept outside the repo.
 
   run_corpus [--dir ~/vesa-corpus] [--bpp 8] [--bp 0 1] [--slices 1 2 4]
+             [--bpc 8] [--dsc-version 1] [--jobs N]
 
 Finds PPM/PNM, PGM, PNG and DPX files in --dir (not recursive). The model
 reads PPM and DPX itself. PNG and PGM are converted to PPM in the run
@@ -17,6 +18,7 @@ under ~/dsc-runs/corpus. Images are never copied into the repository, and a
 --dir inside the repository is refused.
 """
 import argparse
+import concurrent.futures
 import datetime
 import importlib.machinery
 import itertools
@@ -125,6 +127,7 @@ def prepare(images, work):
 
 
 def row(image, s):
+    """One table line; s is a run_image summary (or an error stand-in)."""
     r = s['results'][0]
     if 'error' in r:
         verdict, first, count = 'dscdecode error: ' + r['error'].splitlines()[-1], '', ''
@@ -137,7 +140,8 @@ def row(image, s):
         verdict = 'mismatch'
         first = f"({f['x']},{f['y']}) {f['component']} {f['expected']}/{f['actual']}"
         count = f"{r['samples_differing']} samples"
-    return (f"| {image} | {s['bpp']:g} | {'on' if s['block_pred'] else 'off'} | {s['slices']} "
+    return (f"| {image} | {s.get('dsc_version', '1.1')} | {s.get('bpc', 8)} | {s['bpp']:g} "
+            f"| {'on' if s['block_pred'] else 'off'} | {s['slices']} "
             f"| {verdict} | {first} | {count} |")
 
 
@@ -149,6 +153,13 @@ def main():
     ap.add_argument('--slices', type=int, nargs='+', default=[1, 2, 4])
     ap.add_argument('--min-images', type=int, default=20)
     ap.add_argument('--limit', type=int, default=0, help='use only the first N images')
+    ap.add_argument('--bpc', type=int, default=8, help='bits per component of the encode')
+    ap.add_argument('--dsc-version', type=int, choices=(1, 2), default=1,
+                    help='DSC_VERSION_MINOR of the encode')
+    ap.add_argument('--line-buffer', type=int, default=None, help='default: bpc + 1')
+    ap.add_argument('--jobs', type=int, default=1, help='runs in parallel')
+    ap.add_argument('--keep', action='store_true',
+                    help='keep the images and bitstreams of matching runs too')
     ap.add_argument('--build', choices=cm.BUILDS, default=None,
                     help='dscdecode build to use (default: DSCDECODE_BUILD, else release)')
     a = ap.parse_args()
@@ -184,20 +195,35 @@ def main():
         print('skipped', s)
     if len(ready) < a.min_images:
         print(f'WARNING: {len(ready)} usable images, fewer than {a.min_images}')
-    lines = ['| Image | bpp | BP | Slices/line | Result | First differing sample (model/dscdecode) | Diff count |',
-             '|---|---|---|---|---|---|---|']
-    summaries, status = [], 0
-    for image, bpp, bp, slices in itertools.product(ready, a.bpp, a.bp, a.slices):
+    lines = ['| Image | DSC | bpc | bpp | BP | Slices/line | Result | First differing sample (model/dscdecode) | Diff count |',
+             '|---|---|---|---|---|---|---|---|---|']
+    runs = list(itertools.product(ready, a.bpp, a.bp, a.slices))
+
+    def one(run):
+        image, bpp, bp, slices = run
+        run_dir = work / f'{image.stem}-bpp{bpp:g}-bp{bp}-s{slices}'
         try:
-            s = cm.run_image(image, bpp, slices, None, bool(bp),
-                             run_dir=work / f'{image.stem}-bpp{bpp:g}-bp{bp}-s{slices}')
+            s = cm.run_image(image, bpp, slices, None, bool(bp), a.line_buffer, run_dir=run_dir,
+                             bpc=a.bpc, version=a.dsc_version)
+            # A 1080p run leaves about 60 MB of pictures; keep them only
+            # where they are needed to investigate.
+            if s['results'][0]['match'] and not a.keep:
+                for f in run_dir.iterdir():
+                    if f.suffix in ('.ppm', '.dpx', '.dsc', '.bin'):
+                        f.unlink()
+            return s
         except cm.HarnessError as e:
-            s = dict(image=str(image), bpp=bpp, block_pred=bp, slices=slices,
-                     results=[dict(error=f'harness: {e}', match=False)])
-        summaries.append(s)
-        lines.append(row(image.name, s))
-        print(lines[-1], flush=True)
-        status |= 0 if s['results'][0]['match'] else 1
+            return dict(image=str(image), bpc=a.bpc, dsc_version=f'1.{a.dsc_version}', bpp=bpp,
+                        block_pred=bp, slices=slices,
+                        results=[dict(error=f'harness: {e}', match=False)])
+
+    summaries, status = [], 0
+    with concurrent.futures.ThreadPoolExecutor(max(1, a.jobs)) as pool:
+        for run, s in zip(runs, pool.map(one, runs)):
+            summaries.append(s)
+            lines.append(row(run[0].name, s))
+            print(lines[-1], flush=True)
+            status |= 0 if s['results'][0]['match'] else 1
     (work / 'results.json').write_text(json.dumps(dict(corpus=str(corpus), skipped=skipped,
                                                        dscdecode=str(exe), runs=summaries),
                                                   indent=1))

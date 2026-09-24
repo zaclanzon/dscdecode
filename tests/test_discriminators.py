@@ -23,6 +23,7 @@ READINGS = {
     'bp_left': ('replicate', 'midpoint'),
     'bp_edge': ('window', 'before'),
     'bp_sad': ('shift', 'clip'),
+    'delay_partial': ('pixels', 'group-end'),
 }
 # The statistic that shows each question's condition occurred.
 EXERCISED = {
@@ -30,6 +31,7 @@ EXERCISED = {
     'threshold_eq': 'threshold_equal',
     'frac_reset': 'frac_differs',
     'bp_left': 'bp_left_differs',
+    'delay_partial': 'delay_partial_differs',
 }
 
 

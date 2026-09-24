@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent
  * Independently expressed DSC 1.1 sections 6.3--6.5 and 7.4--7.6.
- * Pixels in this module are unsigned internal Y, Co, Cg (8, 9, 9 bits).
+ * Pixels in this module are unsigned internal samples of each unit: Y, Co,
+ * Cg with bpc, bpc + 1 and bpc + 1 bits (§6.1).
  * Block prediction: DSC 1.1 §6.4.2, §6.4.4.1 and §7.5.2.1, with the bpSad
  * correction printed in DSC 1.2b §6.4.4.1. Open points are OQ-4, OQ-10 and
  * OQ-13 in RESEARCH.md; research/bp-worked-note.md works examples by hand.
@@ -11,12 +12,13 @@
 #include <string.h>
 
 struct dsc_predict {
+    struct dsc_format f;
     unsigned width, height, depth, next_x, next_y;
     int multiple, block_prediction;
     struct dsc_options opt;
     unsigned bp_count, bp_count_other; /* bpCount under opt.bp_left and the other reading */
-    uint16_t *previous, *current;
-    uint16_t history[32][3], last[3];
+    uint16_t *previous, *current; /* f.units samples per pixel */
+    uint16_t history[32][4], last[4];
     unsigned valid;
 };
 
@@ -35,20 +37,21 @@ static int maximum(int a, int b)
     return a > b ? a : b;
 }
 
-static int midpoint(unsigned c)
+/* §6.4.1 and §6.4.3: the midpoint and range of a unit's samples. */
+static int midpoint(const struct dsc_predict *p, unsigned c)
 {
-    return c ? 256 : 128;
+    return 1 << (p->f.depth[c] - 1);
 }
 
-static int upper(unsigned c)
+static int upper(const struct dsc_predict *p, unsigned c)
 {
-    return c ? 511 : 255;
+    return (1 << p->f.depth[c]) - 1;
 }
 
 static int above(const struct dsc_predict *p, int x, unsigned c)
 {
     x = clamp(x, 0, (int)p->width - 1);
-    return p->previous[(unsigned)x * 3 + c];
+    return p->previous[(unsigned)x * p->f.units + c];
 }
 
 static int blended(const struct dsc_predict *p, int x, unsigned c, unsigned q)
@@ -60,20 +63,23 @@ static int blended(const struct dsc_predict *p, int x, unsigned c, unsigned q)
     return raw + clamp(smooth - raw, -limit, limit);
 }
 
-struct dsc_predict *dsc_predict_create(unsigned width, unsigned height, unsigned line_depth,
-                                       int block_prediction, int multiple_slices)
+struct dsc_predict *dsc_predict_create_format(const struct dsc_format *f, unsigned width,
+                                              unsigned height, unsigned line_depth,
+                                              int block_prediction, int multiple_slices)
 {
     struct dsc_predict *p;
 
-    if (!width || width > 65535 || !height || height > 65535 || line_depth < 8 || line_depth > 13) {
+    if (!f || !f->units || f->units > 4 || !width || width > 65535 || !height || height > 65535 ||
+        line_depth < 8 || line_depth > 16) {
         return NULL;
     }
     p = calloc(1, sizeof(*p));
     if (!p) {
         return NULL;
     }
-    p->previous = calloc((size_t)width * 3, sizeof(uint16_t));
-    p->current = calloc((size_t)width * 3, sizeof(uint16_t));
+    p->f = *f;
+    p->previous = calloc((size_t)width * f->units, sizeof(uint16_t));
+    p->current = calloc((size_t)width * f->units, sizeof(uint16_t));
     if (!p->previous || !p->current) {
         dsc_predict_destroy(p);
         return NULL;
@@ -85,6 +91,16 @@ struct dsc_predict *dsc_predict_create(unsigned width, unsigned height, unsigned
     p->block_prediction = block_prediction;
     dsc_options_init(&p->opt);
     return p;
+}
+
+struct dsc_predict *dsc_predict_create(unsigned width, unsigned height, unsigned line_depth,
+                                       int block_prediction, int multiple_slices)
+{
+    struct dsc_format f;
+
+    dsc_format_default(&f);
+    return dsc_predict_create_format(&f, width, height, line_depth, block_prediction,
+                                     multiple_slices);
 }
 
 void dsc_predict_set_options(struct dsc_predict *p, const struct dsc_options *o)
@@ -100,14 +116,15 @@ void dsc_predict_set_options(struct dsc_predict *p, const struct dsc_options *o)
 static int bp_sample(const struct dsc_predict *p, int x, unsigned c, int left)
 {
     if (x < 0) {
-        return left == DSC_BP_LEFT_MIDPOINT ? midpoint(c) : p->previous[c];
+        return left == DSC_BP_LEFT_MIDPOINT ? midpoint(p, c) : p->previous[c];
     }
     return above(p, x, c);
 }
 
 /* §6.4.4.1: the best of the nine candidate vectors for the group at hPos x.
  * Each 9-pixel SAD is three 3x1 partial SADs, summed over all components,
- * of differences reduced to 6 bits and each partial clamped to 511. */
+ * of differences reduced to 6 bits (shifted by cpntBitDepth - 7) and each
+ * partial clamped to 511. */
 static int bp_search(const struct dsc_predict *p, int x, int left)
 {
     static const int candidates[9] = {-1, -3, -4, -5, -6, -7, -8, -9, -10};
@@ -121,10 +138,10 @@ static int bp_search(const struct dsc_predict *p, int x, int left)
             unsigned partial = 0;
 
             for (j = 0; j < 3; ++j) {
-                for (c = 0; c < 3; ++c) {
+                for (c = 0; c < p->f.units; ++c) {
                     int pos = x - 6 + (int)(3 * b + j);
                     int d = bp_sample(p, pos, c, left) - bp_sample(p, pos + candidates[k], c, left);
-                    unsigned m = (unsigned)(d < 0 ? -d : d) >> (c ? 2 : 1); /* bitDepth - 7 */
+                    unsigned m = (unsigned)(d < 0 ? -d : d) >> (p->f.depth[c] - 7);
 
                     partial += m > 63 ? 63 : m;
                 }
@@ -142,18 +159,19 @@ static int bp_search(const struct dsc_predict *p, int x, int left)
     return vector;
 }
 
-/* lastEdgeCount < 3: an edge, a step above 32 in any component, at one of
- * the three previous-line samples ending at last (OQ-13 chooses last). */
+/* lastEdgeCount < 3: an edge, a step above 32 << (bpc - 8) in any
+ * component, at one of the three previous-line samples ending at last
+ * (OQ-13 chooses last). */
 static int bp_recent_edge(const struct dsc_predict *p, int last, int left)
 {
-    int q;
+    int q, edge = 32 << (p->f.bpc - 8);
     unsigned c;
 
     for (q = last - 2; q <= last; ++q) {
-        for (c = 0; c < 3; ++c) {
+        for (c = 0; c < p->f.units; ++c) {
             int d = bp_sample(p, q, c, left) - bp_sample(p, q - 1, c, left);
 
-            if (d > 32 || d < -32) {
+            if (d > edge || d < -edge) {
                 return 1;
             }
         }
@@ -188,9 +206,9 @@ void dsc_predict_destroy(struct dsc_predict *p)
 }
 
 static void history_update(struct dsc_predict *p, int ich, const unsigned index[3],
-                           uint16_t out[3][3], unsigned capacity)
+                           uint16_t out[4][3], unsigned capacity)
 {
-    uint16_t next[32][3];
+    uint16_t next[32][4];
     unsigned n = 0, i, j, c;
 
     for (i = 3; i > 0;) {
@@ -205,7 +223,7 @@ static void history_update(struct dsc_predict *p, int ich, const unsigned index[
             }
         }
         if (!duplicate) {
-            for (c = 0; c < 3; ++c) {
+            for (c = 0; c < p->f.units; ++c) {
                 next[n][c] = out[c][i];
             }
             ++n;
@@ -230,9 +248,9 @@ static void history_update(struct dsc_predict *p, int ich, const unsigned index[
     p->valid = n;
 }
 
-int dsc_predict_group(struct dsc_predict *p, unsigned x, unsigned y, const unsigned qlevel[3],
-                      const int residual[3][3], const int mpp[3], int ich, const unsigned index[3],
-                      uint16_t out[3][3])
+int dsc_predict_group_units(struct dsc_predict *p, unsigned x, unsigned y,
+                            const unsigned qlevel[4], const int residual[4][3], const int mpp[4],
+                            int ich, const unsigned index[3], uint16_t out[4][3])
 {
     unsigned c, j, n, capacity;
     int use_bp = 0, vector = 0;
@@ -241,12 +259,16 @@ int dsc_predict_group(struct dsc_predict *p, unsigned x, unsigned y, const unsig
         x >= p->width || y >= p->height) {
         return -1;
     }
-    for (c = 0; c < 3; ++c) {
-        if (qlevel[c] > (c ? 8U : 7U)) {
+    for (c = 0; c < p->f.units; ++c) {
+        int span;
+
+        if (qlevel[c] >= p->f.depth[c]) {
             return -1;
         }
+        /* A unit's residuals have at most cpntBitDepth - qLevel bits. */
+        span = 1 << (p->f.depth[c] - qlevel[c]);
         for (j = 0; j < 3; ++j) {
-            if (residual[c][j] < -512 || residual[c][j] > 511) {
+            if (residual[c][j] < -span || residual[c][j] >= span) {
                 return -1;
             }
         }
@@ -286,7 +308,7 @@ int dsc_predict_group(struct dsc_predict *p, unsigned x, unsigned y, const unsig
                 if (index[j] >= p->valid) {
                     return -1;
                 }
-                for (c = 0; c < 3; ++c) {
+                for (c = 0; c < p->f.units; ++c) {
                     out[c][j] = p->history[index[j]][c];
                 }
             } else {
@@ -297,7 +319,7 @@ int dsc_predict_group(struct dsc_predict *p, unsigned x, unsigned y, const unsig
                     return -1;
                 }
                 base = clamp((int)x - 2, 0, (int)p->width - 7);
-                for (c = 0; c < 3; ++c) {
+                for (c = 0; c < p->f.units; ++c) {
                     out[c][j] = (uint16_t)above(p, base + (int)index[j] - 25, c);
                 }
             }
@@ -308,23 +330,23 @@ int dsc_predict_group(struct dsc_predict *p, unsigned x, unsigned y, const unsig
         return -1;
     }
     if (!ich) {
-        for (c = 0; c < 3; ++c) {
-            int a = x ? p->current[(x - 1) * 3 + c] : midpoint(c);
+        for (c = 0; c < p->f.units; ++c) {
+            int a = x ? p->current[(x - 1) * p->f.units + c] : midpoint(p, c);
             int b = y ? blended(p, (int)x, c, qlevel[c]) : 0;
-            int before = x ? blended(p, (int)x - 1, c, qlevel[c]) : midpoint(c);
+            int before = x ? blended(p, (int)x - 1, c, qlevel[c]) : midpoint(p, c);
             int lo = a, hi = a, cumulative = 0;
 
             for (j = 0; j < n; ++j) {
                 int pred, r = residual[c][j] * (1 << qlevel[c]);
 
                 if (mpp[c]) {
-                    pred = midpoint(c) + (p->last[c] & ((1 << qlevel[c]) - 1));
+                    pred = midpoint(p, c) + (p->last[c] & ((1 << qlevel[c]) - 1));
                 } else if (use_bp) {
                     /* §6.4.2: the reconstructed sample |bpVector| to the left on this
                      * line; bpVector <= -3 and hPos >= 15 keep it inside the slice. */
-                    pred = p->current[(x + j - (unsigned)-vector) * 3 + c];
+                    pred = p->current[(x + j - (unsigned)-vector) * p->f.units + c];
                 } else if (!y) {
-                    pred = clamp(a + cumulative, 0, upper(c));
+                    pred = clamp(a + cumulative, 0, upper(p, c));
                 } else {
                     int reference = j ? blended(p, (int)(x + j), c, qlevel[c]) : b;
 
@@ -332,14 +354,14 @@ int dsc_predict_group(struct dsc_predict *p, unsigned x, unsigned y, const unsig
                     hi = maximum(hi, reference);
                     pred = clamp(a + reference - before + cumulative, lo, hi);
                 }
-                out[c][j] = (uint16_t)clamp(pred + r, 0, upper(c));
+                out[c][j] = (uint16_t)clamp(pred + r, 0, upper(p, c));
                 cumulative += r;
             }
         }
     }
-    for (c = 0; c < 3; ++c) {
+    for (c = 0; c < p->f.units; ++c) {
         for (j = 0; j < n; ++j) {
-            p->current[(x + j) * 3 + c] = out[c][j];
+            p->current[(x + j) * p->f.units + c] = out[c][j];
         }
         p->last[c] = out[c][n - 1];
     }
@@ -351,13 +373,15 @@ int dsc_predict_group(struct dsc_predict *p, unsigned x, unsigned y, const unsig
     if (p->next_x == p->width) {
         uint16_t *swap;
 
+        /* §6.3 line storage: round to linebuf_depth bits and saturate. */
         for (j = 0; j < p->width; ++j) {
-            for (c = 0; c < 3; ++c) {
-                unsigned bits = c ? 9 : 8;
+            for (c = 0; c < p->f.units; ++c) {
+                unsigned bits = p->f.depth[c];
                 unsigned shift = bits > p->depth ? bits - p->depth : 0;
-                int rounded = (p->current[j * 3 + c] + (shift ? (1 << (shift - 1)) : 0)) >> shift;
+                size_t at = (size_t)j * p->f.units + c;
+                int rounded = (p->current[at] + (shift ? (1 << (shift - 1)) : 0)) >> shift;
 
-                p->current[j * 3 + c] = (uint16_t)(minimum(rounded, (1 << p->depth) - 1) << shift);
+                p->current[at] = (uint16_t)(minimum(rounded, (1 << p->depth) - 1) << shift);
             }
         }
         swap = p->previous;
@@ -372,4 +396,33 @@ int dsc_predict_group(struct dsc_predict *p, unsigned x, unsigned y, const unsig
         }
     }
     return 0;
+}
+
+int dsc_predict_group(struct dsc_predict *p, unsigned x, unsigned y, const unsigned qlevel[3],
+                      const int residual[3][3], const int mpp[3], int ich, const unsigned index[3],
+                      uint16_t out[3][3])
+{
+    unsigned q[4] = {0}, c, j;
+    int r[4][3] = {{0}}, m[4] = {0}, status;
+    uint16_t o[4][3];
+
+    if (!p || !qlevel || !residual || !mpp || !index || !out || p->f.units != 3) {
+        return -1;
+    }
+    for (c = 0; c < 3; ++c) {
+        q[c] = qlevel[c];
+        m[c] = mpp[c];
+        for (j = 0; j < 3; ++j) {
+            r[c][j] = residual[c][j];
+        }
+    }
+    status = dsc_predict_group_units(p, x, y, q, (const int (*)[3])r, m, ich, index, o);
+    if (!status) {
+        for (c = 0; c < 3; ++c) {
+            for (j = 0; j < 3; ++j) {
+                out[c][j] = o[c][j];
+            }
+        }
+    }
+    return status;
 }

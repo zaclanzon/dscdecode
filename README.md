@@ -85,10 +85,16 @@ A VESA-model `.dsc` container, DisplayPort SDP packet, HDMI transport packet,
 or captured link-symbol stream is **not** a raw input for this CLI. Framing
 must be removed upstream. No hardware access occurs.
 
-`include/dsc.h` exposes `dsc_parse_pps`, `dsc_decode_slice`, and
-`dsc_decode_frame`. The parser uses the kernel's `struct drm_dsc_config` and
-also parses 1.2 PPS fields, but the decoder accepts only the DSC 1.1, 8 bpc RGB 4:4:4 CBR profile.
-Thresholds retain PPS units and signed BPG offsets retain six-bit encoding.
+`include/dsc.h` exposes `dsc_parse_pps`; `dsc_decode_slice` and
+`dsc_decode_frame`, which write RGB888 and serve 8 bpc RGB only; and
+`dsc_decode_slice_planes` and `dsc_decode_frame_planes`, which write one plane
+of 16-bit samples per component for every supported format
+(`dsc_plane_size` gives the plane sizes). The parser uses the kernel's
+`struct drm_dsc_config` and also parses 1.2 PPS fields. The decoder accepts
+DSC 1.1 RGB 4:4:4 CBR at 8, 10 and 12 bits per component. The CLI writes a
+binary PPM with maxval 2^bpc − 1: one byte per sample at 8 bpc, two bytes
+(most significant first) above. Thresholds retain PPS units and signed BPG
+offsets retain six-bit encoding.
 
 Limits: 16,777,216 pixels for both a frame and an individual slice; at most 255
 horizontal slices in the reused configuration representation; 256MiB CLI
@@ -105,8 +111,10 @@ bit construction for each fixture. `tests/make_vectors.py` is a narrowly
 scoped fixture constructor, not a general DSC encoder. Tests are Python3;
 the production library and CLI have no Python dependency.
 
-Regenerate the original fixtures with `python3 tests/make_vectors.py` and the
-transition/padding fixtures with `python3 tests/make_transition_vectors.py`.
+Regenerate the original fixtures with `python3 tests/make_vectors.py`, the
+transition/padding fixtures with `python3 tests/make_transition_vectors.py`,
+and the 10 and 12 bpc fixtures with `python3 tests/make_hbd_vectors.py`
+(derivations in `research/hbd-worked-note.md`).
 
 ```sh
 python3 tests/make_corpus.py

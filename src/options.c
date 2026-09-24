@@ -27,4 +27,5 @@ void dsc_options_init(struct dsc_options *o)
     o->very_flat = DSC_VERY_FLAT_PREVIOUS_QP;
     o->partial_padding = DSC_PARTIAL_PADDING_ACCEPT;
     o->flat_max_qp = DSC_FLAT_MAX_QP_PREVIOUS;
+    o->delay_partial = DSC_DELAY_PARTIAL_GROUP_END;
 }

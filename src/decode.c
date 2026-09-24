@@ -1,24 +1,35 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent
- * DSC 1.1 prose-based decoder. Clause references and unresolved ambiguities
- * are documented in RESEARCH.md. This file contains no reference-model code.
+ * DSC decoder: substream demultiplexing, entropy decoding, and slice and
+ * picture assembly. Section numbers are DSC 1.1 unless marked otherwise;
+ * clause references and unresolved ambiguities are documented in
+ * RESEARCH.md. This file contains no reference-model code.
  */
 
 #include "dsc.h"
+#include "format.h"
 #include "predict.h"
 #include "rate_control.h"
 #include <stdlib.h>
 #include <string.h>
 
+/* One substream's funnel shifter. It holds at most max_se - 1 bits plus a
+ * mux word, below 128 for every supported format. */
 struct reservoir {
-    uint8_t bits[96];
+    uint8_t bits[128];
     unsigned count, read;
 };
 
 struct syntax_state {
-    struct reservoir s[3];
-    unsigned predicted[3], last_level[3];
+    struct reservoir s[4];
+    unsigned predicted[4], last_level[4];
     int was_ich, flat_flag, flat_type;
     size_t flat_group;
+};
+
+/* One group as parsed from the substreams. */
+struct group_syntax {
+    unsigned level[4], idx[3], actual, ideal;
+    int res[4][3], mpp[4], ich;
 };
 
 static unsigned bound(int n, unsigned hi)
@@ -26,15 +37,19 @@ static unsigned bound(int n, unsigned hi)
     return n < 0 ? 0 : (unsigned)n > hi ? hi : (unsigned)n;
 }
 
-static int validate(const struct drm_dsc_config *c)
+static int validate(const struct drm_dsc_config *c, struct dsc_format *f)
 {
     unsigned i;
+    int status;
 
     if (!c) {
         return DSC_INVALID;
     }
-    if (c->dsc_version_major != 1 || c->dsc_version_minor != 1 || c->bits_per_component != 8 ||
-        c->vbr_enable || !c->convert_rgb || c->simple_422 || c->native_422 || c->native_420) {
+    status = dsc_format_init(f, c);
+    if (status) {
+        return status;
+    }
+    if (c->vbr_enable) {
         return DSC_UNSUPPORTED;
     }
     if (!c->slice_width || !c->slice_height || !c->pic_width || !c->pic_height ||
@@ -43,9 +58,9 @@ static int validate(const struct drm_dsc_config *c)
         c->initial_scale_value < 8 || c->initial_scale_value > 63 ||
         (c->initial_scale_value > 8 && !c->scale_decrement_interval) ||
         c->initial_offset > c->rc_model_size || c->final_offset > c->rc_model_size ||
-        c->flatness_min_qp > c->flatness_max_qp || c->flatness_max_qp > 15 ||
-        c->rc_quant_incr_limit0 > 15 || c->rc_quant_incr_limit1 > 15 || c->rc_edge_factor > 15 ||
-        c->rc_tgt_offset_high > 15 || c->rc_tgt_offset_low > 15) {
+        c->flatness_min_qp > c->flatness_max_qp || c->flatness_max_qp > f->max_qp ||
+        c->rc_quant_incr_limit0 > f->max_qp || c->rc_quant_incr_limit1 > f->max_qp ||
+        c->rc_edge_factor > 15 || c->rc_tgt_offset_high > 15 || c->rc_tgt_offset_low > 15) {
         return DSC_INVALID;
     }
     if ((size_t)c->slice_width * c->slice_height > DSC_MAX_PIXELS ||
@@ -63,7 +78,7 @@ static int validate(const struct drm_dsc_config *c)
     }
     for (i = 0; i < 15; i++) {
         if (c->rc_range_params[i].range_min_qp > c->rc_range_params[i].range_max_qp ||
-            c->rc_range_params[i].range_max_qp > 15 ||
+            c->rc_range_params[i].range_max_qp > f->max_qp ||
             c->rc_range_params[i].range_bpg_offset > 63) {
             return DSC_INVALID;
         }
@@ -71,26 +86,26 @@ static int validate(const struct drm_dsc_config *c)
     return DSC_OK;
 }
 
-/* Table 4-6: at most one 48-bit word per component before each group.
- * 8-bit RGB maximum syntax sizes are 36 bits for all three components.
- */
-static int refill(struct reservoir *r, const uint8_t *p, size_t n, size_t *pos)
+/* Table 4-6: before each group, one mux word for each substream whose
+ * funnel shifter holds fewer than its maximum syntax element size. */
+static int refill(struct reservoir *r, unsigned max_se, unsigned word, const uint8_t *p, size_t n,
+                  size_t *pos)
 {
     unsigned i, left = r->count - r->read;
 
-    if (left >= 36) {
+    if (left >= max_se) {
         return 0;
     }
-    if (*pos > n || n - *pos < 6) {
+    if (*pos > n || n - *pos < word / 8) {
         return -1;
     }
     memmove(r->bits, r->bits + r->read, left);
-    for (i = 0; i < 48; i++) {
+    for (i = 0; i < word; i++) {
         r->bits[left + i] = (p[*pos + i / 8] >> (7 - i % 8)) & 1;
     }
-    *pos += 6;
+    *pos += word / 8;
     r->read = 0;
-    r->count = left + 48;
+    r->count = left + word;
     return 0;
 }
 
@@ -115,27 +130,27 @@ static unsigned signed_size(int n)
     if (!n) {
         return 0;
     }
-    for (w = 1; w <= 10; w++) {
+    for (w = 1; w <= 16; w++) {
         if (n >= -(1 << (w - 1)) && n < (1 << (w - 1))) {
             return w;
         }
     }
-    return 11;
+    return 17;
 }
 
-static int syntax(struct syntax_state *s, const struct drm_dsc_config *c, unsigned group,
-                  unsigned qp, unsigned level[3], int res[3][3], int mpp[3], int *ich,
-                  unsigned idx[3], unsigned *actual, unsigned *ideal)
+/* §4.5, §6.6 and §7.2 for one group: flatness bits, the luma prefix with the
+ * ICH escape, then each unit's prefix and residuals or its ICH index. */
+static int syntax(struct syntax_state *s, const struct dsc_format *f,
+                  const struct drm_dsc_config *c, unsigned group, unsigned qp,
+                  struct group_syntax *g)
 {
-    static const unsigned luma[16] = {0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 5, 6, 7};
-    static const unsigned chroma[16] = {0, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 8, 8, 8};
-    unsigned start = 0, j, k, v, z, max, pred, width, required[3], largest;
+    unsigned start = 0, u, k, v, z, max, pred, width, required[3], largest;
 
-    if (qp > 15) {
+    if (qp > f->max_qp) {
         return -1;
     }
-    for (j = 0; j < 3; j++) {
-        start += s->s[j].read;
+    for (u = 0; u < f->units; u++) {
+        start += s->s[u].read;
     }
     if (group % 4 == 3) {
         s->flat_flag = 0;
@@ -147,7 +162,8 @@ static int syntax(struct syntax_state *s, const struct drm_dsc_config *c, unsign
         }
     } else if (group % 4 == 0 && s->flat_flag) {
         s->flat_type = 0;
-        if (qp >= 7) {
+        /* §4.5: the type is sent at or above somewhatFlatQpThresh. */
+        if (qp >= f->flat_type_qp) {
             if (take(&s->s[0], 1, &v)) {
                 return -1;
             }
@@ -159,17 +175,17 @@ static int syntax(struct syntax_state *s, const struct drm_dsc_config *c, unsign
         /* 6.6.3: supergroup starts one group after metadata. */
         s->flat_group = (size_t)group + 1 + v;
     }
-    *ich = 0;
-    *ideal = 0;
-    for (j = 0; j < 3; j++) {
-        level[j] = j ? chroma[qp] : luma[qp];
-        max = (j ? 9 : 8) - level[j];
-        pred = bound((int)s->predicted[j] + (int)s->last_level[j] - (int)level[j], max - 1);
-        if (j == 0 || !*ich) {
-            unsigned limit = max - pred + (j == 0);
+    g->ich = 0;
+    g->ideal = 0;
+    for (u = 0; u < f->units; u++) {
+        g->level[u] = dsc_qlevel(f, qp, u);
+        max = f->depth[u] - g->level[u];
+        pred = bound((int)s->predicted[u] + (int)s->last_level[u] - (int)g->level[u], max - 1);
+        if (u == 0 || !g->ich) {
+            unsigned limit = max - pred + (u == 0);
 
             for (z = 0; z < limit; z++) {
-                if (take(&s->s[j], 1, &v)) {
+                if (take(&s->s[u], 1, &v)) {
                     return -1;
                 }
                 if (v) {
@@ -177,207 +193,188 @@ static int syntax(struct syntax_state *s, const struct drm_dsc_config *c, unsign
                 }
             }
             width = pred + z;
-            if (j == 0) {
+            if (u == 0) {
                 if (s->was_ich) {
                     if (z == 0) {
-                        *ich = 1;
+                        g->ich = 1;
                     } else {
                         width--;
                     }
                 } else if (width == max + 1) {
-                    *ich = 1;
+                    g->ich = 1;
                 }
             }
-            if (!*ich && width > max) {
+            if (!g->ich && width > max) {
                 return -1;
             }
         } else {
             width = 0;
         }
-        if (*ich) {
-            if (take(&s->s[j], 5, &idx[j])) {
+        if (g->ich) {
+            if (take(&s->s[u], 5, &g->idx[u])) {
                 return -1;
             }
-            mpp[j] = 0;
+            g->mpp[u] = 0;
         } else {
-            mpp[j] = width == max;
+            g->mpp[u] = width == max;
             largest = 0;
             for (k = 0; k < 3; k++) {
-                if (take(&s->s[j], width, &v)) {
+                if (take(&s->s[u], width, &v)) {
                     return -1;
                 }
-                res[j][k] = (int)v;
+                g->res[u][k] = (int)v;
                 if (width && (v & (1u << (width - 1)))) {
-                    res[j][k] -= 1 << width;
+                    g->res[u][k] -= 1 << width;
                 }
-                required[k] = mpp[j] ? max : signed_size(res[j][k]);
+                required[k] = g->mpp[u] ? max : signed_size(g->res[u][k]);
                 if (required[k] > largest) {
                     largest = required[k];
                 }
             }
-            s->predicted[j] = (required[0] + required[1] + 2 * required[2] + 2) / 4;
-            *ideal += 3 * largest + 1;
+            s->predicted[u] = (required[0] + required[1] + 2 * required[2] + 2) / 4;
+            g->ideal += 3 * largest + 1;
         }
-        s->last_level[j] = level[j];
+        s->last_level[u] = g->level[u];
     }
-    if (*ich) {
-        *ideal = 16;
+    if (g->ich) {
+        g->ideal = 16;
     }
-    s->was_ich = *ich;
-    *actual = 0;
-    for (j = 0; j < 3; j++) {
-        *actual += s->s[j].read;
+    s->was_ich = g->ich;
+    g->actual = 0;
+    for (u = 0; u < f->units; u++) {
+        g->actual += s->s[u].read;
     }
-    *actual -= start;
+    g->actual -= start;
     return 0;
 }
 
-static int half_floor(int v)
+/* Section 6.6: encoders clear a partial group's padding residuals and repeat
+ * its rightmost real ICH index. The padding still feeds size prediction.
+ * OQ-17: whether a decoder rejects other padding. The reference model's
+ * decoder does not, so by default the padding is not checked; the reject
+ * reading enforces §6.6. Returns nonzero when the group is rejected. */
+static int check_padding(const struct dsc_format *f, const struct dsc_options *opt,
+                         const struct group_syntax *g, unsigned count)
 {
-    return v >= 0 ? v / 2 : -((-v + 1) / 2);
+    unsigned k, u;
+
+    for (k = count; k < 3; k++) {
+        int noncanonical = 0;
+
+        if (g->ich) {
+            noncanonical = g->idx[k] != g->idx[count - 1];
+        } else {
+            for (u = 0; u < f->units; u++) {
+                if (g->res[u][k]) {
+                    noncanonical = 1;
+                }
+            }
+        }
+        if (noncanonical) {
+            if (opt->stats) {
+                ++opt->stats->padding_nonzero;
+            }
+            return opt->partial_padding == DSC_PARTIAL_PADDING_REJECT;
+        }
+    }
+    return 0;
 }
 
-static uint8_t byte(int v)
+/* Decodes one slice into out: f->units samples per pixel, raster order. */
+static int decode_slice(const struct drm_dsc_config *c, const struct dsc_format *f,
+                        const struct dsc_options *opt, unsigned slice, const uint8_t *p,
+                        size_t n, uint16_t *out)
 {
-    return (uint8_t)bound(v, 255);
-}
-
-static int decode_slice(const struct drm_dsc_config *c, const struct dsc_options *opt,
-                        unsigned slice, const uint8_t *p, size_t n, uint8_t *rgb, size_t cap)
-{
-    struct syntax_state s = {0};
+    struct syntax_state s;
+    struct group_syntax g;
     struct dsc_rc rc;
     struct dsc_predict *pred;
     struct dsc_group_trace tr;
     size_t pos = 0, expected;
-    unsigned x, y, g = 0, j, k, level[3], idx[3], actual, ideal, qp;
-    int res[3][3], mpp[3], ich, status = validate(c);
-    uint16_t pixel[3][3];
+    unsigned x, y, gn = 0, u, k, qp, width = c->slice_width;
+    int status;
+    uint16_t pixel[4][3];
 
-    if (status) {
-        return status;
-    }
-    if (!p || !rgb) {
-        return DSC_INVALID;
-    }
-    if (cap < (size_t)c->slice_width * c->slice_height * 3) {
-        return DSC_LIMIT;
-    }
     expected = (size_t)c->slice_chunk_size * c->slice_height;
-    if (!c->vbr_enable && n != expected) {
+    if (n != expected) {
         return n < expected ? DSC_TRUNCATED : DSC_INVALID;
-    }
-    if (c->vbr_enable && n > expected) {
-        return DSC_INVALID;
     }
     if (dsc_rc_init(&rc, c)) {
         return DSC_INVALID;
     }
     dsc_rc_set_options(&rc, opt);
-    pred = dsc_predict_create(c->slice_width, c->slice_height, c->line_buf_depth,
-                              c->block_pred_enable, c->pic_width != c->slice_width);
+    pred = dsc_predict_create_format(f, width, c->slice_height, c->line_buf_depth,
+                                     c->block_pred_enable, c->pic_width != c->slice_width);
     if (!pred) {
         return DSC_NOMEM;
     }
     dsc_predict_set_options(pred, opt);
+    memset(&s, 0, sizeof(s));
     s.flat_group = (size_t)-1;
     for (y = 0; y < c->slice_height; y++) {
-        for (x = 0; x < c->slice_width; x += 3, g++) {
-            unsigned count = c->slice_width - x < 3 ? c->slice_width - x : 3;
+        for (x = 0; x < width; x += 3, gn++) {
+            unsigned count = width - x < 3 ? width - x : 3;
 
-            for (j = 0; j < 3; j++) {
-                if (refill(&s.s[j], p, n, &pos)) {
+            for (u = 0; u < f->units; u++) {
+                if (refill(&s.s[u], f->max_se[u], f->mux_word, p, n, &pos)) {
                     status = DSC_TRUNCATED;
                     goto done;
                 }
             }
-            if (dsc_rc_apply_flat(&rc, s.flat_group == g, s.flat_type)) {
+            if (dsc_rc_apply_flat(&rc, s.flat_group == gn, s.flat_type)) {
                 status = DSC_RATE_CONTROL;
                 goto done;
             }
-            memset(res, 0, sizeof(res));
-            memset(idx, 0, sizeof(idx));
+            memset(&g, 0, sizeof(g));
             qp = dsc_rc_qp(&rc);
-            if (syntax(&s, c, g, qp, level, res, mpp, &ich, idx, &actual, &ideal)) {
+            if (syntax(&s, f, c, gn, qp, &g)) {
                 status = DSC_BITSTREAM;
                 goto done;
             }
-            /* Section 6.6: encoders clear a partial group's padding residuals and
-             * repeat its rightmost real ICH index. The padding still feeds size
-             * prediction. OQ-17: whether a decoder rejects other padding. The
-             * reference model's decoder does not, so by default the padding is not
-             * checked; the reject reading enforces §6.6. */
-            for (k = count; k < 3; k++) {
-                int noncanonical = 0;
-
-                if (ich) {
-                    noncanonical = idx[k] != idx[count - 1];
-                } else {
-                    for (j = 0; j < 3; j++) {
-                        if (res[j][k]) {
-                            noncanonical = 1;
-                        }
-                    }
-                }
-                if (noncanonical) {
-                    if (opt->stats) {
-                        ++opt->stats->padding_nonzero;
-                    }
-                    if (opt->partial_padding == DSC_PARTIAL_PADDING_REJECT) {
-                        status = DSC_BITSTREAM;
-                        goto done;
-                    }
-                    break;
-                }
+            if (check_padding(f, opt, &g, count)) {
+                status = DSC_BITSTREAM;
+                goto done;
             }
-            if (dsc_predict_group(pred, x, y, level, (const int (*)[3])res, mpp, ich, idx,
-                                  pixel)) {
+            if (dsc_predict_group_units(pred, x, y, g.level, (const int (*)[3])g.res, g.mpp, g.ich,
+                                        g.idx, pixel)) {
                 status = DSC_BITSTREAM;
                 goto done;
             }
             for (k = 0; k < count; k++) {
-                int co = (int)pixel[1][k] - 256, cg = (int)pixel[2][k] - 256;
-                int t = (int)pixel[0][k] - half_floor(cg), b = t - half_floor(co);
-                size_t o = ((size_t)y * c->slice_width + x + k) * 3;
-
-                rgb[o] = byte(co + b);
-                rgb[o + 1] = byte(cg + t);
-                rgb[o + 2] = byte(b);
+                for (u = 0; u < f->units; u++) {
+                    out[((size_t)y * width + x + k) * f->units + u] = pixel[u][k];
+                }
             }
-            if (dsc_rc_step(&rc, y, g, count, actual, ideal)) {
+            if (dsc_rc_step(&rc, y, gn, count, g.actual, g.ideal)) {
                 status = DSC_RATE_CONTROL;
                 goto done;
             }
             if (opt->trace) {
                 tr.slice = slice;
-                tr.group = g;
+                tr.group = gn;
                 tr.x = x;
                 tr.y = y;
                 tr.qp = qp;
-                tr.actual = actual;
-                tr.ideal = ideal;
+                tr.actual = g.actual;
+                tr.ideal = g.ideal;
                 tr.range = rc.range;
                 tr.generated_qp = rc.last_qp;
                 tr.buffer_fullness = rc.fullness;
                 tr.model_fullness = rc.last_inputs.model;
-                tr.ich = ich;
+                tr.ich = g.ich;
                 tr.flat_override = rc.flat_override;
                 opt->trace(opt->trace_context, &tr);
             }
         }
     }
     /* Residual funnel and CBR slice-tail padding must be zero (6.7.4). */
-    for (j = 0; j < 3; j++) {
-        for (k = s.s[j].read; k < s.s[j].count; k++) {
-            if (s.s[j].bits[k]) {
+    for (u = 0; u < f->units; u++) {
+        for (k = s.s[u].read; k < s.s[u].count; k++) {
+            if (s.s[u].bits[k]) {
                 status = DSC_BITSTREAM;
                 goto done;
             }
         }
-    }
-    if (c->vbr_enable && pos != n) {
-        status = DSC_INVALID;
-        goto done;
     }
     for (; pos < n; pos++) {
         if (p[pos]) {
@@ -391,32 +388,136 @@ done:
     return status;
 }
 
-int dsc_decode_slice_ex(const struct drm_dsc_config *c, const struct dsc_options *opt,
-                        const uint8_t *p, size_t n, uint8_t *rgb, size_t cap)
+/* Where decoded pixels go: RGB888, or 16-bit planes. */
+struct sink {
+    uint8_t *rgb;
+    const struct dsc_planes *planes;
+    unsigned width;
+};
+
+static int half_floor(int v)
+{
+    return v >= 0 ? v / 2 : -((-v + 1) / 2);
+}
+
+/* §7.7: YCoCg-R to RGB, each result clamped to the component range. */
+static void put_pixel(const struct sink *k, const struct dsc_format *f, unsigned x, unsigned y,
+                      const uint16_t *s)
+{
+    int co = (int)s[1] - (1 << f->bpc), cg = (int)s[2] - (1 << f->bpc);
+    int t = (int)s[0] - half_floor(cg), b = t - half_floor(co);
+    unsigned top = (1u << f->bpc) - 1, rgb[3], c;
+
+    rgb[0] = bound(co + b, top);
+    rgb[1] = bound(cg + t, top);
+    rgb[2] = bound(b, top);
+    if (k->rgb) {
+        for (c = 0; c < 3; c++) {
+            k->rgb[((size_t)y * k->width + x) * 3 + c] = (uint8_t)rgb[c];
+        }
+    } else {
+        for (c = 0; c < 3; c++) {
+            k->planes->plane[c][(size_t)y * k->planes->stride[c] + x] = (uint16_t)rgb[c];
+        }
+    }
+}
+
+/* Writes the visible part of a decoded slice at (x0, y0) of the output. */
+static void put_slice(const struct sink *k, const struct dsc_format *f, const uint16_t *decoded,
+                      unsigned slice_width, unsigned slice_height, unsigned x0, unsigned y0,
+                      unsigned width, unsigned height)
+{
+    unsigned x, y;
+
+    for (y = 0; y < slice_height && y0 + y < height; y++) {
+        for (x = 0; x < slice_width && x0 + x < width; x++) {
+            put_pixel(k, f, x0 + x, y0 + y, decoded + ((size_t)y * slice_width + x) * f->units);
+        }
+    }
+}
+
+int dsc_plane_size(const struct drm_dsc_config *c, int slice, unsigned width[3],
+                   unsigned height[3])
+{
+    struct dsc_format f;
+    unsigned i;
+    int status;
+
+    if (!c || !width || !height) {
+        return DSC_INVALID;
+    }
+    status = dsc_format_init(&f, c);
+    if (status) {
+        return status;
+    }
+    for (i = 0; i < 3; i++) {
+        width[i] = slice ? c->slice_width : c->pic_width;
+        height[i] = slice ? c->slice_height : c->pic_height;
+    }
+    return DSC_OK;
+}
+
+static int check_planes(const struct drm_dsc_config *c, int slice, const struct dsc_planes *o)
+{
+    unsigned w[3], h[3], i;
+    int status = dsc_plane_size(c, slice, w, h);
+
+    if (status) {
+        return status;
+    }
+    if (!o) {
+        return DSC_INVALID;
+    }
+    for (i = 0; i < 3; i++) {
+        if (!o->plane[i] || o->stride[i] < w[i] ||
+            o->capacity[i] < o->stride[i] * (h[i] - 1) + w[i]) {
+            return DSC_LIMIT;
+        }
+    }
+    return DSC_OK;
+}
+
+static int decode_single(const struct drm_dsc_config *c, const struct dsc_options *opt,
+                         const uint8_t *p, size_t n, const struct sink *k)
 {
     struct dsc_options defaults;
+    struct dsc_format f;
+    uint16_t *decoded;
+    int status = validate(c, &f);
 
+    if (status) {
+        return status;
+    }
+    if (!p) {
+        return DSC_INVALID;
+    }
     if (!opt) {
         dsc_options_init(&defaults);
         opt = &defaults;
     }
-    return decode_slice(c, opt, 0, p, n, rgb, cap);
+    decoded = malloc((size_t)c->slice_width * c->slice_height * f.units * sizeof(*decoded));
+    if (!decoded) {
+        return DSC_NOMEM;
+    }
+    status = decode_slice(c, &f, opt, 0, p, n, decoded);
+    if (!status) {
+        put_slice(k, &f, decoded, c->slice_width, c->slice_height, 0, 0, c->slice_width,
+                  c->slice_height);
+    }
+    free(decoded);
+    return status;
 }
 
-int dsc_decode_slice(const struct drm_dsc_config *c, const uint8_t *p, size_t n, uint8_t *rgb,
-                     size_t cap)
-{
-    return dsc_decode_slice_ex(c, NULL, p, n, rgb, cap);
-}
-
-int dsc_decode_frame_ex(const struct drm_dsc_config *c, const struct dsc_options *opt,
-                        const uint8_t *data, size_t n, uint8_t *rgb, size_t cap)
+static int decode_picture(const struct drm_dsc_config *c, const struct dsc_options *opt,
+                          const uint8_t *data, size_t n, const struct sink *k)
 {
     struct dsc_options defaults;
+    struct dsc_format f;
     unsigned nx, ny, sx, sy, y;
-    size_t bytes, pixels, expected;
-    uint8_t *slice, *decoded;
-    int status = validate(c);
+    size_t bytes, expected;
+    uint8_t *slice;
+    uint16_t *decoded;
+    int status = validate(c, &f);
 
     if (status) {
         return status;
@@ -425,19 +526,12 @@ int dsc_decode_frame_ex(const struct drm_dsc_config *c, const struct dsc_options
         dsc_options_init(&defaults);
         opt = &defaults;
     }
-    if (c->vbr_enable) {
-        return DSC_UNSUPPORTED;
-    }
-    if (!data || !rgb) {
+    if (!data) {
         return DSC_INVALID;
-    }
-    if (cap < (size_t)c->pic_width * c->pic_height * 3) {
-        return DSC_LIMIT;
     }
     nx = ((unsigned)c->pic_width + c->slice_width - 1) / c->slice_width;
     ny = ((unsigned)c->pic_height + c->slice_height - 1) / c->slice_height;
     bytes = (size_t)c->slice_chunk_size * c->slice_height;
-    pixels = (size_t)c->slice_width * c->slice_height * 3;
     if (nx > 255 || bytes > SIZE_MAX / nx / ny) {
         return DSC_LIMIT;
     }
@@ -446,7 +540,7 @@ int dsc_decode_frame_ex(const struct drm_dsc_config *c, const struct dsc_options
         return n < expected ? DSC_TRUNCATED : DSC_INVALID;
     }
     slice = malloc(bytes);
-    decoded = malloc(pixels);
+    decoded = malloc((size_t)c->slice_width * c->slice_height * f.units * sizeof(*decoded));
     if (!slice || !decoded) {
         free(slice);
         free(decoded);
@@ -460,20 +554,12 @@ int dsc_decode_frame_ex(const struct drm_dsc_config *c, const struct dsc_options
 
                 memcpy(slice + (size_t)y * c->slice_chunk_size, data + source, c->slice_chunk_size);
             }
-            status = decode_slice(c, opt, sy * nx + sx, slice, bytes, decoded, pixels);
+            status = decode_slice(c, &f, opt, sy * nx + sx, slice, bytes, decoded);
             if (status) {
                 goto done;
             }
-            for (y = 0; y < c->slice_height && sy * c->slice_height + y < c->pic_height; y++) {
-                unsigned width = c->pic_width - sx * c->slice_width;
-
-                if (width > c->slice_width) {
-                    width = c->slice_width;
-                }
-                memcpy(rgb + ((size_t)(sy * c->slice_height + y) * c->pic_width +
-                              sx * c->slice_width) * 3,
-                       decoded + (size_t)y * c->slice_width * 3, (size_t)width * 3);
-            }
+            put_slice(k, &f, decoded, c->slice_width, c->slice_height, sx * c->slice_width,
+                      sy * c->slice_height, c->pic_width, c->pic_height);
         }
     }
 done:
@@ -482,8 +568,95 @@ done:
     return status;
 }
 
+/* RGB888 output exists for 8 bpc RGB pictures only; the planes API
+ * serves every format. */
+static int rgb888_sink(const struct drm_dsc_config *c, int slice, uint8_t *rgb, size_t cap,
+                       struct sink *k)
+{
+    struct dsc_format f;
+    int status = validate(c, &f);
+
+    if (status) {
+        return status;
+    }
+    if (f.bpc != 8 || !f.rgb) {
+        return DSC_UNSUPPORTED;
+    }
+    if (!rgb) {
+        return DSC_INVALID;
+    }
+    k->rgb = rgb;
+    k->planes = NULL;
+    k->width = slice ? c->slice_width : c->pic_width;
+    if (cap < (size_t)k->width * (slice ? c->slice_height : c->pic_height) * 3) {
+        return DSC_LIMIT;
+    }
+    return DSC_OK;
+}
+
+static int planes_sink(const struct drm_dsc_config *c, int slice, const struct dsc_planes *o,
+                       struct sink *k)
+{
+    struct dsc_format f;
+    int status = validate(c, &f);
+
+    if (status) {
+        return status;
+    }
+    status = check_planes(c, slice, o);
+    if (status) {
+        return status;
+    }
+    k->rgb = NULL;
+    k->planes = o;
+    k->width = slice ? c->slice_width : c->pic_width;
+    return DSC_OK;
+}
+
+int dsc_decode_slice_ex(const struct drm_dsc_config *c, const struct dsc_options *opt,
+                        const uint8_t *p, size_t n, uint8_t *rgb, size_t cap)
+{
+    struct sink k;
+    int status = rgb888_sink(c, 1, rgb, cap, &k);
+
+    return status ? status : decode_single(c, opt, p, n, &k);
+}
+
+int dsc_decode_slice(const struct drm_dsc_config *c, const uint8_t *p, size_t n, uint8_t *rgb,
+                     size_t cap)
+{
+    return dsc_decode_slice_ex(c, NULL, p, n, rgb, cap);
+}
+
+int dsc_decode_frame_ex(const struct drm_dsc_config *c, const struct dsc_options *opt,
+                        const uint8_t *data, size_t n, uint8_t *rgb, size_t cap)
+{
+    struct sink k;
+    int status = rgb888_sink(c, 0, rgb, cap, &k);
+
+    return status ? status : decode_picture(c, opt, data, n, &k);
+}
+
 int dsc_decode_frame(const struct drm_dsc_config *c, const uint8_t *data, size_t n, uint8_t *rgb,
                      size_t cap)
 {
     return dsc_decode_frame_ex(c, NULL, data, n, rgb, cap);
+}
+
+int dsc_decode_slice_planes(const struct drm_dsc_config *c, const struct dsc_options *opt,
+                            const uint8_t *p, size_t n, const struct dsc_planes *out)
+{
+    struct sink k;
+    int status = planes_sink(c, 1, out, &k);
+
+    return status ? status : decode_single(c, opt, p, n, &k);
+}
+
+int dsc_decode_frame_planes(const struct drm_dsc_config *c, const struct dsc_options *opt,
+                            const uint8_t *data, size_t n, const struct dsc_planes *out)
+{
+    struct sink k;
+    int status = planes_sink(c, 0, out, &k);
+
+    return status ? status : decode_picture(c, opt, data, n, &k);
 }

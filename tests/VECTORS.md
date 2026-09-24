@@ -141,3 +141,15 @@ saturation: at depth 8, internal chroma 511 becomes 510 and 257 becomes 258;
 at depth 9 both are preserved. Shift-register ICH keeps original sample precision.
 Separate tests check that a full final group does not populate history and that
 multiple horizontal slices clear history between lines.
+
+# M3 additions: 10 and 12 bits per component
+
+`make_hbd_vectors.py` constructs six DSC 1.1 RGB fixtures, three per bit
+depth: `hbd10_color`/`hbd12_color` (lossless QP 0 colour, four 50×3 slices
+cropped to 99×5, MMAP, MPP and partial groups), `hbd10_ich`/`hbd12_ich` (an
+ICH escape and ICH continuation over three lines) and `hbd10_qp`/`hbd12_qp`
+(MPP groups at a pinned QP, 13 and 21, whose qLevels differ from the 8 bpc
+table row). Expected images are PPM with two bytes per sample. The
+expected pixels, the syntax of the first groups and the maximum syntax
+element sizes are derived by hand in `research/hbd-worked-note.md`. Hashes
+and mux lengths are in `fixtures/hbd_manifest.json`.
