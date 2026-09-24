@@ -910,3 +910,81 @@ No corpus run used the -O2 build. Its objects are byte-identical to the base
 build, and UBSan found no undefined behavior in the 612 sanitizer-build
 decodes, so an -O2 difference would require undefined behavior that UBSan
 does not detect.
+
+# M3 progress log (branch m3-dsc12)
+
+M3 extends the decoder toward DSC 1.2. Every M3 result is recorded here. The
+README Status section and its numbers still describe v0.1.0 and are not
+changed by M3. Model runs, pictures and scratch files are under
+`~/dsc-runs/m3/`. For DSC 1.2 behavior the primary reference is DSC 1.2b;
+DSC 1.2a with its E1 errata is secondary.
+
+## Phase 0: baseline (2026-09-24)
+
+Measured on m3-dsc12, created from main at 6382dae, before any M3 change. The
+tree was clean.
+
+Toolchain on this VM:
+
+| Tool | Version |
+|---|---|
+| GCC (`cc`) | 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1) |
+| Clang (libFuzzer) | 18.1.3 (1ubuntu1) |
+| llvm-cov, llvm-profdata | 18 |
+| Python | 3.12.3, Pillow 10.2.0, no NumPy |
+| GNU Make | 4.3 |
+| AFL++ (`afl-clang-fast`) | not installed |
+| Host | Linux 7.0.0-34-generic, x86-64, 8 CPUs |
+| Model | `/usr/local/bin/dsc-ref`, version 1.67 |
+
+Tests at baseline (both CI runs, identical counts):
+
+| Suite | Result |
+|---|---|
+| Image fixtures, bit-exact (8 M1 plus 2 BP) | 10 / 10 |
+| CLI checks (`tests/test_cli.py`) | 26 / 26 |
+| Discriminator decodes (`tests/test_discriminators.py`) | 72 / 72 |
+| `test_rc` (hand-calculated RC cases) | 29 cases, pass |
+| `test_predict` (prediction cases) | 7 cases, pass |
+| Harness checks with the stand-in model (`tests/test_compare_model.py`) | 9 / 9 |
+| ASan + UBSan suites (`make sanitize`) | pass |
+| Fixture reproducibility | pass |
+
+Lines of code at baseline (`wc -l`, all lines):
+
+| Area | Files | Lines |
+|---|---|---|
+| Library and CLI | `src/*.c`, `src/*.h`, `include/dsc.h` | 2,029 |
+| Fuzz entry points | `fuzz/*.c` | 145 |
+| Tests | `tests/*.c`, `tests/*.py` | 2,341 |
+| Tools and scripts | `tools/compare_model`, `tools/run_corpus`, `scripts/ci.sh` | 778 |
+| Total | | 5,293 |
+
+The line counts are higher than the M2 figures because of the readability
+refactor (62df40a to b47e367), which split dense lines.
+
+CI:
+
+* `scripts/ci.sh` with `DSCDECODE_MODEL_BIN` unset: every step passed (build,
+  test, fixtures, sanitize, fuzz, model SKIP). libFuzzer: 743,097 executions in
+  61 s; deterministic smoke: 680,000 executions.
+* `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref scripts/ci.sh`: every step
+  passed. libFuzzer 746,707 executions in 61 s; deterministic smoke 680,000.
+  Model step: self-test match; `oq1` in-flight, `oq2b` lower, `oq3` chunk,
+  `oq4` midpoint, `oq2` superseded. As at v0.1.0, the model step's
+  `make all` found the sanitizer build left by the sanitize step and used it
+  (`make` did not track flags). Phase 1 removes this.
+
+Corpus at 8 bpp: the 17 images, block prediction off and on, 1, 2 and 4
+slices per line, DSC 1.1 (`tools/run_corpus --bpp 8 --min-images 17`). To
+make sure the release build was measured, `dscdecode` was built with a plain
+`make` (`-O2 -g`) from `git archive 6382dae` under
+`~/dsc-runs/m3/phase0/base-src/` and passed with `DSCDECODE_BIN`. Results:
+`~/dsc-runs/corpus/20260924-023617`, 5 min 25 s.
+
+| bpp | Runs | Bit-exact matches | Differing samples |
+|---|---|---|---|
+| 8 | 102 | 102 | 0 |
+
+The 34-run 1.1 regression check used at the end of each M3 phase
+(`--bpp 8 --bp 0 1 --slices 2`) is a subset of these runs: 34 of 34 match.
