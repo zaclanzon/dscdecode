@@ -328,7 +328,8 @@ def oq24b_bitsave_flat():
         b.group(**LAST)         # group 14
     return emit('oq24b_bitsave_flat', 'bitsave_flat',
                 bitsave_pps(15, height=3, flat_min=8, flat_max=8), plan, 'received',
-                vary=['bitsave_pred', 'line_flat', 'bpg_combine'], assumes={'bitsave_ich': 'not'})
+                vary=['bitsave_pred', 'line_flat', 'bpg_combine'], assumes={'bitsave_ich': 'not'},
+                readings=('supergroup', 'group', 'received', 'carrier'))
 
 
 def oq24c_bitsave_flat():
@@ -349,13 +350,65 @@ def oq24c_bitsave_flat():
         b.group(**LAST)         # group 8
     return emit('oq24c_bitsave_flat', 'bitsave_flat',
                 bitsave_pps(9, height=3, flat_min=8, flat_max=8), plan, 'received',
+                vary=['bitsave_pred', 'line_flat', 'bpg_combine'], assumes={'bitsave_ich': 'not'},
+                readings=('supergroup', 'group', 'received', 'carrier'))
+
+
+# --- OQ-24, third round: the ends of the window ------------------------------
+#
+# On the three inputs above the model's outputs fit span (the flag's group to
+# the last group of its supergroup: 7-12 for the flag sent in group 7) and
+# lagged (the flag as it was before the group: 8-11), and the windows 7-11
+# and 8-12. Two inputs test the two ends, each with one MPP pair whose other
+# group no reading covers: is the flag's own group covered (oq24d), is the
+# supergroup's last group covered (oq24e).
+
+def oq24d_bitsave_flat():
+    """15x2: five groups a line. Group 7 sends flag 1 for supergroup 9-12,
+    group 8 type 0 and position 3 (flat group 12, beyond the slice); group
+    3 sent flag 0. Groups 6 and 7 are MPP, 8 zeros, 9 the last. Group 7 is
+    covered under received, carrier and span (group 9 at 8), not under
+    supergroup, group and lagged (group 9 at 9)."""
+    def plan(b):
+        for _ in range(6):
+            b.group(**SMALL)
+        b.group(**MPP3)                                    # group 6
+        b.group(flat=(1, 0, 3), **MPP3)                    # group 7: flag 1
+        b.group(flat=(1, 0, 3), res=ZERO)                  # group 8: type 0, position 3
+        b.group(**LAST)         # group 9
+    return emit('oq24d_bitsave_flat', 'bitsave_flat',
+                bitsave_pps(15, flat_min=8, flat_max=8), plan, 'span',
+                vary=['bitsave_pred', 'line_flat', 'bpg_combine'], assumes={'bitsave_ich': 'not'})
+
+
+def oq24e_bitsave_flat():
+    """24x2: eight groups a line. Group 7 sends flag 1 for supergroup 9-12,
+    group 8 type 0 and position 0 (flat group 9), group 11 flag 0. Groups 12
+    and 13 are MPP, 14 zeros, 15 the last. Group 12 is covered under
+    supergroup and span (group 15 at 8), not under group, received, carrier
+    and lagged (group 15 at 9)."""
+    def plan(b):
+        for _ in range(7):
+            b.group(**SMALL)
+        b.group(flat=(1, 0, 0), **SMALL)                   # group 7: flag 1
+        b.group(flat=(1, 0, 0), **SMALL)                   # group 8: type 0, position 0
+        b.group(**SMALL)
+        b.group(**SMALL)
+        b.group(flat=(0, 0, 0), **SMALL)                   # group 11: flag 0
+        b.group(**MPP3)                                    # group 12
+        b.group(**MPP3)
+        b.group(res=ZERO)
+        b.group(**LAST)         # group 15
+    return emit('oq24e_bitsave_flat', 'bitsave_flat',
+                bitsave_pps(24, flat_min=8, flat_max=8), plan, 'span',
                 vary=['bitsave_pred', 'line_flat', 'bpg_combine'], assumes={'bitsave_ich': 'not'})
 
 
 def build_all():
     return [make() for make in (oq7_bpg_combine, oq20_chroma_qlevel, oq21_prefix16,
                                 oq22_bitsave_ich, oq23_bitsave_pred_next, oq24_bitsave_flat,
-                                oq25_line_flat, oq24b_bitsave_flat, oq24c_bitsave_flat)]
+                                oq25_line_flat, oq24b_bitsave_flat, oq24c_bitsave_flat,
+                                oq24d_bitsave_flat, oq24e_bitsave_flat)]
 
 
 if __name__ == '__main__':

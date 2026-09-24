@@ -30,12 +30,12 @@ void dsc_options_init(struct dsc_options *o)
     o->delay_partial = DSC_DELAY_PARTIAL_GROUP_END;
     /* DSC 1.2 readings, set by the model's decodes of the discriminators
      * (RESEARCH.md). OQ-24's default is the reading judged more likely
-     * until its second discriminator decides. */
+     * until its discriminators decide. */
     o->bpg_combine = DSC_BPG_COMBINE_ADD;
     o->chroma_qlevel = DSC_CHROMA_QLEVEL_EQUAL_DEPTH;
     o->prefix16 = DSC_PREFIX16_13;
     o->bitsave_ich = DSC_BITSAVE_ICH_NOT;
     o->bitsave_pred = DSC_BITSAVE_PRED_NEXT;
-    o->bitsave_flat = DSC_BITSAVE_FLAT_RECEIVED;
+    o->bitsave_flat = DSC_BITSAVE_FLAT_SPAN;
     o->line_flat = DSC_LINE_FLAT_SIGNALED;
 }

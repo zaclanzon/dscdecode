@@ -20,13 +20,13 @@ READINGS = {
     'prefix16': ('15', '13'),
     'bitsave_ich': ('not', 'set'),
     'bitsave_pred': ('raw', 'adjusted', 'next'),
-    'bitsave_flat': ('supergroup', 'group', 'received', 'carrier'),
+    'bitsave_flat': ('supergroup', 'group', 'received', 'carrier', 'span', 'lagged'),
     'line_flat': ('very', 'signaled'),
 }
 # The C decoder's defaults (src/options.c).
 DEFAULTS = {'delay_partial': 'group-end', 'bpg_combine': 'add', 'chroma_qlevel': 'equal-depth',
             'prefix16': '13', 'bitsave_ich': 'not', 'bitsave_pred': 'next',
-            'bitsave_flat': 'received', 'line_flat': 'signaled'}
+            'bitsave_flat': 'span', 'line_flat': 'signaled'}
 
 
 def clamp(v, lo, hi):
@@ -327,7 +327,7 @@ class Slice:
         self.rc = RateControl(pps, self.f, self.r)
         self.predicted, self.last_level = [0, 0, 0], [0, 0, 0]
         self.was_ich = False
-        self.flag = self.sg_flag = 0
+        self.flag = self.sg_flag = self.prev_flag = 0
         self.flat_group, self.flat_type = None, 0
         w = pps.slice_width
         mids = [1 << (d - 1) for d in self.f.depth]
@@ -428,6 +428,7 @@ class Slice:
         gpl = (w + 2) // 3
         y, x = g // gpl, (g % gpl) * 3
         self.rc.flatness(self.flat_group == g, self.flat_type, x == 0 and y > 0)
+        self.prev_flag = self.flag
         if g % 4 == 1:
             self.sg_flag = self.flag
         return x, y, self.rc.qp
@@ -440,7 +441,9 @@ class Slice:
                  zero=not ich and ideal == 3, predicted=chosen[self.r['bitsave_pred']],
                  flat={'supergroup': self.sg_flag, 'group': self.flat_group == self.g,
                        'received': self.flag,
-                       'carrier': self.flag and self.g % 4 in (3, 0)}[self.r['bitsave_flat']])
+                       'carrier': self.flag and self.g % 4 in (3, 0),
+                       'span': self.flag or self.sg_flag,
+                       'lagged': self.prev_flag}[self.r['bitsave_flat']])
         self.rc.step(y, n, g)
         self.g += 1
 

@@ -79,7 +79,9 @@ enum dsc_bitsave_flat {              /* OQ-24, §6.8.4: which flatness the bitSa
     DSC_BITSAVE_FLAT_SUPERGROUP = 0, /* the flag of the supergroup that holds the group */
     DSC_BITSAVE_FLAT_GROUP = 1,      /* the group is the supergroup's signaled flat group */
     DSC_BITSAVE_FLAT_RECEIVED = 2,   /* the flag received last, from the group that carries it on */
-    DSC_BITSAVE_FLAT_CARRIER = 3     /* the group carries a flag of 1, or the type and position after it */
+    DSC_BITSAVE_FLAT_CARRIER = 3,    /* the group carries a flag of 1, or the type and position after it */
+    DSC_BITSAVE_FLAT_SPAN = 4,       /* from the group carrying the flag to its supergroup's last group */
+    DSC_BITSAVE_FLAT_LAGGED = 5      /* the flag received last before this group */
 };
 
 enum dsc_line_flat {              /* OQ-25, §6.8.5.2 first group of a non-first line */

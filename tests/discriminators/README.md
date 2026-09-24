@@ -279,6 +279,8 @@ so its prefixes parse the same way at either QP. Full QP schedules are in
 | `oq25_line_flat` | 3×2, 8 | OQ-25: very → 1, signaled → 0 (line 1's only group) | x = 0 of line 1: (127,128,129) very, (128,128,129) signaled |
 | `oq24b_bitsave_flat` | 15×3, 8 | OQ-24: received and carrier → 9, supergroup and group → 8 | x = 12–14 of line 2: (163,182,72), (166,186,60), (142,178,36) received/carrier; (155,174,64), (158,178,52), (142,178,36) supergroup/group |
 | `oq24c_bitsave_flat` | 9×3, 8 | OQ-24: received and supergroup → 8, carrier and group → 9 | x = 6–8 of line 2: (152,155,109), (156,135,145), (151,127,133) received/supergroup; (156,159,113), (160,139,149), (147,123,129) carrier/group |
+| `oq24d_bitsave_flat` | 15×2, 8 | OQ-24: received, carrier, span → 8; supergroup, group, lagged → 9 | x = 12–14 of line 1: (156,160,83), (163,167,74), (151,167,54) at 8; (164,168,91), (171,175,82), (151,167,54) at 9 |
+| `oq24e_bitsave_flat` | 24×2, 8 | OQ-24: supergroup, span → 8; group, received, carrier, lagged → 9 | x = 21–23 of line 1: (159,163,85), (163,167,73), (151,167,53) at 8; (183,187,109), (91,95,1), (147,163,49) at 9 |
 
 How each is built:
 
@@ -335,6 +337,25 @@ How each is built:
   supergroup prediction on `oq24b` and the received prediction on `oq24c`.
   `oq24_bitsave_flat` is marked superseded by `oq24b_bitsave_flat`: it has
   predictions only for the two readings it was built for.
+* `oq24d_bitsave_flat`, `oq24e_bitsave_flat`: added after the model
+  decoded `oq24b` and `oq24c` (PROGRESS.md, Phase 4) and committed with
+  these predictions before the model decoded them. On the three OQ-24
+  inputs before them the model's outputs fit two further readings, now
+  switch values: `span` (from the group carrying the flag to the last group
+  of its supergroup: groups 7–12 for the flag sent in group 7) and `lagged`
+  (the flag as it was before the group: groups 8–11). Two other windows
+  fit as well, 7–11 and 8–12; they are not switch values. The two inputs
+  test the ends of the window, each with an MPP pair whose other group no
+  reading covers, so the last group decodes at 8 if the tested group is
+  covered and at 9 if not.
+  `oq24d`: flag 0 in group 3, flag 1 in group 7 (flat group 12, beyond the
+  slice); MPP groups 6 and 7. Is the flag's own group covered?
+  `oq24e`: flag 1 in group 7 (flat group 9), flag 0 in group 11; MPP
+  groups 12 and 13. Is the supergroup's last group covered?
+  Outcomes (QP of the last group, `oq24d` / `oq24e`), for the windows that
+  fit the earlier inputs: span 7–12 → 8 / 8; lagged 8–11 → 9 / 9; window
+  7–11 → 8 / 9; window 8–12 → 9 / 8. The last two were computed with a
+  scratch build before the model decoded these inputs.
 * `oq25_line_flat`: one group per line. Line 1's group follows a group
   decoded at QP 0. DSC 1.2 adjusts the first group of every non-first line
   as very flat: veryFlatQp 1 under very; under signaled, the QP before

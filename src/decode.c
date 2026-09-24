@@ -23,6 +23,7 @@ struct syntax_state {
     struct reservoir s[4];
     unsigned predicted[4], last_level[4];
     int was_ich, flat_flag, flat_type, sg_flag;
+    int prev_flag; /* flat_flag before this group read it (OQ-24) */
     size_t flat_group;
 };
 
@@ -161,6 +162,7 @@ static int syntax(struct syntax_state *s, const struct dsc_format *f,
     for (u = 0; u < f->units; u++) {
         start += s->s[u].read;
     }
+    s->prev_flag = s->flat_flag;
     /* A supergroup is four groups from group 1 on; its flag was read two
      * groups before it starts (§6.6.3). */
     if (group % 4 == 1) {
@@ -389,15 +391,32 @@ static int decode_slice(const struct drm_dsc_config *c, const struct dsc_format 
             report.mpp = g.mpp_units;
             report.ich = g.ich;
             report.zero = g.zero;
-            /* OQ-24: the flag of the group's supergroup, the group being
-             * the signaled one, the flag received last (read in this group
-             * or before it), or the group carrying the flag of 1 or the
-             * type and position after it. OQ-23: which predicted sizes. */
-            report.flat = opt->bitsave_flat == DSC_BITSAVE_FLAT_GROUP      ? s.flat_group == gn
-                          : opt->bitsave_flat == DSC_BITSAVE_FLAT_RECEIVED ? s.flat_flag
-                          : opt->bitsave_flat == DSC_BITSAVE_FLAT_CARRIER
-                              ? s.flat_flag && (gn % 4 == 3 || gn % 4 == 0)
-                              : s.sg_flag;
+            /* OQ-24: which groups a flag of 1 covers (RESEARCH.md): its
+             * supergroup; the signaled group; the flag received last, read
+             * in this group or before it; the groups carrying the flag and
+             * the type and position; from the flag's group to the end of
+             * its supergroup; the flag as it was before this group.
+             * OQ-23: which predicted sizes. */
+            switch (opt->bitsave_flat) {
+            case DSC_BITSAVE_FLAT_GROUP:
+                report.flat = s.flat_group == gn;
+                break;
+            case DSC_BITSAVE_FLAT_RECEIVED:
+                report.flat = s.flat_flag;
+                break;
+            case DSC_BITSAVE_FLAT_CARRIER:
+                report.flat = s.flat_flag && (gn % 4 == 3 || gn % 4 == 0);
+                break;
+            case DSC_BITSAVE_FLAT_SPAN:
+                report.flat = s.flat_flag || s.sg_flag;
+                break;
+            case DSC_BITSAVE_FLAT_LAGGED:
+                report.flat = s.prev_flag;
+                break;
+            default:
+                report.flat = s.sg_flag;
+                break;
+            }
             for (u = 0; u < f->units; u++) {
                 report.predicted[u] = opt->bitsave_pred == DSC_BITSAVE_PRED_ADJUSTED ? g.pred_adjusted[u]
                                       : opt->bitsave_pred == DSC_BITSAVE_PRED_NEXT   ? g.pred_next[u]

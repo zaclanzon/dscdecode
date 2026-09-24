@@ -29,7 +29,7 @@ READINGS = {
     'prefix16': ('15', '13'),
     'bitsave_ich': ('not', 'set'),
     'bitsave_pred': ('raw', 'adjusted', 'next'),
-    'bitsave_flat': ('supergroup', 'group', 'received', 'carrier'),
+    'bitsave_flat': ('supergroup', 'group', 'received', 'carrier', 'span', 'lagged'),
     'line_flat': ('very', 'signaled'),
 }
 # The statistic that shows each question's condition occurred.

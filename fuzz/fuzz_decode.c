@@ -72,7 +72,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     opt.prefix16 = (size >> 2) & 1;
     opt.bitsave_ich = (size >> 3) & 1;
     opt.bitsave_pred = (int)((size >> 4) % 3);
-    opt.bitsave_flat = (int)((size >> 6) & 3);
+    opt.bitsave_flat = (int)(((size >> 6) & 7) % 6);
     opt.line_flat = (size >> 7) & 1;
     opt.stats = &stats;
     opt.trace = ignore_trace;

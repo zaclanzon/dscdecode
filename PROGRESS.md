@@ -1410,3 +1410,39 @@ list, so a reading added later does not need predictions for inputs the
 model has already decoded. `tests/make_v12_discriminators.py` rebuilds the
 first seven inputs under the defaults they were built with; they
 regenerate byte-for-byte. Discriminator decodes: 2,728 → 6,312.
+
+## Phase 4, part 3: OQ-24, third round (2026-09-24)
+
+Phase 4 is not complete at this commit.
+
+After 352b429 the model decoded `oq24b_bitsave_flat` and `oq24c_bitsave_flat`
+(`~/dsc-runs/m3/phase4/disc-model2.log`, runs
+`~/dsc-runs/m3/phase4/runs/compare/20260924-122116-*`). Every other input
+gave its earlier verdict.
+
+| Input | Model output matches | Does not match |
+|---|---|---|
+| `oq24b_bitsave_flat` | supergroup, group (one shared prediction) | received, carrier: 6 samples in 2 pixels |
+| `oq24c_bitsave_flat` | supergroup, received (one shared prediction) | group, carrier: 9 samples in 3 pixels |
+
+With `oq24_bitsave_flat`, where the model matched neither supergroup nor
+group, no one of the four readings fits all three inputs. The variant
+recorded in the discriminator README before these decodes (a group is
+covered under received or supergroup) fits all three: its recorded
+outcomes were the supergroup prediction on `oq24b` and the received
+prediction on `oq24c`. It is the window from the group that carries the
+flag to the last group of its supergroup (groups 7–12 for the flag sent in
+group 7). The scratch build found three more windows that fit the three
+outputs: the flag as it was before the group (8–11), 7–11 and 8–12; all the
+three inputs show is that a flag of 1 covers at least one group of each MPP
+pair tested (7–8, 11–12, and 5–6 for the flag sent in group 3).
+
+So `span` (7–12) and `lagged` (8–11) were added to the `bitsave_flat`
+switch, the default became `span`, and two inputs that test the two ends of
+the window were built and committed with predictions for all six readings
+and for the other two windows: `oq24d_bitsave_flat` (is the flag's own group
+covered?) and `oq24e_bitsave_flat` (is the supergroup's last group
+covered?). The four windows give four different pairs of outcomes
+(`tests/discriminators/README.md`). `oq24b` and `oq24c` keep predictions for
+the four readings they were built with. Discriminator decodes: 6,312 →
+10,664.
