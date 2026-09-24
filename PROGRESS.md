@@ -1344,3 +1344,69 @@ the reference model decodes them. Section numbers are DSC 1.2b unless marked.
   `tests/test_rc.c`.
 * The fuzz target sets the new switches from input bits.
 * Gate for this part: `scripts/ci.sh` with the model unset: all steps pass.
+
+## Phase 4, part 2: the model decides six DSC 1.2 questions; OQ-24 gets two more inputs (2026-09-24)
+
+Phase 4 is not complete at this commit.
+
+### The first seven DSC 1.2 discriminators against the model
+
+After 60ae6cc, `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref tools/compare_model
+discriminators` (`~/dsc-runs/m3/phase4/disc-model.log`, runs under
+`~/dsc-runs/m3/phase4/runs/compare/20260924-083242-*`). The M2 and Phase 3
+inputs gave their earlier verdicts again. The new inputs:
+
+| Input | Question | Model output matches | Other predictions | Default before → after |
+|---|---|---|---|---|
+| `oq7_bpg_combine` | OQ-7 | add | replace: 9 samples in 3 pixels differ | add → add |
+| `oq20_chroma_qlevel` | OQ-20 | equal-depth | table: 6 samples in 3 pixels | equal-depth → equal-depth |
+| `oq21_prefix16` | OQ-21 | 13 | 15: 9 samples in 3 pixels | 15 → 13 |
+| `oq22_bitsave_ich` | OQ-22 | not | set: 6 samples in 2 pixels | not → not |
+| `oq23_bitsave_pred_next` | OQ-23 | next | raw and adjusted (one shared prediction): 6 samples in 2 pixels | raw → next |
+| `oq24_bitsave_flat` | OQ-24 | neither | supergroup and group: 12 samples in 4 pixels each | see below |
+| `oq25_line_flat` | OQ-25 | signaled | very: 1 sample | very → signaled |
+
+Three defaults changed: `prefix16=13` (the model follows DSC 1.2b §3.10.2
+and DSC 1.2a Table 4-10, not DSC 1.2b Table 4-10), `bitsave_pred=next`,
+`line_flat=signaled`. OQ-23: raw and adjusted were never separated from
+each other: after MPP units the two sums differ by exactly two, and in the
+one input tried for it the adjusted sum came out exactly at bitSaveThresh,
+where both readings keep bitSaveMode, so that input was dropped. Both
+predict the same output on `oq23_bitsave_pred_next`, and the model's output
+differs from it, so both are excluded.
+
+### OQ-24: both readings contradicted, two more readings, two more inputs
+
+The model's output of `oq24_bitsave_flat` matches neither prediction: it
+first differs at x = 14 of line 1, in group 10, which has zero residuals,
+so its pixels are the MMAP prediction, whose clamp depends on QP. Both
+predictions have group 10 at QP 9 (bitSaveMode 2 after the MPP groups 7 and
+8); the model decoded it at another QP. No combination of the other DSC 1.2
+switches reproduced the model's output. A scratch build outside the
+repository (`~/dsc-runs/m3/phase4/scratch`) tried other definitions of the
+flag the bitSaveMode update tests; three reproduced the model's output
+bit-exact: the flag received last (groups 7 to 10 for the flag sent in
+group 7), only the groups that carry the flag and the type and position
+(groups 7 and 8), and either the flag received last or the supergroup's
+flag. Groups 7 and 8 carry the flatness bits in this input, which is why all
+three fit.
+
+Under the open-question rule, `received` and `carrier` were added to the
+`bitsave_flat` switch (RESEARCH.md, OQ-24), the default became `received`
+(judged more likely), and two inputs were built and committed with
+predictions for all four readings before the model decoded them:
+`oq24b_bitsave_flat` (received and carrier → QP 9, supergroup and group →
+8) and `oq24c_bitsave_flat` (received and supergroup → 8, carrier and
+group → 9). Each reading has a different pair of outcomes. The third
+variant (received or supergroup) is not a switch value; the scratch build
+gives it the supergroup prediction on `oq24b`, so `oq24b` excludes it if
+the model matches received there. `oq24_bitsave_flat` is marked superseded:
+it has predictions only for its two readings. Details in
+`tests/discriminators/README.md`.
+
+Tooling: each input's manifest entry lists the readings it has predictions
+for, and `tests/test_discriminators.py` and `tools/compare_model` use that
+list, so a reading added later does not need predictions for inputs the
+model has already decoded. `tests/make_v12_discriminators.py` rebuilds the
+first seven inputs under the defaults they were built with; they
+regenerate byte-for-byte. Discriminator decodes: 2,728 → 6,312.

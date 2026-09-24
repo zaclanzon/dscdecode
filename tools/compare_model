@@ -68,7 +68,7 @@ READINGS = {
     'prefix16': ('15', '13'),
     'bitsave_ich': ('not', 'set'),
     'bitsave_pred': ('raw', 'adjusted', 'next'),
-    'bitsave_flat': ('supergroup', 'group'),
+    'bitsave_flat': ('supergroup', 'group', 'received', 'carrier'),
     'line_flat': ('very', 'signaled'),
 }
 RC_NAME = re.compile(r'rc_(\d+)bpc_(\d+)bpp\.cfg$')
@@ -475,9 +475,9 @@ def mode_discriminators(a):
             # The model rejected the input: a verdict of neither.
             reason = (str(e).strip().splitlines() or ['no message'])[-1][:200]
             verdicts = {r: dict(match=False, model_error=f'model decode failed: {reason}')
-                        for r in READINGS[entry['question']]}
+                        for r in own_readings(entry)}
         else:
-            for reading in READINGS[entry['question']]:
+            for reading in own_readings(entry):
                 verdicts[reading] = compare_images(model_out, root / f'{name}.{reading}.expected.ppm')
         supported = [r for r, v in verdicts.items() if v['match']]
         # Readings with the same prediction count as one outcome (an input
@@ -510,6 +510,12 @@ def mode_discriminators(a):
     if a.json:
         print(json.dumps(summary, indent=1))
     return status
+
+
+def own_readings(entry):
+    """The readings of its question an input has predictions for. A reading
+    added after an input was decoded by the model has none."""
+    return list(entry.get('readings') or READINGS[entry['question']])
 
 
 def mode_self_test(a):

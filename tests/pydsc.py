@@ -20,12 +20,13 @@ READINGS = {
     'prefix16': ('15', '13'),
     'bitsave_ich': ('not', 'set'),
     'bitsave_pred': ('raw', 'adjusted', 'next'),
-    'bitsave_flat': ('supergroup', 'group'),
+    'bitsave_flat': ('supergroup', 'group', 'received', 'carrier'),
     'line_flat': ('very', 'signaled'),
 }
+# The C decoder's defaults (src/options.c).
 DEFAULTS = {'delay_partial': 'group-end', 'bpg_combine': 'add', 'chroma_qlevel': 'equal-depth',
-            'prefix16': '15', 'bitsave_ich': 'not', 'bitsave_pred': 'raw',
-            'bitsave_flat': 'supergroup', 'line_flat': 'very'}
+            'prefix16': '13', 'bitsave_ich': 'not', 'bitsave_pred': 'next',
+            'bitsave_flat': 'received', 'line_flat': 'signaled'}
 
 
 def clamp(v, lo, hi):
@@ -437,7 +438,9 @@ class Slice:
         chosen = {'raw': pred_raw, 'adjusted': pred_adj, 'next': list(self.predicted)}
         g = dict(actual=actual, ideal=ideal, ich=ich, mpp=sum(map(bool, mpp)) if not ich else 0,
                  zero=not ich and ideal == 3, predicted=chosen[self.r['bitsave_pred']],
-                 flat=(self.flat_group == self.g) if self.r['bitsave_flat'] == 'group' else self.sg_flag)
+                 flat={'supergroup': self.sg_flag, 'group': self.flat_group == self.g,
+                       'received': self.flag,
+                       'carrier': self.flag and self.g % 4 in (3, 0)}[self.r['bitsave_flat']])
         self.rc.step(y, n, g)
         self.g += 1
 

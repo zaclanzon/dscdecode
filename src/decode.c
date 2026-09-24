@@ -389,10 +389,15 @@ static int decode_slice(const struct drm_dsc_config *c, const struct dsc_format 
             report.mpp = g.mpp_units;
             report.ich = g.ich;
             report.zero = g.zero;
-            /* OQ-24: the flag of the group's supergroup, or the group being
-             * the signaled one. OQ-23: which predicted sizes. */
-            report.flat = opt->bitsave_flat == DSC_BITSAVE_FLAT_GROUP ? s.flat_group == gn
-                                                                       : s.sg_flag;
+            /* OQ-24: the flag of the group's supergroup, the group being
+             * the signaled one, the flag received last (read in this group
+             * or before it), or the group carrying the flag of 1 or the
+             * type and position after it. OQ-23: which predicted sizes. */
+            report.flat = opt->bitsave_flat == DSC_BITSAVE_FLAT_GROUP      ? s.flat_group == gn
+                          : opt->bitsave_flat == DSC_BITSAVE_FLAT_RECEIVED ? s.flat_flag
+                          : opt->bitsave_flat == DSC_BITSAVE_FLAT_CARRIER
+                              ? s.flat_flag && (gn % 4 == 3 || gn % 4 == 0)
+                              : s.sg_flag;
             for (u = 0; u < f->units; u++) {
                 report.predicted[u] = opt->bitsave_pred == DSC_BITSAVE_PRED_ADJUSTED ? g.pred_adjusted[u]
                                       : opt->bitsave_pred == DSC_BITSAVE_PRED_NEXT   ? g.pred_next[u]

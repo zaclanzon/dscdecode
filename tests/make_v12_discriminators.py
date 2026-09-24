@@ -31,6 +31,11 @@ COMMON_VARY = ['flat_restart', 'threshold_eq', 'delay_offset', 'delay_partial']
 MODEL_TIMING = {'incr_order': 'swapped', 'rc_pipeline': 'range-lag', 'scale_dec': 'from-group-0',
                 'partial_target': 'pixels', 'very_flat': 'previous-qp', 'partial_padding': 'accept',
                 'flat_max_qp': 'previous'}
+# The pydsc defaults that differed when the first seven inputs were built
+# (60ae6cc), before the model decoded them. Those inputs are rebuilt under
+# the same readings, so their files do not change.
+PART1_DEFAULTS = {'prefix16': '15', 'bitsave_pred': 'raw', 'bitsave_flat': 'supergroup',
+                  'line_flat': 'very'}
 
 
 def mux_order(units, fmt, max_se):
@@ -46,10 +51,13 @@ def mux_order(units, fmt, max_se):
     return order
 
 
-def emit(name, question, pps, plan, construct, vary=(), note='', separate=None, assumes=None):
-    """Build under reading `construct`, decode under every reading, write the
-    files and return the manifest entry."""
-    b = Builder(pps, dict(assumes or {}, **{question: construct}))
+def emit(name, question, pps, plan, construct, vary=(), note='', separate=None, assumes=None,
+         base=None, readings=None, superseded_by=None):
+    """Build under reading `construct`, decode under every reading (or those
+    listed), write the files and return the manifest entry. `base` sets
+    readings the builder and decoders use without recording them."""
+    fixed = dict(base or {}, **(assumes or {}))
+    b = Builder(pps, dict(fixed, **{question: construct}))
     plan(b)
     assert len(b.units) == (pps.slice_width + 2) // 3 * pps.slice_height, (name, 'plan size')
     payload, used = b.payload()
@@ -59,8 +67,8 @@ def emit(name, question, pps, plan, construct, vary=(), note='', separate=None, 
         # depend on it.
         assert mux_order(b.units, b.f, (68, 64, 64)) == mux_order(b.units, b.f, (64, 64, 64)), name
     outputs, logs = {}, {}
-    for value in READINGS[question]:
-        d = Decoder(pps, dict(assumes or {}, **{question: value})).decode(payload)
+    for value in readings or READINGS[question]:
+        d = Decoder(pps, dict(fixed, **{question: value})).decode(payload)
         outputs[value] = d.ppm()
         logs[value] = d.rc.log
     distinct = len(set(outputs.values()))
@@ -77,6 +85,8 @@ def emit(name, question, pps, plan, construct, vary=(), note='', separate=None, 
                  payload_sha256=hashlib.sha256(payload).hexdigest(), readings={})
     if note:
         entry['note'] = note
+    if superseded_by:
+        entry['superseded_by'] = superseded_by
     for value, ppm in outputs.items():
         (OUT / f'{name}.{value}.expected.ppm').write_bytes(ppm)
         entry['readings'][value] = dict(expected_sha256=hashlib.sha256(ppm).hexdigest(),
@@ -135,7 +145,7 @@ def oq7_bpg_combine():
     offset = solve_offset(pps, plan, 6, 60)
     return emit('oq7_bpg_combine', 'bpg_combine',
                 pps(offset, ((0, 8, 0),) * 6 + ((0, 0, 0),) * 9), plan, 'add',
-                vary=['chroma_qlevel', 'bitsave_ich', 'bitsave_flat', 'line_flat'])
+                vary=['chroma_qlevel', 'bitsave_ich', 'bitsave_flat', 'line_flat'], base=PART1_DEFAULTS)
 
 
 # --- OQ-20: qLevelC at 16 bpc RGB --------------------------------------------
@@ -154,7 +164,7 @@ def oq20_chroma_qlevel():
     pps = PPS(version=2, bpc=16, line_buf=16, width=24, height=1, bpp16=384,
               ranges=((3, 3, 0),) * 15, flat_min=31, flat_max=31, limit0=31, limit1=31)
     return emit('oq20_chroma_qlevel', 'chroma_qlevel', pps, plan, 'equal-depth',
-                vary=['prefix16', 'bpg_combine'])
+                vary=['prefix16', 'bpg_combine'], base=PART1_DEFAULTS)
 
 
 # --- OQ-21: the 16 bpc luma prefix limit at QP 0 -----------------------------
@@ -172,7 +182,8 @@ def oq21_prefix16():
         b.group(res=[[3000, -2000, 1000], ZERO[0], ZERO[0]], widths=(13, None, None))
     pps = PPS(version=2, bpc=16, line_buf=16, width=24, height=1, bpp16=384,
               flat_min=31, flat_max=31, limit0=31, limit1=31)
-    return emit('oq21_prefix16', 'prefix16', pps, plan, '15', vary=['chroma_qlevel'])
+    return emit('oq21_prefix16', 'prefix16', pps, plan, '15', vary=['chroma_qlevel'],
+                base=PART1_DEFAULTS)
 
 
 # --- OQ-25: the first group of a line, very flat or demoted -------------------
@@ -189,7 +200,7 @@ def oq25_line_flat():
         b.group(res=[[0, 0, 0], [-1, 0, 0], [0, 0, 0]])
     pps = PPS(version=2, width=3, height=2, bpp16=384, ranges=((0, 8, 0),) * 15)
     return emit('oq25_line_flat', 'line_flat', pps, plan, 'very',
-                vary=['bitsave_ich', 'bitsave_pred', 'bitsave_flat'])
+                vary=['bitsave_ich', 'bitsave_pred', 'bitsave_flat'], base=PART1_DEFAULTS)
 
 
 # --- OQ-22 to OQ-24: bitSaveMode ----------------------------------------------
@@ -207,8 +218,8 @@ SMALL = dict(res=[[1, 0, -1], [0, 1, 0], [0, 0, 1]])
 LAST = dict(res=[[1, 1, 0], [1, 0, 0], [0, 0, 0]])
 
 
-def bitsave_pps(width, qp=8, **kw):
-    return PPS(version=2, width=width, height=2, bpp16=384, ranges=((qp, qp, 0),) * 15, **kw)
+def bitsave_pps(width, qp=8, height=2, **kw):
+    return PPS(version=2, width=width, height=height, bpp16=384, ranges=((qp, qp, 0),) * 15, **kw)
 
 
 def oq22_bitsave_ich():
@@ -228,7 +239,8 @@ def oq22_bitsave_ich():
         b.group(res=ZERO)
         b.group(**LAST)
     return emit('oq22_bitsave_ich', 'bitsave_ich', bitsave_pps(15), plan, 'not',
-                vary=['bitsave_pred', 'bitsave_flat', 'line_flat', 'bpg_combine'])
+                vary=['bitsave_pred', 'bitsave_flat', 'line_flat', 'bpg_combine'],
+                base=PART1_DEFAULTS)
 
 
 def oq23_bitsave_pred_next():
@@ -253,7 +265,8 @@ def oq23_bitsave_pred_next():
     # Reaching bitSaveMode 2 through MPP groups is DSC 1.2b's reading of
     # OQ-22; this input assumes it.
     return emit('oq23_bitsave_pred_next', 'bitsave_pred', bitsave_pps(18), plan, 'raw',
-                vary=['bitsave_flat', 'line_flat', 'bpg_combine'], assumes={'bitsave_ich': 'not'})
+                vary=['bitsave_flat', 'line_flat', 'bpg_combine'], assumes={'bitsave_ich': 'not'},
+                base=PART1_DEFAULTS)
 
 
 def oq24_bitsave_flat():
@@ -277,13 +290,72 @@ def oq24_bitsave_flat():
         b.group(**LAST)         # group 11
     return emit('oq24_bitsave_flat', 'bitsave_flat', bitsave_pps(18, flat_min=8, flat_max=8), plan,
                 'group', vary=['bitsave_pred', 'line_flat', 'bpg_combine'],
-                assumes={'bitsave_ich': 'not'})
+                assumes={'bitsave_ich': 'not'}, base=PART1_DEFAULTS,
+                readings=('supergroup', 'group'), superseded_by='oq24b_bitsave_flat')
+
+
+# --- OQ-24 again: which groups the flatness test covers ----------------------
+#
+# oq24_bitsave_flat's two predictions both failed (PROGRESS.md, Phase 4); the
+# model's output fitted two further readings, received and carrier. With
+# flatness_min_qp = flatness_max_qp = 8 a flag is sendable at every group of
+# these inputs, and a signaled flat group changes nothing: the group before
+# it decodes at QP 8, range 14's maximum (OQ-18). Supergroups are groups 1-4,
+# 5-8, 9-12; the flag for one is sent in its group 3 before (7 mod 4 = 3),
+# the type and position in the next group. For the flag sent in group 7 the
+# readings cover: supergroup 9-12; received 7-10; carrier 7 and 8; group the
+# flat group. Each input ends with two MPP groups, a zero group and the last
+# group; the last decodes at 9 when neither MPP group is covered by a flag of
+# 1 (bitSaveMode 2), otherwise at 8.
+
+def oq24b_bitsave_flat():
+    """15x3: five groups a line. Group 7 sends flag 1 for supergroup 9-12,
+    group 8 type 0 and position 2 (flat group 11), group 11 flag 0 for
+    supergroup 13-16. Groups 11 and 12 are MPP, 13 zeros, 14 the last.
+    received and carrier: 11 and 12 see group 11's flag 0, bitSaveMode 2,
+    group 14 at 9. supergroup: both lie in 9-12, flag 1, group 14 at 8.
+    group: 11 is the flat group, group 14 at 8."""
+    def plan(b):
+        for _ in range(7):
+            b.group(**SMALL)
+        b.group(flat=(1, 0, 2), **SMALL)                   # group 7: flag 1
+        b.group(flat=(1, 0, 2), **SMALL)                   # group 8: type 0, position 2
+        b.group(**SMALL)
+        b.group(**SMALL)
+        b.group(flat=(0, 0, 0), **MPP3)                    # group 11: flag 0
+        b.group(**MPP3)
+        b.group(res=ZERO)
+        b.group(**LAST)         # group 14
+    return emit('oq24b_bitsave_flat', 'bitsave_flat',
+                bitsave_pps(15, height=3, flat_min=8, flat_max=8), plan, 'received',
+                vary=['bitsave_pred', 'line_flat', 'bpg_combine'], assumes={'bitsave_ich': 'not'})
+
+
+def oq24c_bitsave_flat():
+    """9x3: three groups a line. Group 3 sends flag 1 for supergroup 5-8,
+    group 4 type 0 and position 3 (flat group 8, the last). Groups 5 and 6
+    are MPP, 7 zeros, 8 the last. received: 5 and 6 see group 3's flag 1,
+    group 8 at 8; supergroup: both lie in 5-8, group 8 at 8. carrier: 5 and
+    6 carry no flatness bits, bitSaveMode 2, group 8 at 9; group: neither
+    is the flat group, group 8 at 9."""
+    def plan(b):
+        for _ in range(3):
+            b.group(**SMALL)
+        b.group(flat=(1, 0, 3), **SMALL)                   # group 3: flag 1
+        b.group(flat=(1, 0, 3), **SMALL)                   # group 4: type 0, position 3
+        b.group(**MPP3)
+        b.group(**MPP3)
+        b.group(res=ZERO)
+        b.group(**LAST)         # group 8
+    return emit('oq24c_bitsave_flat', 'bitsave_flat',
+                bitsave_pps(9, height=3, flat_min=8, flat_max=8), plan, 'received',
+                vary=['bitsave_pred', 'line_flat', 'bpg_combine'], assumes={'bitsave_ich': 'not'})
 
 
 def build_all():
     return [make() for make in (oq7_bpg_combine, oq20_chroma_qlevel, oq21_prefix16,
                                 oq22_bitsave_ich, oq23_bitsave_pred_next, oq24_bitsave_flat,
-                                oq25_line_flat)]
+                                oq25_line_flat, oq24b_bitsave_flat, oq24c_bitsave_flat)]
 
 
 if __name__ == '__main__':

@@ -277,6 +277,8 @@ so its prefixes parse the same way at either QP. Full QP schedules are in
 | `oq23_bitsave_pred_next` | 18×2, 8 | OQ-23: raw and adjusted → 9, next → 8 | x = 16, 17 of line 1: (171,191,50), (151,183,22) raw/adjusted; (123,143,2), (146,178,17) next |
 | `oq24_bitsave_flat` | 18×2, 8 | OQ-24: group → 9, supergroup → 8 | x = 15, 16 of line 1: (164,168,91), (171,175,82) group; (156,160,83), (163,167,74) supergroup |
 | `oq25_line_flat` | 3×2, 8 | OQ-25: very → 1, signaled → 0 (line 1's only group) | x = 0 of line 1: (127,128,129) very, (128,128,129) signaled |
+| `oq24b_bitsave_flat` | 15×3, 8 | OQ-24: received and carrier → 9, supergroup and group → 8 | x = 12–14 of line 2: (163,182,72), (166,186,60), (142,178,36) received/carrier; (155,174,64), (158,178,52), (142,178,36) supergroup/group |
+| `oq24c_bitsave_flat` | 9×3, 8 | OQ-24: received and supergroup → 8, carrier and group → 9 | x = 6–8 of line 2: (152,155,109), (156,135,145), (151,127,133) received/supergroup; (156,159,113), (160,139,149), (147,123,129) carrier/group |
 
 How each is built:
 
@@ -308,6 +310,31 @@ How each is built:
   group 8 position 3, so the flat group lies beyond the slice; group 9, the
   first of that supergroup, is MPP. Under supergroup the step after it
   resets bitSaveMode; under group it keeps it.
+* `oq24b_bitsave_flat`, `oq24c_bitsave_flat`: added after the model
+  decoded `oq24_bitsave_flat` (PROGRESS.md, Phase 4) and committed with
+  these predictions before the model decoded them. OQ-24 now has four
+  readings, `supergroup`, `group`, `received` and `carrier` (RESEARCH.md).
+  Same frame as above, with flatness_min_qp = flatness_max_qp = 8, so a
+  flag is sendable at every group, and a signaled flat group changes no QP
+  because the group before it decodes at QP 8, range 14's maximum (OQ-18).
+  Supergroups are groups 1–4, 5–8, 9–12; the flag for one is sent in the
+  group ≡ 3 (mod 4) before it and the type and position in the next group.
+  Each input ends with two MPP groups, a zero group and the last group; the
+  last decodes at 9 unless a flag of 1 covers one of the MPP groups under
+  the reading, which resets bitSaveMode.
+  `oq24b`: flag 1 in group 7 (supergroup 9–12, flat group 11), flag 0 in
+  group 11; MPP groups 11 and 12. received and carrier see group 11's flag
+  0 there; supergroup sees 9–12's flag 1; group sees flat group 11.
+  `oq24c`: flag 1 in group 3 (supergroup 5–8, flat group 8); MPP groups 5
+  and 6. received (groups 3–6 see group 3's flag) and supergroup (5–8)
+  cover them; carrier covers only groups 3 and 4, group only group 8.
+  Together the two inputs give each reading a different pair of outcomes.
+  One more variant also fitted `oq24_bitsave_flat`: a group counts as
+  flagged under received or supergroup. It is not a switch value; checked
+  with a scratch build before the model decoded these inputs, it gives the
+  supergroup prediction on `oq24b` and the received prediction on `oq24c`.
+  `oq24_bitsave_flat` is marked superseded by `oq24b_bitsave_flat`: it has
+  predictions only for the two readings it was built for.
 * `oq25_line_flat`: one group per line. Line 1's group follows a group
   decoded at QP 0. DSC 1.2 adjusts the first group of every non-first line
   as very flat: veryFlatQp 1 under very; under signaled, the QP before

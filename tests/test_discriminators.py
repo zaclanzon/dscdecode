@@ -29,7 +29,7 @@ READINGS = {
     'prefix16': ('15', '13'),
     'bitsave_ich': ('not', 'set'),
     'bitsave_pred': ('raw', 'adjusted', 'next'),
-    'bitsave_flat': ('supergroup', 'group'),
+    'bitsave_flat': ('supergroup', 'group', 'received', 'carrier'),
     'line_flat': ('very', 'signaled'),
 }
 # The statistic that shows each question's condition occurred.
@@ -62,7 +62,10 @@ def main():
             question = entry['question']
             outputs = {}
             vary = entry['vary']
-            for values in product(*(READINGS[k] for k in vary)):
+            # The question's readings are those the input has predictions
+            # for; a reading added after the model decoded it has none.
+            choices = {k: list(entry['readings']) if k == question else READINGS[k] for k in vary}
+            for values in product(*(choices[k] for k in vary)):
                 readings = dict(zip(vary, values))
                 stats = decode(name, readings, out, entry.get('assumes', {}))
                 if question in EXERCISED:
@@ -75,7 +78,7 @@ def main():
             # A question with three readings may share one prediction
             # between two of them in a given input.
             assert len(set(outputs.values())) >= 2, name
-            combos = len(list(product(*(READINGS[k] for k in vary))))
+            combos = len(list(product(*(choices[k] for k in vary))))
             # A superseded input stays a decoder test under its own assumptions.
             note = (f' (superseded by {entry["superseded_by"]}; decoded under the '
                     f'readings it assumes)' if 'superseded_by' in entry else '')

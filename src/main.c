@@ -228,6 +228,8 @@ static const struct reading readings[] = {
     {"bitsave_pred",    "next",         bitsave_pred,    DSC_BITSAVE_PRED_NEXT},
     {"bitsave_flat",    "supergroup",   bitsave_flat,    DSC_BITSAVE_FLAT_SUPERGROUP},
     {"bitsave_flat",    "group",        bitsave_flat,    DSC_BITSAVE_FLAT_GROUP},
+    {"bitsave_flat",    "received",     bitsave_flat,    DSC_BITSAVE_FLAT_RECEIVED},
+    {"bitsave_flat",    "carrier",      bitsave_flat,    DSC_BITSAVE_FLAT_CARRIER},
     {"line_flat",       "very",         line_flat,       DSC_LINE_FLAT_VERY},
     {"line_flat",       "signaled",     line_flat,       DSC_LINE_FLAT_SIGNALED},
 };
