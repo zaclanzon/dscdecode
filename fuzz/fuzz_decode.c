@@ -35,7 +35,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         free(samples);
         return 0;
     }
-    /* 16-bit planes serve every format; RGB888 only 8 bpc RGB. */
+    /* 16-bit planes serve every format (YCbCr chroma planes are smaller);
+     * RGB888 only 8 bpc RGB. */
     for (i = 0; i < 3; i++) {
         planes.plane[i] = samples + 4096 * i;
         planes.stride[i] = c.pic_width > c.slice_width ? c.pic_width : c.slice_width;
@@ -90,10 +91,23 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         opt.prefix16_scope = (bits >> 9) & 1;
         opt.prefix16_cut = (bits >> 10) & 1;
     }
+    /* OQ-37 to OQ-43: native 4:2:2 and 4:2:0, the scale decrement. */
+    {
+        unsigned more = ((unsigned)mix + 3u * sum) ^ (unsigned)(size >> 3);
+
+        opt.activity420 = more & 1;
+        opt.activity422 = (more >> 1) & 1;
+        opt.bp420_edge = (more >> 2) & 1;
+        opt.offset_adj = (more >> 3) & 1;
+        opt.ich_window = (more >> 4) & 1;
+        opt.scale_first = (more >> 5) & 1;
+        opt.scale_line = (more >> 6) & 1;
+    }
     opt.stats = &stats;
     opt.trace = ignore_trace;
     dsc_decode_frame_ex(&c, &opt, data + 128, size - 128, out, 4096 * 3);
     dsc_decode_frame_planes(&c, &opt, data + 128, size - 128, &planes);
+    dsc_decode_slice_planes(&c, &opt, data + 128, size - 128, &planes);
     free(out);
     free(samples);
     return 0;

@@ -138,7 +138,12 @@ make fuzz-smoke                  # deterministic mutation, GCC or Clang
 ```
 
 The shared entry exercises both frame and single-slice APIs and caps per-input
-pixels at 4096. The deterministic sanitizer smoke campaign is **not** a
+pixels at 4096. It decodes each input with the default readings and again,
+through the planes API for the frame and the single slice, under a
+combination of every reading switch taken from the input's bytes. The seeds
+(`tests/make_corpus.py`) are the fixtures and discriminators, so they cover
+RGB and YCbCr 4:4:4, simple 4:2:2 and native 4:2:2 and 4:2:0 at 8 to 16
+bpc. The deterministic sanitizer smoke campaign is **not** a
 coverage-guided fuzz result. Sanitizer builds treat undefined behavior as
 fatal and report leaks; on a host where LeakSanitizer cannot run, set
 `ASAN_OPTIONS=detect_leaks=0`.

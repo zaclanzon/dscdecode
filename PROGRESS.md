@@ -1862,3 +1862,55 @@ passes, including the model step (self-test and every discriminator; the
 superseded inputs are reported for the record). DSC 1.1 regression check,
 `tools/run_corpus --bpp 8 --bp 0 1 --slices 2 --min-images 17`: 34 of 34
 match (`~/dsc-runs/corpus/20260925-005420`).
+
+## Phase 6: fuzzing the new formats and switches, DSC 1.1 corpus rerun (2026-09-25)
+
+Phase 6 is complete with this commit.
+
+### Fuzz target
+
+`fuzz/fuzz_decode.c` also sets the seven Phase 5 switches (`activity420`,
+`activity422`, `bp420_edge`, `offset_adj`, `ich_window`, `scale_first`,
+`scale_line`) from the input's bytes, and decodes the single slice through
+the planes API under those readings as well. The formats come from the
+PPS bytes; the seed corpus (`tests/make_corpus.py`) now includes the YCbCr
+fixtures and the native discriminators, so its seeds cover RGB and YCbCr
+4:4:4, simple 4:2:2 and native 4:2:2 and 4:2:0 at 8 to 16 bpc.
+
+### libFuzzer campaign
+
+`build/fuzz/fuzz_decode` (`make fuzz`: Ubuntu clang 18.1.3, `-O1
+-fsanitize=fuzzer,address,undefined -fno-sanitize-recover=undefined`),
+`ASAN_OPTIONS=detect_leaks=1`, `UBSAN_OPTIONS=halt_on_error=1`, six fork
+workers (`-fork=6`, crashes, timeouts and out-of-memory reports collected
+without stopping), `-max_total_time=1800 -max_len=65536 -timeout=10
+-rss_limit_mb=2048`, seeded from `tests/corpus`
+(log `~/dsc-runs/m3/phase6/fuzz30.log`, corpus
+`~/dsc-runs/m3/phase6/fuzz-corpus`).
+
+* 1,806 seconds, 60,167,835 executions (about 33,000 a second over the six
+  workers).
+* 0 crashes, 0 timeouts, 0 out-of-memory reports; no artifacts.
+* Coverage at the end: 5,371 edges, 5,524 features, 1,132 corpus entries
+  (1,247 files kept).
+* The kept corpus, classified by its PPS: 173 native 4:2:0, 58 native 4:2:2,
+  24 YCbCr 4:4:4, 21 simple 4:2:2 and 969 RGB inputs; 15 of the native
+  ones and 5 of the other YCbCr ones decode without error, the others stop
+  at an error inside or before the slice.
+
+No crash was found, so there was nothing to fix and no regression input to
+add.
+
+### DSC 1.1 corpus, full rerun
+
+`tools/run_corpus --bpp 6 7.5 8 10 12 15` (defaults: BP off and on; 1, 2
+and 4 slices per line) with the release build (SHA-256 7e0eaebf…d786c,
+unchanged by this commit): 17 images, **612 of 612 runs bit-exact**
+(`~/dsc-runs/corpus/20260925-012804`).
+
+### Gate
+
+`scripts/ci.sh` without `DSCDECODE_MODEL_BIN`: every step passes, model
+SKIP. With `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref`: every step passes.
+DSC 1.1 regression check: 34 of 34 match
+(`~/dsc-runs/corpus/20260925-014631`).
