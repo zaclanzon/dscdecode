@@ -754,12 +754,12 @@ step; history was not rewritten.
   now the relative directory `dsc-decoder`.
 * Git metadata: one author and committer identity on both branches, and a
   `Co-Authored-By` trailer on every commit. Reported only.
-* Wording. Every status word the README may not claim is negated or
-  technical at the tip; one summary of the agreement now says "products that
-  implement it". References to prompt rules, to the person running the
-  work, and to session, tool or sub-task process were rewritten in
-  RESEARCH.md, PROGRESS.md and `research/rc-ambiguities.md` ("reading
-  switch" for the rule-numbered name, "M2" for "session"). PROGRESS.md cited
+* Wording. Every status word such as "conformant" or "validated" is
+  negated or technical at the tip; one summary of the agreement now says
+  "products that implement it". Wording about how the work was organized,
+  rather than about the work, was rewritten in RESEARCH.md, PROGRESS.md and
+  `research/rc-ambiguities.md` ("reading switch" for a numbered internal
+  name, "M2" for a reference to the working period). PROGRESS.md cited
   the Phase 5 part 1 commit by its pre-rewrite hash; it now cites 3e41c9e.
 * Ignored files. Nothing that should be ignored was ever tracked.
   `.gitignore` now also covers model output (`*.dsc`, `*.dpx`, `*.out.ppm`,
@@ -807,8 +807,8 @@ Phase 1 note that the workflow has not run.
 
 ## Readability refactor verification (2026-09-24)
 
-Checked: 62df40a, 70671c7 and b47e367 (branch
-`claude/upbeat-maxwell-6b8daj`) on top of 732041a (v0.1.0). They change 14
+Checked: 62df40a, 70671c7 and b47e367 (made on a side branch) on top of
+732041a (v0.1.0). They change 14
 files, all C: 11 `.c` and 3 `.h`. No Python, Makefile, `scripts/`,
 `.github/` or Markdown file changed. Base and head were compared in two
 worktrees. Toolchain on this VM: gcc 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1,
@@ -1112,7 +1112,8 @@ Gate:
 
 Phase 3 is not complete at this commit. This part is committed so that the
 OQ-19 discriminator and its predictions are in the history before the
-reference model decodes it (rule for open questions, RESEARCH.md).
+reference model decodes it, so that the predictions are fixed before the
+model's output is seen.
 
 * Decoder: DSC 1.1 RGB 4:4:4 CBR at 10 and 12 bpc. A new `src/format.c`
   derives per-substream sample depths (§6.1), mux word size (§4.4),
@@ -1274,8 +1275,8 @@ prediction off and on, 1, 2 and 4 slices: 90 of 90 bit-exact with this
 branch (`~/dsc-runs/m3/phase3/runs/corpus/20260924-081509`). The v0.1.0
 decoder (6382dae, pixels reading) on the 30 four-slice runs of that set:
 27 bit-exact, 3 rejected (`20260924-081925`). v0.1.0's comparisons had used
-slice widths without one-pixel partial groups inside the initial delay. The
-README Status section is not changed (rule for M3); this note is the record.
+slice widths without one-pixel partial groups inside the initial delay. M3
+leaves the README Status section at v0.1.0; this note is the record.
 
 ### Harness changes made during the matrix
 
@@ -1391,7 +1392,7 @@ group 7), only the groups that carry the flag and the type and position
 flag. Groups 7 and 8 carry the flatness bits in this input, which is why all
 three fit.
 
-Under the open-question rule, `received` and `carrier` were added to the
+As for every open question, `received` and `carrier` were added to the
 `bitsave_flat` switch (RESEARCH.md, OQ-24), the default became `received`
 (judged more likely), and two inputs were built and committed with
 predictions for all four readings before the model decoded them:
@@ -1635,7 +1636,7 @@ README: "Build and use" now lists the DSC 1.2 RGB 4:4:4 profiles the
 decoder accepts, and "Verification and fuzzing" describes
 `tools/make_pictures`, the high-bit-depth handling of the harness and the
 DSC 1.2 discriminator generator. "Remaining correctness work" still
-describes v0.1.0 (only those two sections may change in M3); this log is the
+describes v0.1.0 (M3 changes only those two sections); this log is the
 record.
 
 Tests at this commit:
@@ -1806,8 +1807,8 @@ copy of its input (`.ref.yuv`, or `.ref.dpx` read back) against the source.
 
 The decoder is the tree of this commit (release build, SHA-256
 7e0eaebf…d786c, copied to `~/dsc-runs/m3/phase5/bin/dscdecode` for the
-runs). Script `~/dsc-runs/m3/phase5/matrix5.sh` (the session stopped once
-during it; `matrix5b.sh` resumed from the set it stopped in); results under
+runs). Script `~/dsc-runs/m3/phase5/matrix5.sh` (the run was interrupted
+once; `matrix5b.sh` resumed from the set it stopped in); results under
 `~/dsc-runs/m3/phase5/runs/corpus/` and in
 `~/dsc-runs/m3/phase5/aggregate_v12.txt`. Every picture of each set was
 coded at three picture rates (4:4:4 and simple 4:2:2: 6, 8 and 12 bpp;
@@ -1921,7 +1922,7 @@ This part prepares release v0.2.0 from the M3 branch. The decoder code is
 not changed: only documentation, test tooling and records. Runs and scratch
 files are under `~/dsc-runs/v0.2.0/`. Each phase ends with `scripts/ci.sh`
 without and with `DSCDECODE_MODEL_BIN`, then a rebuild of the release binary,
-whose SHA-256 must not change.
+whose SHA-256 is compared with Phase 0's.
 
 ## Phase 0: frozen binary (2026-09-25)
 
@@ -2006,4 +2007,30 @@ Gate (`~/dsc-runs/v0.2.0/phase2/`): `scripts/ci.sh` without the model:
 every step passes, model SKIP (libFuzzer 497,841 executions in 61 s;
 smoke 2,480,000). With the model and the frozen binary: every step passes,
 every discriminator verdict is the default reading (libFuzzer 509,233 in
+61 s; smoke 2,480,000). Rebuild: byte-identical to the frozen binary.
+
+## Phase 3: hygiene audit of everything since main (2026-09-25)
+
+Scope: the 302 files that differ between 6382dae (main) and the tip, and,
+for what a history rewrite would be needed to remove, the commits
+6382dae..HEAD. Scripts and outputs in `~/dsc-runs/v0.2.0/audit/`.
+
+| Check | Method | Result |
+|---|---|---|
+| Spec text | Every run of 12 or more consecutive words shared with the text of the five spec PDFs (DSC 1.1, DSC 1.1 E1, DSC 1.2a, DSC 1.2a E1, DSC 1.2b; both text extractions of each), case-insensitive, whitespace-normalized; also with punctuation removed. Run on the files at the tip and on every line added in 6382dae..HEAD | None at the tip, none in the history |
+| Model material | Model source file names (the ten names of the audit list), copyright notices, mirror links, statements of model behavior | No file name. The copyright lines are the vendored Intel header and the quoted VESA license agreement in RESEARCH.md (not model text). The only links are to Linux, NVIDIA and vesa.org pages; the M1 mirror is named without a link. Every M3 statement of model behavior cites its README, its configuration files, its command line or its output files; OQ-5 names M1's model-source note as the origin of a reading, now in the "Hypothesis source" column |
+| Committed binaries | Every file that is not text | 223, all under `tests/fixtures`, `tests/corpus` and `tests/discriminators`; the fixture step of `scripts/ci.sh` rebuilds those directories from empty with the generators and diffs them (passes in every gate). No other binary is tracked. No model output, archive, PDF or configuration file was ever committed in 6382dae..HEAD, and no file was added and later deleted |
+| Personal data and paths | Absolute home paths, host and user names, e-mail addresses, keys and tokens | None in the files. Paths are written `~/dsc-runs/...`. Commit metadata carries the author's name and e-mail (reported only) |
+| Wording | "conformant", "validated", "certified", "compliant", "clean-room" not negated; references to instructions, to people, or to the working sessions | Every status word is negated or technical. Fixed at the tip in PROGRESS.md: four references to working rules (Phase 3 part 1, Phase 3 part 2, Phase 4 part 2, Phase 4 part 5), one to a working session (Phase 5 part 2), the M2 audit's description of its own wording fixes, and a tool-generated branch name (refactor verification) |
+
+Would need a history rewrite (not done): the wording fixed above remains in
+the commits that introduced it (4f164ba, 1287598, 352b429, 2622753 and
+785522e on this branch; the M2 audit description in 3868701 and the branch
+name in 6382dae, both on main), and every commit records the author's
+e-mail address.
+
+Gate (`~/dsc-runs/v0.2.0/phase3/`): `scripts/ci.sh` without the model:
+every step passes, model SKIP (libFuzzer 498,318 executions in 61 s;
+smoke 2,480,000). With the model and the frozen binary: every step passes,
+every discriminator verdict is the default reading (libFuzzer 429,151 in
 61 s; smoke 2,480,000). Rebuild: byte-identical to the frozen binary.
