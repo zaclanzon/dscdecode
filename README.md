@@ -5,8 +5,11 @@ each experiment cost a reboot and the only check was looking at the
 monitor. This decoder is one piece of tooling for testing the display
 path in software instead.
 
-An open-source DSC 1.1 decoder, written from the specification with no
-VESA model code, and bit-exact with the VESA C model on 760 test streams.
+An open-source decoder for VESA DSC 1.1 and 1.2, written with no VESA model
+code, and bit-exact with the VESA C model on 9,270 test streams. DSC 1.1 was
+written from the specification. Where the DSC 1.2 rate-control text and the
+reference model differ, the decoder follows the model, and each difference
+is a reading switch (RESEARCH.md).
 
 C11, libc only, built as a library and a command-line tool.
 
@@ -15,41 +18,61 @@ notice and MIT license.
 
 ## Status
 
-dscdecode is a working, tested checkpoint for DSC 1.1. It has not been
-through VESA compliance testing.
+dscdecode v0.2.0 decodes DSC 1.1 and DSC 1.2 streams at constant bit rate:
+RGB and YCbCr 4:4:4 and simple 4:2:2 in both versions, native 4:2:2 and
+native 4:2:0 in DSC 1.2, at 8 to 12 bits per component in DSC 1.1 and 8 to
+16 in DSC 1.2. It has not been through VESA compliance testing.
 
 Agreement with the VESA C model (version 1.67), used only as a black box.
 For each test image, the model encodes the image, the model and dscdecode
 both decode the model's bitstream, and the two outputs are compared bit
 for bit. The hand-derived fixtures are bitstreams built by this
 repository's generators. The model and dscdecode both decode them, and
-both outputs match the hand-derived expected images. Tested with 8 bpc
-RGB 4:4:4 at constant bit rate.
+both outputs match the hand-derived expected images. The discriminators are
+bitstreams built so that the readings of an open question decode
+differently; each was committed with its predicted outputs before the model
+decoded it.
 
 Where the specification text supports two readings, each reading is a
 runtime switch (dscdecode --reading). RESEARCH.md lists every open
-question and the evidence for each default.
+question, the evidence for each default and where each reading came from,
+and compares the DSC 1.2 rate-control text with the model's behavior.
+
+Every row below was run with one release binary (SHA-256 7e0eaebf…d786c)
+for v0.2.0; PROGRESS.md, "v0.2.0 release gate", has the per-rate tables.
 
 | Set | Streams | Bit-exact |
 |---|---|---|
-| The 17 VESA 1080p evaluation images: 6, 7.5, 8, 10, 12 and 15 bpp, block prediction off and on, 1, 2 and 4 slices per line | 612 | 612 |
-| Synthetic pictures, hand-derived fixtures and fractional-rate tests | 148 | 148 |
+| DSC 1.1 RGB 4:4:4, 8 bpc: the 17 VESA 1080p evaluation images at 6, 7.5, 8, 10, 12 and 15 bpp, block prediction off and on, 1, 2 and 4 slices per line | 612 | 612 |
+| DSC 1.1 RGB 4:4:4, 10 and 12 bpc: 8 synthetic pictures and the 17 images scaled to the depth with a few LSBs of noise, at every installed rate (6, 8, 10, 12, 15 bpp), block prediction off and on, 1, 2 and 4 slices | 1,500 | 1,500 |
+| DSC 1.2 RGB 4:4:4, 8 to 16 bpc: synthetic pictures at 8, 10, 12, 14 and 16 bpc, the 17 images at 8 bpc and scaled to 10 and 12, same rates and settings | 2,730 | 2,730 |
+| DSC 1.2 YCbCr 4:4:4, simple 4:2:2, native 4:2:2 and native 4:2:0, 8 to 16 bpc: the same pictures converted to YCbCr, three rates per format, block prediction off and on, 1 and 2 slices | 4,368 | 4,368 |
+| Hand-derived fixtures (PPS and payload), decoded by the model and by dscdecode | 24 | 24 |
+| Discriminators whose verdict is the default reading | 36 | 36 |
+| Total | 9,270 | 9,270 |
+
+The v0.1.0 row of 148 synthetic pictures, fixtures and fractional-rate
+tests is not repeated, because its pictures no longer exist. Two
+superseded discriminators are not counted: `oq2_threshold_equality` was
+built under earlier readings of other questions, and `oq24_bitsave_flat` has
+predictions only for two readings that the model contradicted; the model's
+output matches neither prediction of either.
 
 A successful decode does not show that an encoder's output conforms to
 DSC. Like the model, dscdecode accepts some nonconforming streams, such
-as nonzero padding in partial groups, and reports them with a warning.
+as nonzero padding in partial groups, and reports them with a warning
+(`--reading partial_padding=reject` makes that an error).
 
 The images, the model and the specification are not in this repository.
 PROGRESS.md has the method and every result. THIRD_PARTY.md has the
 provenance.
 
-M2 checkpoint (September 23): ten exact-image fixtures (including block
-prediction), 26 CLI checks, RC and prediction traces, and 72 discriminator
-decodes pass. Partial-group padding is parsed but not checked by default; the
-CLI prints a warning with the number of partial groups whose nonzero padding
-it accepted, and `--reading partial_padding=reject` makes that an error
-(DSC 1.1 §6.6). Comparison runs against the VESA model are recorded in
-`PROGRESS.md`.
+## Known issue in v0.1.x
+
+v0.1.0 and v0.1.1 can reject or decode incorrectly some valid DSC 1.1
+streams with narrow slices: a partial group at the end of a line inside the
+initial transmission delay (OQ-19), or an initial_scale_value decremented
+every group (OQ-42, OQ-43). v0.2.0 fixes both.
 
 ## Build and use
 
@@ -201,26 +224,39 @@ neither C nor Python are listed but not checked.
 
 ## Remaining correctness work
 
-* The status of every open rate-control and prediction question, and the
-  evidence behind each default, is in the "Open questions" table in
-  `RESEARCH.md`. Two remain open: OQ-7 (DSC 1.2 only) and OQ-9 (encoder only).
-* Only DSC 1.1, 8 bits per component, RGB 4:4:4 at constant bit rate is
-  decoded. The decoder rejects streams that use any of the following as
-  unsupported; none is implemented:
-  * DSC 1.2. The PPS parser reads the 1.2 fields, but the decoder accepts
-    only version 1.1.
-  * 10 and 12 bits per component (and the 14 and 16 of DSC 1.2).
-  * VBR, including its framing and buffer handling.
-  * Native 4:2:2 and native 4:2:0 (DSC 1.2).
-  * Simple 4:2:2, and YCbCr input (`convert_rgb` 0).
-* Fractional bits_per_pixel has been exercised by a discriminator, by
-  model-encoded synthetic pictures at 7.5 and 9.3125, and by the 17-image
-  corpus at 7.5 (`PROGRESS.md`), not across the range.
+* VBR, including its framing and buffer handling, is not implemented. Both
+  decode APIs reject VBR streams as unsupported.
+* DSC 1.1 YCbCr (4:4:4 and simple 4:2:2) has no comparison on
+  model-encoded pictures: the model's encoder refuses DSC 1.1 YCbCr with
+  its own rate files. One hand-derived DSC 1.1 YCbCr 4:4:4 fixture decodes
+  bit-exact with the model; DSC 1.1 simple 4:2:2 is not tested against it.
+* 14 bpc: the model's encoder dies from a signal after writing its
+  bitstream and reference picture in most 14 bpc encodes (432 of 624 in the
+  v0.2.0 gate: every RGB, YCbCr 4:4:4 and native 4:2:2 encode). Those
+  results rely on such encodes; the harness accepts one only when the
+  model's log reports the last slice and the bitstream exists, and the
+  model's own decode, a separate process, runs normally.
+* OQ-24: the model's window is fixed at its ends by the discriminators;
+  its interior groups are inferred, not tested on their own.
+* OQ-23: two of the text's readings (raw and adjusted) were never
+  separated from each other; one input excludes both at once.
+* Fractional bits_per_pixel has been compared at 7.5 bpp (the DSC 1.1
+  corpus) and 9.3125 bpp (M2 synthetic pictures), and by one
+  discriminator, not at other rates, depths or in DSC 1.2.
+* The fuzzer rarely reaches valid decodes of the non-RGB formats: of the
+  277 YCbCr and native inputs its 30-minute campaign kept, 14 decode
+  without error.
+* Open questions: OQ-9 (encoder only; decoding cannot observe it) is
+  still open. Every other question in RESEARCH.md is resolved by
+  comparison with the model. For 23 of them the default was fitted to the
+  model's output rather than predicted from the text, so their
+  discriminators confirm a fitted rule (the "Hypothesis source" column:
+  22 marked "model output", and OQ-24).
 * The licensed VESA reference model is not included. `tools/compare_model`
   drives it as a black box when `DSCDECODE_MODEL_BIN` points at it, and
   `tests/discriminators/` holds inputs that separate the readings of the
-  open rate-control questions. The Status section summarizes the model
-  comparison. PROGRESS.md has every result.
+  open questions. The Status section summarizes the model comparison.
+  PROGRESS.md has every result.
 
 See `RESEARCH.md` for pinned Linux/NVIDIA/specification sources, PPS field notes,
 caller survey, RC-table adjudication, licensing evidence, and the

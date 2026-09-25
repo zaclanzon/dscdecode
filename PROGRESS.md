@@ -2149,3 +2149,32 @@ every step passes, model SKIP (libFuzzer 576,443 executions in 61 s;
 smoke 2,480,000). With the model and the frozen binary: every step passes
 (libFuzzer 529,381 in 61 s; smoke 2,480,000). Rebuild: byte-identical to
 the frozen binary.
+
+## Phase 5: README, CHANGELOG, release notes (2026-09-25)
+
+* README: the summary sentence now describes DSC 1.1 and 1.2 and the 9,270
+  streams of the release gate. Status is rewritten for v0.2.0: the formats,
+  the method paragraph (with the discriminators added), a table of the six
+  sets of Phase 4 with their totals, one sentence on why the v0.1.0 row of
+  148 streams is gone (its pictures no longer exist), the two superseded
+  discriminators, the caveat on nonconforming streams, and the pointers to
+  PROGRESS.md and THIRD_PARTY.md. The M2 checkpoint paragraph is removed.
+  New section "Known issue in v0.1.x" (OQ-19, OQ-42, OQ-43). "Remaining
+  correctness work" lists what is not done or not verified; each item was
+  checked against the code and this log: VBR (rejected in `src/decode.c`
+  and `src/rate_control.c`), DSC 1.1 YCbCr (encoder refusal, Phase 5 part
+  2; the one fixture `ycc444_v11_8` decodes bit-exact with the model, Phase
+  4 above), 14 bpc encoder signals (432 of 624, Phase 4 above), OQ-24's
+  inferred interior groups, OQ-23's unseparated readings, fractional
+  bits_per_pixel, the fuzzer's reach into non-RGB formats (14 of 277 kept
+  inputs decode, Phase 6 of M3), OQ-9 still open, and the model not being
+  included. "Patents", "Development" and the license line are unchanged.
+* CHANGELOG.md: entries for v0.1.0, v0.1.1 and v0.2.0.
+* Release notes: `~/dsc-runs/v0.2.0/release-notes.md` (outside the
+  repository), one line per paragraph.
+
+Gate (`~/dsc-runs/v0.2.0/phase5/`): `scripts/ci.sh` without the model:
+every step passes, model SKIP (libFuzzer 432,709 executions in 61 s;
+smoke 2,480,000). With the model and the frozen binary: every step passes
+(libFuzzer 432,443 in 61 s; smoke 2,480,000). Rebuild: byte-identical to
+the frozen binary.
