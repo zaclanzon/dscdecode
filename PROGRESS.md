@@ -1914,3 +1914,40 @@ unchanged by this commit): 17 images, **612 of 612 runs bit-exact**
 SKIP. With `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref`: every step passes.
 DSC 1.1 regression check: 34 of 34 match
 (`~/dsc-runs/corpus/20260925-014631`).
+
+# v0.2.0 release preparation (branch m3-dsc12)
+
+This part prepares release v0.2.0 from the M3 branch. The decoder code is
+not changed: only documentation, test tooling and records. Runs and scratch
+files are under `~/dsc-runs/v0.2.0/`. Each phase ends with `scripts/ci.sh`
+without and with `DSCDECODE_MODEL_BIN`, then a rebuild of the release binary,
+whose SHA-256 must not change.
+
+## Phase 0: frozen binary (2026-09-25)
+
+At 91cfa42, `make clean && make` (release flavor, `CFLAGS` default `-O2 -g`)
+built `build/release/dscdecode` with SHA-256
+`7e0eaebf78bc295db741ddfd4691cfde90b3cda8a376451d884865140e7d786c`, the
+binary of M3 Phases 5 and 6. A second clean build gave the same bytes. The
+copy `~/dsc-runs/v0.2.0/bin/dscdecode` is the binary of every model run in
+this part (`DSCDECODE_BIN`).
+
+| Tool | Version |
+|---|---|
+| GCC (`cc`) | 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1) |
+| Clang (libFuzzer) | 18.1.3 (1ubuntu1) |
+| Python | 3.12.3, Pillow 10.2.0 |
+| GNU Make | 4.3 |
+| Host | Linux 7.0.0-34-generic, x86-64, 8 CPUs |
+| Model | `/usr/local/bin/dsc-ref`, version 1.67 |
+
+Gate (script `~/dsc-runs/v0.2.0/gate.sh`, logs in `~/dsc-runs/v0.2.0/phase0/`):
+
+* `scripts/ci.sh` without `DSCDECODE_MODEL_BIN`: every step passes, model
+  SKIP. libFuzzer 509,411 executions in 61 s; deterministic smoke 2,480,000.
+* With `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref` and `DSCDECODE_BIN` set
+  to the frozen copy: every step passes. The model step used the frozen
+  copy; self-test match; every discriminator's verdict is the decoder's
+  default reading (`oq2` and `oq24` superseded). libFuzzer 441,177
+  executions in 61 s; deterministic smoke 2,480,000.
+* Rebuild after the gate: byte-identical to the frozen copy.
