@@ -1894,9 +1894,9 @@ without stopping), `-max_total_time=1800 -max_len=65536 -timeout=10
 * Coverage at the end: 5,371 edges, 5,524 features, 1,132 corpus entries
   (1,247 files kept).
 * The kept corpus, classified by its PPS: 173 native 4:2:0, 58 native 4:2:2,
-  24 YCbCr 4:4:4, 21 simple 4:2:2 and 969 RGB inputs; 15 of the native
-  ones and 5 of the other YCbCr ones decode without error, the others stop
-  at an error inside or before the slice.
+  24 YCbCr 4:4:4, 22 simple 4:2:2, 969 RGB inputs and one input shorter
+  than a PPS; 9 of the native ones and 5 of the other YCbCr ones decode
+  without error, the others stop at an error inside or before the slice.
 
 No crash was found, so there was nothing to fix and no regression input to
 add.
