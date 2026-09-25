@@ -20,6 +20,19 @@ read its source. No model code was copied into dscdecode. From M2 onward, any
 comparison against the model uses the officially licensed model as a black
 box only.
 
+DSC 1.2 rate control. Where the DSC 1.2b text did not reproduce the model's
+decodes (M3, September 24, 2026), the behavior was found by
+black-box probing of the model's output. The model encoded test pictures,
+some with rate-control parameters pinned or flatness signaling disabled
+through the options its README documents; a debug build of this decoder,
+kept outside the repository, forced chosen QPs and logged its rate-control
+inputs to locate where its decode first departed from the model's;
+candidate rules were scored against the model's decoded pictures; and each
+rule kept was then checked on a new input whose predictions were committed
+before the model decoded it. Only the model's README, its configuration
+files, its command line and the files it writes were used. No model source
+was used. The same method found OQ-19 and OQ-40 to OQ-43 (RESEARCH.md).
+
 Registration record. Registration: 2026-09-23. VESA Public Standards Download
 Registration, product-development path. Terms: Implementer's License Agreement
 (Exhibit D of VESA Policy 200D). Archive: `Display Stream Compression (DSC).zip`,

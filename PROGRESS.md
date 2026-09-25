@@ -1983,3 +1983,27 @@ deterministic smoke 2,480,000). With the model and the frozen binary: every
 step passes, every discriminator verdict is the default reading (libFuzzer
 483,741 in 61 s; smoke 2,480,000). Rebuild: byte-identical to the frozen
 binary.
+
+## Phase 2: where each answer came from (2026-09-25)
+
+* RESEARCH.md, open-questions table: a column "Hypothesis source" for OQ-1
+  to OQ-43. Text: 20 questions (OQ-1 to OQ-4, OQ-6 to OQ-10, OQ-12, OQ-13,
+  OQ-20 to OQ-23, OQ-25, OQ-34, OQ-37 to OQ-39). Model output: 22 (OQ-5,
+  OQ-11, OQ-14 to OQ-19, OQ-26 to OQ-33, OQ-35, OQ-36, OQ-40 to OQ-43).
+  Both: OQ-24 (two text readings first, four fitted; the default is fitted).
+  Each model-output cell says which reading came first. OQ-5's cell also
+  records that its model reading was first noted in M1 from model source and
+  applied only after M2 fitted it to model output.
+* A paragraph before the table explains the difference: for a model-output
+  question a discriminator confirms a fitted rule on a new input, and is not
+  an independent prediction.
+* THIRD_PARTY.md: a paragraph on how the DSC 1.2 rate-control behavior was
+  found (black-box probing of the model's output with a debug build of this
+  decoder and controlled encodes; predictions committed before the model
+  decoded each confirming input; no model source used).
+
+Gate (`~/dsc-runs/v0.2.0/phase2/`): `scripts/ci.sh` without the model:
+every step passes, model SKIP (libFuzzer 497,841 executions in 61 s;
+smoke 2,480,000). With the model and the frozen binary: every step passes,
+every discriminator verdict is the default reading (libFuzzer 509,233 in
+61 s; smoke 2,480,000). Rebuild: byte-identical to the frozen binary.
