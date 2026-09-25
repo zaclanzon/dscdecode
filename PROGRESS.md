@@ -1951,3 +1951,35 @@ Gate (script `~/dsc-runs/v0.2.0/gate.sh`, logs in `~/dsc-runs/v0.2.0/phase0/`):
   default reading (`oq2` and `oq24` superseded). libFuzzer 441,177
   executions in 61 s; deterministic smoke 2,480,000.
 * Rebuild after the gate: byte-identical to the frozen copy.
+
+## Phase 1: what the standards say about the model (2026-09-25)
+
+RESEARCH.md has a new section, "DSC 1.2 text and the reference model". It
+records what DSC 1.1, DSC 1.2a (with its E1 errata) and DSC 1.2b say about
+the C model's status and precedence. For each question whose default
+follows the model where the DSC 1.2b text reads otherwise or is silent
+(OQ-19, OQ-21, OQ-23 to OQ-36, OQ-40 to OQ-43) it gives the section, the
+text's reading, the model's, the errata and what precedence implies.
+
+* All three standards give the model precedence over the text: DSC 1.1 and
+  DSC 1.2a in the introductions of §6 and §7 (and list it as a normative
+  reference), DSC 1.2b in §1.4.3 for the whole standard. Two DSC 1.2a E1
+  SCRs call the C code normative and correct and change the text to match
+  it. DSC 1.2b names model version 1.63; the model here is 1.67.
+* No errata in hand covers any of the questions listed.
+* Summary: OQ-21, OQ-26, OQ-27, OQ-29, OQ-30, OQ-34, OQ-35, OQ-36 and OQ-40
+  look like errors in the text; OQ-19, OQ-23, OQ-25, OQ-31, OQ-32, OQ-33,
+  OQ-41 and OQ-42 look like ambiguity; OQ-24, OQ-28 and OQ-43 remain
+  unclear.
+* The DSC 1.2a E1 errata PDF embeds model source excerpts. One was displayed
+  while the errata was searched; it was not used (source note in the
+  section).
+* A 12-word overlap check of RESEARCH.md against the text of the five spec
+  PDFs finds no shared run (also none at 9 words).
+
+Gate (`~/dsc-runs/v0.2.0/phase1/`): `scripts/ci.sh` without the model:
+every step passes, model SKIP (libFuzzer 452,873 executions in 61 s;
+deterministic smoke 2,480,000). With the model and the frozen binary: every
+step passes, every discriminator verdict is the default reading (libFuzzer
+483,741 in 61 s; smoke 2,480,000). Rebuild: byte-identical to the frozen
+binary.

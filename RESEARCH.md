@@ -119,6 +119,118 @@ under each:
 * bits_per_pixel may be up to its field maximum, 1023: in the native modes
   it is twice the picture's rate (Table 4-1).
 
+## DSC 1.2 text and the reference model
+
+Added for v0.2.0 (2026-09-25). In M3, several defaults follow the VESA C
+model's behavior (observed only as a black box) where it differs from the
+DSC 1.2b text. This section records what the three standards say about the
+model's status, and for each such question, what the text says, what the
+model does, whether an erratum covers it and what the precedence statements
+imply. Section numbers are DSC 1.2b unless marked. The wording is a summary;
+the standards are the authority.
+
+### What the standards say about the model
+
+* DSC 1.1. The table of normative reference documents (§1.7) lists the
+  VESA DSC C model, version 1.31. The introductions of §6 (encoding) and §7
+  (decoding) each say that where the standard and the C model disagree, the
+  model's implementation prevails; for decoders the sentence uses "shall".
+  The fractional-bpp SCR in the DSC 1.1 E1 errata calls the C model
+  normative in its background section.
+* DSC 1.2a. The same two statements open §6 and §7, and the normative
+  reference table (§1.8) lists the C model, version 1.57. Two SCRs of the
+  DSC 1.2a E1 errata (the rcXformBpgOffset and bpSad SCR, and the
+  bitSaveMode SCR) change the text to agree with the model, say that the
+  model itself does not change, and state that the C code is normative and
+  correct. Their reason is that implementers may follow the text rather
+  than the code.
+* DSC 1.2b. §1.4.3 now carries the precedence rules for the whole
+  standard: among text, figures and tables, tables prevail, then figures,
+  then text; and where the standard and the C model disagree, the model's
+  implementation prevails. The §6 and §7 introductions no longer repeat it.
+  The reference table (§1.5, Table 1-7) lists the C model, version 1.63
+  (June 2021), in a single table that does not mark entries normative or
+  informative. §1.3 describes DSC 1.2b as functionally identical to DSC
+  1.2a, a maintenance release that folds in the DSC 1.2a SCRs. Its
+  revision history lists those SCRs and one further correction to the
+  16 bpc luma prefix limit (§3.10.2 and Table 4-10; see OQ-21).
+
+Three limits on using those statements here:
+
+* Version. The model installed here reports version 1.67. DSC 1.2b names
+  1.63 and DSC 1.2a names 1.57. Nothing here shows that 1.63 behaves like
+  1.67 on these questions.
+* Observation. The model was used only as a black box, through its
+  command line, its configuration files and the files it writes. A reading
+  that reproduces its output is a description of its behavior on the
+  streams tried, not a statement of what its source does.
+* Scope. The precedence clause settles a disagreement in favor of the
+  model; it does not say which differences are errors in the text. For
+  implementers who do not have the model, the text is what they read, and
+  the errata above show that VESA has corrected the text to match the model
+  before.
+
+v0.2.0 source note: the DSC 1.2a E1 errata PDF contains excerpts of model
+source in the background parts of the rcXformBpgOffset and bpSad SCR and of
+the bitSaveMode SCR, and model source line references in the rate-control
+clarification SCR. While the errata was searched for this section, the
+first SCR's excerpt and a few of those identifier lines were displayed. They
+were not used: this section relies only on the SCRs' proposed text changes
+and their stated reasons, and the decoder is unchanged.
+
+### Question by question
+
+Only the questions whose default was set to the model's behavior where the
+DSC 1.2b text reads otherwise, or where the text is silent and the default
+came from model output. "Errata" means the DSC 1.2a E1 errata (the only
+errata to DSC 1.2 in hand); no errata to DSC 1.2b was available.
+
+| Question | DSC 1.2b section | The text, read as written | The model | Errata | What precedence implies |
+|---|---|---|---|---|---|
+| OQ-19 `delay_partial` (also DSC 1.1) | §6.8.1, §6.8.2 | During the initial delay the offset falls by three pixels' worth of bits per group, while §6.8.1 drains the real pixels of each group; a group of one or two pixels at a line end inside the delay is not addressed. | Counts each group as three pixels from where the previous group ended, so a short group at a line end counts more and the next line's first group less. | None. The DSC 1.1 E1 fractional-bpp SCR changes only the encoder's forceMpp condition. | The text is silent on the case, so there is no conflict to resolve; the model's behavior fills the gap. |
+| OQ-21 `prefix16` | Table 4-10, §3.10.2 | Table 4-10 allows a 15-bit luma prefix at 16 bpc and QP 0; §3.10.2 says 13. DSC 1.2a's Table 4-10 says 13. | 13. | None in DSC 1.2a E1. The DSC 1.2b revision history lists a correction of this limit in both places, which left them disagreeing. | §1.4.3 would favor the table over the text (15); the model clause favors 13, and so do §3.10.2 and DSC 1.2a. The model at qLevel 1 cuts the prefix at 15 bits (OQ-35), which suggests that the 1.2b table may describe that case. |
+| OQ-23 `bitsave_pred` | §6.8.4, §6.6.1, Tables 6-2 and 7-1 | predActivity uses predictedSize[0..3], which the entropy coder hands to the rate control; which of the sizes computed around a group is meant is not said. | The size predicted from the group's own residuals, for the next group. | The rate-control clarification SCR added predictedSize[0..3] to the outputs listed in Tables 6-2 and 7-1 without defining it further. | The text admits more than one reading, and the model selects one. Two of the three text readings (raw and adjusted) were never separated from each other. |
+| OQ-24 `bitsave_flat` | §6.8.4, §6.6.3, §6.8.5.1 | The bitSaveMode update runs only when no flatness is signaled "for the supergroup", which the text does not tie to the current group. The natural reading is the supergroup of §6.8.5.1 that contains the group. | The flag covers the four groups after the group that carries it. | The bitSaveMode SCR reprints the condition without change. | The text is open to several readings, none of which is the model's; the model's is a window that no passage describes. Groups 9 and 10 of the window are inferred. |
+| OQ-25 `line_flat` | §6.8.5.2, §3.10.3 | The first group of a non-first line is handled as a very flat group. | As a signaled very flat group, including its demotion to somewhat flat at low QP (OQ-16). | None. | "Handled as very flat" covers both readings; the model selects one. |
+| OQ-26 `low_min` | §6.8.4, Figure 6-17 | lowMinQp is derived from maxQp (four less, at least 0). | Derived from minQp in the same way. | None. | A plain conflict; the model prevails. |
+| OQ-27 `decrement_test` | §6.8.4, Figure 6-17 | The decrement box requires both codedGroupSize and rcSizeGroup to be under tgtMinusOffset; the prose says both are compared without saying how they combine. | Only rcSizeGroup is tested (equivalent to either being under it). | None. | A conflict with the figure; the model prevails. |
+| OQ-28 `activity_qp` | §6.8.4 | predActivity adds prevQp, the QP generated most recently. | Adds prev2Qp, the QP of the group whose predicted sizes are used (flatness-adjusted in a re-run). | None. | A conflict with the pseudocode; the model prevails. Whether "prevQp" is a naming slip or a consequence of the unstated pipeline timing (OQ-11) cannot be told from outputs. |
+| OQ-29 `bitsave_step` | §6.8.4, Figure 6-17 | bitSaveMode 2 sets stQp to prevQp plus one. | Plus two. | None. | A conflict with the figure; the model prevails. |
+| OQ-30 `target_floor` | §6.8.4 | rcTgtBitsGroup is used as computed, even when negative. | A negative target is raised to 0. | None. | A conflict (the text has no floor); the model prevails. |
+| OQ-31 `flat_rerun` | §6.8.4, §6.8.5.2, §3.10.3 | §6.8.5.2, carried over from DSC 1.1, re-runs the step only when the flatness adjustment changes the QP; §6.8.4 and §3.10.3 make flatness part of the DSC 1.2 short-term RC. | Re-runs at every adjusted flat group and line start. | None. | The passages pull in different directions; the model selects one. |
+| OQ-32 `rerun_bitsave` | §6.8.4 | Silent on whether a re-run recomputes bitSaveMode. | Recomputes it. | None. | A gap; the model fills it. |
+| OQ-33 `mux16` | §4.4, §3.10.2 | The refill threshold for 16 bpc luma is not restated; the formula used at other depths gives 68 bits, while §3.10.2 says the changes keep the mux word at 64 bits. | 64. | None. | A gap; the model fills it, as §3.10.2's stated aim suggests. |
+| OQ-34 `flat_top` | §6.8.5.2 | Signaled flatness is skipped when the QP equals range 14's maximum, written when no QP could exceed it. | Also skipped above it. | None. | A conflict for QPs that bitSaveMode raises above range 14's maximum; the model prevails. This default was the text's until the discriminator was decoded. |
+| OQ-35 `prefix16_scope` | Table 4-10, §3.10.2, Table 6-3 | The 16 bpc prefix cut applies at QP 0. | At every QP with luma qLevel 0 (13 bits) or 1 (15 bits). | None. | A conflict with the table; the model prevails. |
+| OQ-36 `prefix16_cut` | Table 4-10, §3.10.2 | In such a group the cut and its rules (no ICH, no adjustment after ICH, all zeros mean MPP) always apply. | Only where the uncut prefix could be longer than the cut; the literal reading makes a large predicted size impossible to code. | None. | A conflict with the table; the model prevails. |
+| OQ-40 `offset_adj` | §6.8.2, Annex E Table E-2 | Normative §6.8.2: second_line_offset_adj is subtracted after the first line. The informative Table E-2 entry adds it at the slice start and subtracts it at the first group of the second line. | As Table E-2. | None (the nsl_bpg_offset SCR concerns another field). | A conflict with the normative text; the model agrees with the informative annex. |
+| OQ-41 `ich_window` | §6.5.1, Figures 6-7 and 6-8 | At the slice edges the window of referenced values is shifted into the slice; in the native modes the text does not say whether it is shifted in luma samples or in container pixels. | Container pixels. | None. | A gap; the model fills it. |
+| OQ-42 `scale_first` (also DSC 1.1) | §6.8.2 | The scale starts at initial_scale_value and falls by one every scale_decrement_interval groups; with an interval of 1 it is not said whether the first group already counts. | The first group keeps initial_scale_value. | None. | A gap; the model fills it. |
+| OQ-43 `scale_line` (also DSC 1.1) | §6.8.2, Annex E | Decrements continue until the scale reaches unity; the passage calls it a start-of-slice adjustment, and Annex E sizes the interval so that unity is reached within the first line. | No decrement after the first line of the slice. | None. | A conflict only for parameters outside Annex E's guidance; the model prevails. |
+
+### Summary
+
+* Look like errors in the text: OQ-26, OQ-27 and OQ-29 (explicit values or
+  conditions in §6.8.4 and Figure 6-17 that the model contradicts); OQ-30
+  (a missing floor); OQ-34 (a DSC 1.1 condition not updated for QPs that
+  DSC 1.2 can reach); OQ-21, OQ-35 and OQ-36 (Table 4-10's 16 bpc cut,
+  which disagrees with §3.10.2 and with the model on its length, its scope
+  and when it applies); OQ-40 (normative §6.8.2 omits the addition that
+  the informative Table E-2 describes).
+* Look like ambiguity: OQ-19, OQ-23, OQ-25, OQ-31, OQ-32, OQ-33, OQ-41 and
+  OQ-42. The text is silent, or two passages allow both readings, and the
+  model picks one.
+* Remain unclear: OQ-24 (the text's condition is open, and the model's
+  window matches none of the readings the text suggests); OQ-28 (a naming
+  slip, or the unstated pipeline timing); OQ-43 (the text's stop condition
+  and the model's agree for Annex E parameters, so the model may reflect a
+  design assumption rather than show a text error).
+
+None of these points is covered by an erratum in hand. Under DSC 1.2b §1.4.3
+the model's behavior is the standard's wherever the two differ, so the
+defaults follow it, as far as version 1.67 behaves like the 1.63 that DSC
+1.2b cites. Each text reading stays available behind its switch.
+
 ## Continuation — September 20, 2026
 
 **M1 remained incomplete at this date.** This continuation added two
