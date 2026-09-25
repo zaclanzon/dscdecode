@@ -66,6 +66,23 @@ def main():
             assert out.read_bytes() == (FIXTURES/f'{name}.expected.ppm').read_bytes(), name
             count += 1
             print(f'PASS {name}: exact expected PPM')
+        # YCbCr (tests/make_ycbcr_vectors.py): lossless pictures written as
+        # raw YCbCr, in the model's .yuv layouts.
+        for name in ('ycc444_v11_8', 'ycc444_10', 'simple422_12', 'native422_10', 'native420_14',
+                     'native420_16'):
+            out = tmp/f'{name}.yuv'
+            err = invoke([FIXTURES/f'{name}.pps',FIXTURES/f'{name}.bin',out])
+            assert not warnings(err), (name, err)
+            assert out.read_bytes() == (FIXTURES/f'{name}.expected.yuv').read_bytes(), name
+            count += 1
+            print(f'PASS {name}: exact expected YCbCr')
+        # The output name selects the format: YCbCr needs .yuv, RGB a PPM.
+        err = invoke([FIXTURES/'native420_14.pps',FIXTURES/'native420_14.bin',tmp/'wrong.ppm'],False)
+        assert 'YCbCr output: name a .yuv file' in err and not (tmp/'wrong.ppm').exists(), err
+        err = invoke([FIXTURES/'flat.pps',FIXTURES/'flat.bin',tmp/'wrong.yuv'],False)
+        assert 'RGB output: name a .ppm file' in err and not (tmp/'wrong.yuv').exists(), err
+        count += 2
+        print('PASS output names: YCbCr to .ppm and RGB to .yuv refused')
         out = tmp/'slice.ppm'
         invoke(['--slice',FIXTURES/'checker.pps',FIXTURES/'checker.slice0.bin',out])
         expected = b'P6\n96 3\n255\n'+bytes(

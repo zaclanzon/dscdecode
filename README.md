@@ -56,6 +56,7 @@ it accepted, and `--reading partial_padding=reject` makes that an error
 ```sh
 make                 # release build: build/release/dscdecode and libdsc.a
 build/release/dscdecode picture.pps compressed.bin output.ppm
+build/release/dscdecode picture.pps compressed.bin output.yuv   # YCbCr streams
 build/release/dscdecode --slice picture.pps one-slice.bin slice.ppm
 make test            # release build, then the test suites
 make sanitize        # ASan/UBSan build in build/sanitize, then its suites
@@ -91,9 +92,18 @@ must be removed upstream. No hardware access occurs.
 of 16-bit samples per component for every supported format
 (`dsc_plane_size` gives the plane sizes). The parser uses the kernel's
 `struct drm_dsc_config` and also parses 1.2 PPS fields. The decoder accepts
-RGB 4:4:4 CBR: DSC 1.1 at 8, 10 and 12 bits per component, and DSC 1.2 at
-8, 10, 12, 14 and 16. The CLI writes a binary PPM with maxval 2^bpc − 1: one
-byte per sample at 8 bpc, two bytes (most significant first) above.
+CBR streams of DSC 1.1 at 8, 10 and 12 bits per component and DSC 1.2 at 8,
+10, 12, 14 and 16: RGB 4:4:4 and YCbCr 4:4:4 (convert_rgb 0) and simple
+4:2:2 in both versions, and native 4:2:2 and native 4:2:0 in DSC 1.2. For
+RGB the CLI writes a binary PPM with maxval 2^bpc − 1: one byte per sample
+at 8 bpc, two bytes (most significant first) above. For YCbCr it writes raw
+YCbCr to a file named `*.yuv`, in the layouts the VESA reference model
+reads and writes: planar Y, Cb, Cr for native 4:2:0 (chroma at half width
+and height) and for 4:4:4, interleaved UYVY for the 4:2:2 formats (simple
+4:2:2 keeps the chroma of the even positions). Above 8 bpc each sample takes
+two bytes, least significant first; planar samples hold the value as it is,
+UYVY samples hold it in the most significant bits, as the model's files do.
+The planes API returns Y, Cb and Cr with the chroma planes subsampled.
 Thresholds retain PPS units and signed BPG offsets retain six-bit encoding.
 
 Limits: 16,777,216 pixels for both a frame and an individual slice; at most 255
@@ -113,8 +123,9 @@ the production library and CLI have no Python dependency.
 
 Regenerate the original fixtures with `python3 tests/make_vectors.py`, the
 transition/padding fixtures with `python3 tests/make_transition_vectors.py`,
-and the 10 and 12 bpc fixtures with `python3 tests/make_hbd_vectors.py`
-(derivations in `research/hbd-worked-note.md`).
+the 10 and 12 bpc fixtures with `python3 tests/make_hbd_vectors.py`
+(derivations in `research/hbd-worked-note.md`), and the lossless YCbCr
+fixtures of the `.yuv` output with `python3 tests/make_ycbcr_vectors.py`.
 
 ```sh
 python3 tests/make_corpus.py
@@ -139,9 +150,11 @@ the path of the binary they use. `--build sanitize` (for `scripts/ci.sh`,
 `DSCDECODE_BIN` names any other binary.
 
 `tests/make_discriminators.py` regenerates `tests/discriminators/`; the DSC
-1.2 inputs come from `tests/make_v12_discriminators.py`, which builds and
-decodes them with `tests/pydsc.py`, a small Python decoder model kept
-separate from the C decoder.
+1.2 inputs come from `tests/make_v12_discriminators.py` and the native 4:2:2
+and 4:2:0 ones from `tests/make_native_discriminators.py`, which build and
+decode them with `tests/pydsc.py`, a small Python decoder model kept
+separate from the C decoder (YCbCr, the native containers and block
+prediction included). The native inputs' expected pictures are raw YCbCr.
 
 `tools/make_pictures synthetic|derived --bpc N...` writes test pictures
 outside the repository (default `~/dsc-runs/hbd-pictures`): DPX at 10, 12
@@ -154,6 +167,19 @@ bits (checking the mapping), and default the line buffer to bpc + 1, at most
 output; the harness accepts such an encode only when the model's log
 reports the last slice and the bitstream exists, and records the signal in
 `result.json`.
+
+YCbCr: `tools/make_pictures synthetic|derived|corpus --format FORMAT`
+converts the pictures (and, for `corpus`, the 8-bit corpus images) to YCbCr
+with the BT.709 weights in limited range, subsampling the chroma by
+averaging, and writes them in forms the model reads: a 4:4:4 DPX
+(descriptor 102) for `ycbcr_444`, and `NAME_WxH.yuv` (UYVY, or planar 4:2:0)
+for `simple_422`, `native_422` and `native_420`; the module docstring gives
+the formulas and layouts. `tools/compare_model image --format FORMAT` and
+`tools/run_corpus --format FORMAT` code them as that format, with the
+model's `_422` and `_420` rate files for the native modes (`--bpp` is the
+picture's rate), check the model's copy of its input, and compare raw
+YCbCr: the model's `.yuv` output for the 4:2:2 and 4:2:0 formats and its
+4:4:4 DPX, read back, otherwise.
 
 `tools/verify_refactor BASE HEAD` checks that a refactor between two commits,
 such as reformatting or brace insertion, leaves the compiled code and the

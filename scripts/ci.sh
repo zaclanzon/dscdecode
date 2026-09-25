@@ -47,7 +47,7 @@ step_fixtures() {
         -type f ! -path '*/discriminators/README.md' -delete
     (cd "$work/tests" && python3 make_vectors.py >/dev/null &&
         python3 make_transition_vectors.py && python3 make_bp_vectors.py >/dev/null &&
-        python3 make_hbd_vectors.py >/dev/null &&
+        python3 make_hbd_vectors.py >/dev/null && python3 make_ycbcr_vectors.py >/dev/null &&
         python3 make_discriminators.py >/dev/null && python3 make_corpus.py)
     diff -r tests/fixtures "$work/tests/fixtures"
     diff -r tests/corpus "$work/tests/corpus"

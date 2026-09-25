@@ -636,14 +636,15 @@ class Slice:
     def yuv(self):
         """The raw layouts of the reference model's .yuv files (its README.TXT):
         planar 4:2:0, UYVY 4:2:2; 4:4:4 planar as dscdecode writes it. Above
-        8 bits, two bytes per sample, least significant first, the sample in
-        the most significant bits."""
+        8 bits, two bytes per sample, least significant first: planar
+        samples as they are, UYVY samples in the most significant bits."""
         Y, Cb, Cr = self.planes()
-        shift = 16 - self.f.bpc
+        uyvy = self.f.native == '422' or self.f.simple_422
+        shift = 16 - self.f.bpc if uyvy else 0
 
         def enc(vals):
-            return b''.join((v << shift).to_bytes(2, 'little') for v in vals) if shift < 8 else bytes(vals)
-        if self.f.native == '422' or self.f.simple_422:
+            return b''.join((v << shift).to_bytes(2, 'little') for v in vals) if self.f.bpc > 8 else bytes(vals)
+        if uyvy:
             out = []
             for y, row in enumerate(Y):
                 for x in range(0, len(row), 2):

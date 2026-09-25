@@ -138,9 +138,16 @@ def samples(maxval, body):
     return [body[i] << 8 | body[i + 1] for i in range(0, len(body), 2)]
 
 
+YUV_NAME = re.compile(r'_(\d+)x(\d+)\.yuv$')
+
+
 def image_size(path):
-    """(width, height) of a source image the model reads: PPM or DPX."""
+    """(width, height) of a source image the model reads: PPM, DPX, or raw
+    YCbCr named NAME_<W>x<H>.yuv (tools/make_pictures)."""
     path = Path(path)
+    m = YUV_NAME.search(path.name)
+    if m:
+        return int(m.group(1)), int(m.group(2))
     head = path.read_bytes()[:1024]
     if head[:4] in (b'SDPX', b'XPDS'):
         order = 'big' if head[:4] == b'SDPX' else 'little'
@@ -194,9 +201,10 @@ def compare_images(expected_path, actual_path):
 # dscdecode writes YCbCr as NAME.yuv in the layouts of the model's .yuv files
 # (its README.TXT: YUV_FILE_FORMAT 0 planar 4:2:0, 1 interleaved UYVY 4:2:2),
 # and 4:4:4 planar; above 8 bits every sample takes two bytes, least
-# significant first, with the value in the most significant bits, as the
-# model's files hold it. The model writes 4:4:4 YCbCr only as DPX
-# (descriptor 102), read below into the planar layout.
+# significant first, the value as it is in the planar layouts and in the
+# most significant bits in UYVY, as the model's files hold them. The model
+# writes 4:4:4 YCbCr only as DPX (descriptor 102), read below into the
+# planar layout.
 
 FORMATS = ('rgb', 'ycbcr_444', 'simple_422', 'native_422', 'native_420')
 
@@ -280,14 +288,17 @@ def dpx_to_yuv(dpx_path, out_path, w, h, bpc):
         for i in range(off, off + size + (-size) % 4, 4):
             word = int.from_bytes(data[i:i + 4], 'big')
             stream += [(word >> (8 * width * k)) & ((1 << 8 * width) - 1) for k in range(4 // width)]
-        inverse = {8: lambda v: v, 12: lambda v: v >> 4, 14: lambda v: -(-v * 16383 // 65535),
-                   16: lambda v: v}[bpc]
+        def from14(v):
+            # The model writes 14-bit v as floor(v * 65535 / 16383).
+            x = v * 16383 // 65535
+            return x if x * 65535 // 16383 == v else x + 1
+        inverse = {8: lambda v: v, 12: lambda v: v >> 4, 14: from14, 16: lambda v: v}[bpc]
         stream = [inverse(v) for v in stream[:3 * n]]
         cb, y, cr = stream[0::3], stream[1::3], stream[2::3]
     out = bytearray()
     for plane in (y, cb, cr):
         for v in plane:
-            out += bytes([v]) if bpc <= 8 else (v << (16 - bpc)).to_bytes(2, 'little')
+            out += bytes([v]) if bpc <= 8 else v.to_bytes(2, 'little')
     Path(out_path).write_bytes(bytes(out))
     return out_path
 
@@ -361,22 +372,47 @@ class Model:
             raise HarnessError(f'no rc_{bpc}bpc_*bpp{suffix}.cfg in {self.cfg_dir}')
         return f'rc_{bpc}bpc_{min(rates, key=lambda b: abs(b - bpp))}bpp{suffix}.cfg'
 
-    def encode(self, image, bpp, slices, slice_height, block_pred, line_buffer, bpc=8, version=1):
+    def encode(self, image, bpp, slices, slice_height, block_pred, line_buffer, bpc=8, version=1,
+               fmt='rgb'):
+        """The model encodes image. fmt 'rgb' codes RGB (PPM or RGB DPX
+        input); the YCbCr formats (FORMATS) code a YCbCr picture as
+        tools/make_pictures writes it: 4:4:4 DPX, or .yuv (UYVY for the 4:2:2
+        formats, planar 4:2:0 for native_420). bpp is the picture's rate;
+        the native modes double it in the PPS (Table 4-1) and take the
+        model's rc_*_422 and rc_*_420 files."""
         w, h = image_size(image)
         link = self.dir / ('input' + Path(image).suffix.lower())
         if not link.exists():
             link.symlink_to(Path(image).resolve())
         template = (self.cfg_dir / 'test_dsc_1_1.cfg').read_text()
-        rc = self.rc_file(bpc, bpp)
+        native = fmt in ('native_422', 'native_420')
+        rc = self.rc_file(bpc, bpp, {'native_422': '_422', 'native_420': '_420'}.get(fmt, ''))
         shutil.copy(self.cfg_dir / rc, self.dir / rc)
+        width = -(-w // slices)
+        if fmt in ('simple_422', 'native_422', 'native_420'):
+            width += width % 2          # 4:2:2 and 4:2:0 slices are even (Table 4-1)
         settings = dict(DSC_VERSION_MINOR=str(version), FUNCTION='1', SRC_LIST='@LIST@',
                         PPM_FILE_OUTPUT='1', BLOCK_PRED_ENABLE=str(int(block_pred)),
-                        VBR_ENABLE='0', USE_YUV_INPUT='0', SIMPLE_422='0',
-                        NATIVE_422='0', NATIVE_420='0',
+                        VBR_ENABLE='0', USE_YUV_INPUT=str(int(fmt != 'rgb')),
+                        SIMPLE_422=str(int(fmt == 'simple_422')),
+                        NATIVE_422=str(int(fmt == 'native_422')),
+                        NATIVE_420=str(int(fmt == 'native_420')),
                         LINE_BUFFER_BPC=str(line_buffer),
-                        SLICE_WIDTH=str(-(-w // slices)),
-                        BITS_PER_PIXEL=f'{bpp:g}')
-        if Path(image).suffix.lower() == '.dpx':
+                        SLICE_WIDTH=str(width),
+                        BITS_PER_PIXEL=f'{2 * bpp if native else bpp:g}')
+        if fmt != 'rgb':
+            settings['DPX_FILE_OUTPUT'] = '1'
+        if Path(image).suffix.lower() == '.yuv':
+            settings.update(PIC_WIDTH=str(w), PIC_HEIGHT=str(h), YUV_FILE_OUTPUT='1',
+                            YUV_FILE_FORMAT='0' if fmt == 'native_420' else '1')
+        elif Path(image).suffix.lower() == '.dpx' and fmt != 'rgb':
+            # YCbCr DPX: the layout the model writes by default, which it
+            # reads back unchanged with these settings (tools/make_pictures).
+            # Its copy of the input (input.ref.dpx) is written the same way.
+            settings.update(DPXR_DATUM_ORDER='0', DPXR_PAD_ENDS='0', SWAP_R_AND_B='0',
+                            DPXW_DATUM_ORDER='0', DPXW_PAD_ENDS='0', DPXW_FORCE_PACKING='1',
+                            SWAP_R_AND_B_OUT='0')
+        elif Path(image).suffix.lower() == '.dpx':
             # tools/make_pictures writes DPX in the layout the model writes
             # with these settings, and reads back unchanged.
             settings.update(SWAP_R_AND_B='0', DPXR_DATUM_ORDER='1', DPXR_PAD_ENDS='1')
@@ -388,9 +424,25 @@ class Model:
             raise HarnessError('model wrote no input.dsc')
         return dsc
 
-    def check_source(self, image):
-        """Compare the model's view of its input (input.ref.ppm) with the
-        master PPM that tools/make_pictures writes beside a DPX picture."""
+    def check_source(self, image, fmt='rgb', bpc=8):
+        """Compare the model's view of its input (input.ref.ppm, or for
+        YCbCr input.ref.yuv or input.ref.dpx) with the master that
+        tools/make_pictures writes beside the picture."""
+        if fmt != 'rgb':
+            stem = YUV_NAME.sub('', Path(image).name) if Path(image).suffix == '.yuv' else Path(image).stem
+            master = Path(image).parent / 'master' / (stem + '.yuv')
+            if not master.exists():
+                return None
+            if Path(image).suffix == '.yuv':
+                ref = self.dir / 'input.ref.yuv'
+                same = ref.exists() and ref.read_bytes() == Path(image).read_bytes()
+            else:
+                w, h = image_size(image)
+                ref = dpx_to_yuv(self.dir / 'input.ref.dpx', self.dir / 'input.ref.444.yuv', w, h, bpc)
+                same = ref.read_bytes() == master.read_bytes()
+            if not same:
+                raise HarnessError(f'the model read {image} differently from {master}')
+            return 'match'
         master = Path(image).parent / 'master' / (Path(image).stem + '.ppm')
         ref = self.dir / 'input.ref.ppm'
         if not master.exists():
@@ -582,19 +634,21 @@ def parse_readings(pairs):
 # --- modes ------------------------------------------------------------------
 
 def run_image(image, bpp=8.0, slices=1, slice_height=None, bp=False, line_buffer=None,
-              readings_list=None, run_dir=None, bpc=8, version=1):
+              readings_list=None, run_dir=None, bpc=8, version=1, fmt='rgb'):
     """Model encodes image; model and dscdecode decode it. Returns a summary.
     line_buffer defaults to bpc + 1, at most 16 (the model's limit)."""
-    label = f"{Path(image).stem}-bpc{bpc}-v1{version}-bpp{bpp:g}-s{slices}-bp{int(bp)}"
+    label = f"{Path(image).stem}-{fmt}-bpc{bpc}-v1{version}-bpp{bpp:g}-s{slices}-bp{int(bp)}"
     run_dir = Path(run_dir) if run_dir else new_run_dir(label)
     model = Model(run_dir)
     line_buffer = line_buffer or min(bpc + 1, 16)
-    dsc = model.encode(image, bpp, slices, slice_height, bp, line_buffer, bpc, version)
-    source = model.check_source(image)
+    dsc = model.encode(image, bpp, slices, slice_height, bp, line_buffer, bpc, version, fmt)
+    source = model.check_source(image, fmt, bpc)
     model_out = model.decode(dsc)
     pps, payload = split_dsc(dsc, run_dir)
+    if stream_format(Path(pps).read_bytes()) != fmt:
+        raise HarnessError(f'the model coded {stream_format(Path(pps).read_bytes())}, not {fmt}')
     results = compare_decodes(run_dir, pps, payload, model_out, readings_list or [{}])
-    summary = dict(mode='image', image=str(image), bpc=bpc, dsc_version=f'1.{version}',
+    summary = dict(mode='image', image=str(image), format=fmt, bpc=bpc, dsc_version=f'1.{version}',
                    bpp=bpp, slices=slices, block_pred=int(bp), slice_height=slice_height,
                    line_buffer=line_buffer, source_check=source, run_dir=str(run_dir),
                    dscdecode=str(dscdecode_binary()), results=results)
@@ -607,10 +661,10 @@ def run_image(image, bpp=8.0, slices=1, slice_height=None, bp=False, line_buffer
 def mode_image(a):
     summary = run_image(a.image, a.bpp, a.slices, a.slice_height, a.bp, a.line_buffer,
                         reading_sets(a.all_readings, parse_readings(a.reading), a.vary), a.run_dir,
-                        a.bpc, a.dsc_version)
+                        a.bpc, a.dsc_version, a.format)
     results, run_dir = summary['results'], summary['run_dir']
     if not a.json:
-        print(f'{a.image}: DSC 1.{a.dsc_version}, {a.bpc} bpc, bpp {a.bpp:g}, '
+        print(f'{a.image}: DSC 1.{a.dsc_version}, {a.format}, {a.bpc} bpc, bpp {a.bpp:g}, '
               f'{a.slices} slice(s)/line, BP {int(a.bp)}  [{run_dir}]')
         if summary.get('model_encode_signal'):
             print(f"  note: the model's encoder died from signal {summary['model_encode_signal']} "
@@ -722,7 +776,7 @@ def mode_self_test(a):
         for v in ((x * 4 + y) % 256, (y * 2 + x // 3) % 256, (255 - x) % 256)))
     args = argparse.Namespace(image=str(image), bpp=8.0, slices=1, slice_height=108, bp=False,
                               line_buffer=9, bpc=8, dsc_version=1, reading=[], all_readings=False, vary=None,
-                              run_dir=str(run_dir / 'run'), json=False)
+                              run_dir=str(run_dir / 'run'), json=False, format='rgb')
     return mode_image(args)
 
 
@@ -752,6 +806,8 @@ def main():
     im.add_argument('--dsc-version', type=int, choices=(1, 2), default=1,
                     help='DSC_VERSION_MINOR (default 1)')
     im.add_argument('--line-buffer', type=int, default=None, help='default: bpc + 1, at most 16')
+    im.add_argument('--format', choices=FORMATS, default='rgb',
+                    help='coding format; YCbCr formats take pictures from tools/make_pictures')
     bs = sub.add_parser('bitstream', parents=[common])
     bs.add_argument('pps')
     bs.add_argument('payload')

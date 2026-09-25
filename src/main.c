@@ -411,7 +411,7 @@ static int usage(const char *self)
             "Usage: %s [--slice] [--stats] [--trace FILE.csv] [--reading NAME=VALUE]... PPS.bin slices.bin OUTPUT\n"
             "OUTPUT is a binary PPM for RGB (convert_rgb 1) and raw YCbCr, NAME.yuv, otherwise:\n"
             "planar 4:2:0 for native 4:2:0, UYVY for 4:2:2, planar 4:4:4; above 8 bits,\n"
-            "two bytes per sample, least significant first, the sample in the top bits.\n"
+            "two bytes per sample, least significant first; UYVY samples in the top bits.\n"
             "Readings (see RESEARCH.md, open questions):\n",
             self);
     for (i = 0; i < sizeof(readings) / sizeof(readings[0]); i++) {
@@ -461,13 +461,13 @@ static int write_ppm(FILE *out, const struct dsc_planes *o, unsigned w, unsigned
  * README.TXT: YUV_FILE_FORMAT 0 and 1): planar 4:2:0 (Y, Cb, Cr) for native
  * 4:2:0, interleaved UYVY for 4:2:2. 4:4:4 YCbCr, which the model writes as
  * DPX only, is written planar (Y, Cb, Cr). Samples above 8 bits take two
- * bytes, least significant first, with the sample in the most significant
- * bits, as in the model's files. An odd-width 4:2:2 row ends with its last
- * luma sample repeated. */
-static int put_sample(FILE *out, unsigned v, unsigned bits)
+ * bytes, least significant first; as in the model's files, planar samples
+ * hold the value as it is, UYVY samples in the most significant bits. An
+ * odd-width 4:2:2 row ends with its last luma sample repeated. */
+static int put_sample(FILE *out, unsigned v, unsigned bits, int top)
 {
     if (bits > 8) {
-        v <<= 16 - bits;
+        v <<= top ? 16 - bits : 0;
         if (fputc((int)(v & 255), out) == EOF) {
             return -1;
         }
@@ -487,10 +487,10 @@ static int write_yuv(FILE *out, const struct dsc_planes *o, const unsigned w[3],
                 const uint16_t *luma = o->plane[0] + (size_t)y * o->stride[0];
                 unsigned odd = x + 1 < w[0] ? luma[x + 1] : luma[x];
 
-                if (put_sample(out, o->plane[1][(size_t)y * o->stride[1] + x / 2], bits) ||
-                    put_sample(out, luma[x], bits) ||
-                    put_sample(out, o->plane[2][(size_t)y * o->stride[2] + x / 2], bits) ||
-                    put_sample(out, odd, bits)) {
+                if (put_sample(out, o->plane[1][(size_t)y * o->stride[1] + x / 2], bits, 1) ||
+                    put_sample(out, luma[x], bits, 1) ||
+                    put_sample(out, o->plane[2][(size_t)y * o->stride[2] + x / 2], bits, 1) ||
+                    put_sample(out, odd, bits, 1)) {
                     return -1;
                 }
             }
@@ -500,7 +500,7 @@ static int write_yuv(FILE *out, const struct dsc_planes *o, const unsigned w[3],
     for (c = 0; c < 3; c++) {
         for (y = 0; y < h[c]; y++) {
             for (x = 0; x < w[c]; x++) {
-                if (put_sample(out, o->plane[c][(size_t)y * o->stride[c] + x], bits)) {
+                if (put_sample(out, o->plane[c][(size_t)y * o->stride[c] + x], bits, 0)) {
                     return -1;
                 }
             }

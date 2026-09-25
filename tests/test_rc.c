@@ -461,6 +461,32 @@ static void scale_decrement(int reading, const unsigned expect[5])
     }
 }
 
+/* OQ-42 and OQ-43. Lines of two groups, the scale decremented every group
+ * from 12. OQ-42: whether group 0 decrements; OQ-43: whether groups after the
+ * first line do. */
+static void scale_window(int first, int line, const unsigned expect[6])
+{
+    struct drm_dsc_config c = settings();
+    struct dsc_options o;
+    struct dsc_rc r;
+    unsigned g;
+
+    c.slice_width = 6;
+    c.slice_chunk_size = 6;
+    c.initial_scale_value = 12;
+    c.scale_decrement_interval = 1;
+    dsc_options_init(&o);
+    o.scale_dec = DSC_SCALE_DEC_FROM_GROUP_0;
+    o.scale_first = first;
+    o.scale_line = line;
+    assert(dsc_rc_init(&r, &c) == 0);
+    dsc_rc_set_options(&r, &o);
+    for (g = 0; g < 6; ++g) {
+        assert(dsc_rc_step(&r, g / 2, g, 3, 24, 24) == 0);
+        assert(r.scale == expect[g]);
+    }
+}
+
 /* OQ-15. Width 7: the third group of a line has one pixel. At 8 bpp and zero
  * BPG offsets, its target is 24 (three samples) or 8 (one pixel). */
 static void partial_target(int reading, int64_t target)
@@ -561,6 +587,15 @@ int main(void)
 
         scale_decrement(DSC_SCALE_DEC_FROM_GROUP_1, from1);
         scale_decrement(DSC_SCALE_DEC_FROM_GROUP_0, from0);
+    }
+    {
+        static const unsigned model[6] = {12, 11, 11, 11, 11, 11}, group[6] = {11, 10, 10, 10, 10, 10};
+        static const unsigned unity[6] = {12, 11, 10, 9, 8, 8}, both[6] = {11, 10, 9, 8, 8, 8};
+
+        scale_window(DSC_SCALE_FIRST_NOT, DSC_SCALE_LINE_FIRST, model);
+        scale_window(DSC_SCALE_FIRST_GROUP, DSC_SCALE_LINE_FIRST, group);
+        scale_window(DSC_SCALE_FIRST_NOT, DSC_SCALE_LINE_UNTIL_UNITY, unity);
+        scale_window(DSC_SCALE_FIRST_GROUP, DSC_SCALE_LINE_UNTIL_UNITY, both);
     }
     partial_target(DSC_PARTIAL_TARGET_THREE, 24);
     partial_target(DSC_PARTIAL_TARGET_PIXELS, 8);

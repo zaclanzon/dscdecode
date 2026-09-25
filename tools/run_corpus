@@ -2,13 +2,17 @@
 """Run tools/compare_model over a corpus of real images kept outside the repo.
 
   run_corpus [--dir ~/vesa-corpus] [--bpp 8] [--bp 0 1] [--slices 1 2 4]
-             [--bpc 8] [--dsc-version 1] [--jobs N]
+             [--bpc 8] [--dsc-version 1] [--format rgb] [--jobs N]
 
 Finds PPM/PNM, PGM, PNG and DPX files in --dir (not recursive). The model
 reads PPM and DPX itself. PNG and PGM are converted to PPM in the run
 directory. JPEG is used only if Pillow is installed. For every image and
 every combination of settings, the model encodes the image and both the model
 and dscdecode decode the model's bitstream.
+
+--format ycbcr_444, simple_422, native_422 or native_420 codes YCbCr
+pictures made by tools/make_pictures --format: 4:4:4 DPX, and NAME_WxH.yuv
+for the 4:2:2 and 4:2:0 formats. --bpp is the picture's rate.
 
 dscdecode is the release build unless --build sanitize (or DSCDECODE_BUILD, or
 DSCDECODE_BIN) says otherwise; see tools/compare_model. Its path is printed.
@@ -113,6 +117,9 @@ def prepare(images, work):
         try:
             if ext in ('.ppm', '.pnm') and cm.read_pnm(src):
                 ready.append(src)
+            elif ext == '.yuv':
+                cm.image_size(src)
+                ready.append(src)
             elif ext == '.dpx':
                 cm.image_size(src)
                 ready.append(src)
@@ -129,7 +136,11 @@ def prepare(images, work):
 def row(image, s):
     """One table line; s is a run_image summary (or an error stand-in)."""
     r = s['results'][0]
-    if 'error' in r:
+    if 'error' in r and r['error'].startswith('harness: '):
+        # The model or the harness failed; dscdecode did not run.
+        lines = [l for l in r['error'].splitlines() if l.strip()]
+        verdict, first, count = 'harness error: ' + (lines[-1] if lines else ''), '', ''
+    elif 'error' in r:
         verdict, first, count = 'dscdecode error: ' + r['error'].splitlines()[-1], '', ''
     elif r['match']:
         verdict, first, count = 'match', '', '0'
@@ -140,7 +151,9 @@ def row(image, s):
         verdict = 'mismatch'
         first = f"({f['x']},{f['y']}) {f['component']} {f['expected']}/{f['actual']}"
         count = f"{r['samples_differing']} samples"
-    return (f"| {image} | {s.get('dsc_version', '1.1')} | {s.get('bpc', 8)} | {s['bpp']:g} "
+    fmt = s.get('format', 'rgb')
+    dsc = s.get('dsc_version', '1.1') + ('' if fmt == 'rgb' else f' {fmt}')
+    return (f"| {image} | {dsc} | {s.get('bpc', 8)} | {s['bpp']:g} "
             f"| {'on' if s['block_pred'] else 'off'} | {s['slices']} "
             f"| {verdict} | {first} | {count} |")
 
@@ -157,6 +170,8 @@ def main():
     ap.add_argument('--dsc-version', type=int, choices=(1, 2), default=1,
                     help='DSC_VERSION_MINOR of the encode')
     ap.add_argument('--line-buffer', type=int, default=None, help='default: bpc + 1, at most 16')
+    ap.add_argument('--format', choices=cm.FORMATS, default='rgb',
+                    help='coding format (YCbCr: pictures from tools/make_pictures --format)')
     ap.add_argument('--jobs', type=int, default=1, help='runs in parallel')
     ap.add_argument('--keep', action='store_true',
                     help='keep the images and bitstreams of matching runs too')
@@ -180,8 +195,9 @@ def main():
     if not corpus.is_dir():
         print(f'SKIP: corpus directory {corpus} does not exist')
         return cm.SKIP
-    images = sorted(p for p in corpus.iterdir() if p.is_file() and p.suffix.lower() in
-                    ('.ppm', '.pnm', '.pgm', '.png', '.dpx', '.jpg', '.jpeg'))
+    kinds = ('.ppm', '.pnm', '.pgm', '.png', '.dpx', '.jpg', '.jpeg') if a.format == 'rgb' else \
+        (('.dpx',) if a.format == 'ycbcr_444' else ('.yuv',))
+    images = sorted(p for p in corpus.iterdir() if p.is_file() and p.suffix.lower() in kinds)
     if a.limit:
         images = images[:a.limit]
     if not images:
@@ -207,17 +223,17 @@ def main():
         run_dir = work / f'{image.stem}-bpp{bpp:g}-bp{bp}-s{slices}'
         try:
             s = cm.run_image(image, bpp, slices, None, bool(bp), a.line_buffer, run_dir=run_dir,
-                             bpc=a.bpc, version=a.dsc_version)
+                             bpc=a.bpc, version=a.dsc_version, fmt=a.format)
             # A 1080p run leaves about 60 MB of pictures; keep them only
             # where they are needed to investigate.
             if s['results'][0]['match'] and not a.keep:
                 for f in run_dir.iterdir():
-                    if f.suffix in ('.ppm', '.dpx', '.dsc', '.bin'):
+                    if f.suffix in ('.ppm', '.dpx', '.dsc', '.bin', '.yuv'):
                         f.unlink()
             return s
         except cm.HarnessError as e:
-            return dict(image=str(image), bpc=a.bpc, dsc_version=f'1.{a.dsc_version}', bpp=bpp,
-                        block_pred=bp, slices=slices,
+            return dict(image=str(image), format=a.format, bpc=a.bpc, dsc_version=f'1.{a.dsc_version}',
+                        bpp=bpp, block_pred=bp, slices=slices,
                         results=[dict(error=f'harness: {e}', match=False)])
 
     summaries, status = [], 0

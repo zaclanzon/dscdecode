@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Test pictures for high bit depths, written outside the repository.
+"""Test pictures for high bit depths and YCbCr, written outside the repository.
 
-  make_pictures synthetic [--bpc 10 12] [--out DIR]
-  make_pictures derived [--bpc 10 12] [--corpus ~/vesa-corpus] [--out DIR]
+  make_pictures synthetic [--bpc 10 12] [--format rgb] [--out DIR]
+  make_pictures derived [--bpc 10 12] [--corpus ~/vesa-corpus] [--format rgb] [--out DIR]
+  make_pictures corpus [--corpus ~/vesa-corpus] --format FORMAT [--out DIR]
 
 synthetic writes eight pictures per bit depth that use the full range and the
 low bits: gradients, noise, fine text, flat areas, sine waves, low-bit
@@ -27,6 +28,38 @@ same layout. The model reads no 14-bit DPX, and did not read a 16-bit DPX
 holding 14-bit values back exactly, so 14-bit pictures are written as
 NAME.ppm (maxval 16383) instead of NAME.dpx; the model reads that exactly.
 8-bit pictures (synthetic only) are written as NAME.ppm too.
+
+--format ycbcr_444, simple_422, native_422 or native_420 converts each picture
+(corpus: the 8-bit corpus images as they are) to YCbCr and writes it in a
+form the model reads, to DIR/<kind>-<bpc>-<format>/:
+
+* Conversion: ITU-R BT.709 luma and colour-difference weights, limited
+  range. With R, G, B scaled to [0, 1] by 2^bpc - 1, Y' = 0.2126 R + 0.7152 G
+  + 0.0722 B, Pb = (B - Y') / 1.8556, Pr = (R - Y') / 1.5748, and with
+  s = 2^(bpc - 8): Y = round(s (16 + 219 Y')), Cb = round(s (128 + 224 Pb)),
+  Cr = round(s (128 + 224 Pr)), each clamped to [0, 2^bpc - 1].
+* 4:2:2 (simple_422, native_422): each chroma sample is the mean of the two
+  horizontally adjacent 4:4:4 samples, rounded half up; 4:2:0 (native_420)
+  the mean of the 2x2 block. Pictures with an odd width or height lose their
+  last column or row first, since 4:2:2 and 4:2:0 slices have even widths
+  (and 4:2:0 even heights).
+* ycbcr_444: NAME.dpx, DPX 2.0 descriptor 102 in the layout the model writes
+  (Cb, Y, Cr per pixel; 8 bits: bytes, datum order right to left in 32-bit
+  big-endian words; 10 bits: one word per pixel, Cb in bits 2-11, Y in
+  12-21, Cr in 22-31; 12 and 16 bits: 16-bit samples, two per word from the
+  low half, 12-bit values times 16); 14 bits: 16-bit samples holding
+  ceil(v * 65535 / 16383), which the model reads back as v (it scales
+  16-bit samples with floor(s * 16383 / 65535); it writes its own 14-bit
+  DPX with floor(v * 65535 / 16383)). The model reads these files back
+  unchanged with DPXR_DATUM_ORDER 0 (tools/compare_model sets its DPX
+  options).
+* simple_422 and native_422: NAME_<W>x<H>.yuv, UYVY; native_420:
+  NAME_<W>x<H>.yuv, planar Y, Cb, Cr (the model's YUV_FILE_FORMAT 1 and 0).
+  Above 8 bits each sample takes two bytes, least significant first; the
+  model reads UYVY samples from the top bits (value << (16 - bpc)) and
+  planar samples as they are (it refuses planar values of 2^bpc or more).
+* master/NAME.yuv: the Y, Cb, Cr planes, planar (values as they are), which
+  tools/compare_model checks the model's own copy of its input against.
 """
 import argparse
 import array
@@ -93,6 +126,114 @@ def write(out, name, w, h, bpc, samples):
         (out / f'{name}.dpx').write_bytes(dpx_bytes(w, h, bpc, samples))
     (out / 'master' / f'{name}.ppm').write_bytes(ppm_bytes(w, h, bpc, samples))
     return name
+
+
+# --- YCbCr ----------------------------------------------------------------------
+
+FORMATS = ('rgb', 'ycbcr_444', 'simple_422', 'native_422', 'native_420')
+
+
+def to_ycbcr(w, h, bpc, samples):
+    """BT.709 limited range (see the module docstring); three planes."""
+    top = (1 << bpc) - 1
+    scale = 1 << (bpc - 8)
+    planes = [array.array('H', bytes(2 * w * h)) for _ in range(3)]
+    for i in range(w * h):
+        r, g, b = (samples[3 * i + k] / top for k in range(3))
+        y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        pb, pr = (b - y) / 1.8556, (r - y) / 1.5748
+        for k, v in enumerate((16 + 219 * y, 128 + 224 * pb, 128 + 224 * pr)):
+            planes[k][i] = min(top, max(0, int(math.floor(scale * v + 0.5))))
+    return planes
+
+
+def subsample(plane, w, h, fmt):
+    """Chroma of 4:2:2 or 4:2:0 from a 4:4:4 plane (w, h even)."""
+    rows = h // 2 if fmt == 'native_420' else h
+    out = array.array('H')
+    for y in range(rows):
+        for x in range(0, w, 2):
+            if fmt == 'native_420':
+                v = sum(plane[(2 * y + dy) * w + x + dx] for dy in (0, 1) for dx in (0, 1))
+                out.append((v + 2) // 4)
+            else:
+                out.append((plane[y * w + x] + plane[y * w + x + 1] + 1) // 2)
+    return out
+
+
+def yuv_sample_bytes(values, bpc, top=False):
+    """Samples of a .yuv file; top: in the most significant bits (UYVY)."""
+    if bpc <= 8:
+        return bytes(list(values))     # bytes() of an array would copy its 16-bit buffer
+    body = array.array('H', (v << (16 - bpc if top else 0) for v in values))
+    if sys.byteorder == 'big':
+        body.byteswap()
+    return body.tobytes()
+
+
+def dpx444_bytes(w, h, bpc, planes):
+    """DPX 2.0, descriptor 102 (Cb, Y, Cr), the layout the model writes."""
+    hdr = bytearray(8192)
+    hdr[0:4] = b'SDPX'
+    struct.pack_into('>I', hdr, 4, 8192)
+    hdr[8:12] = b'V2.0'
+    struct.pack_into('>IIII', hdr, 20, 0xffffffff, 1664, 384, 0)
+    hdr[36:49] = b'dscdecode m3'[:13].ljust(13, b'\0')
+    struct.pack_into('>I', hdr, 660, 0xffffffff)
+    bits = 16 if bpc == 14 else bpc
+    struct.pack_into('>HHII', hdr, 768, 0, 1, w, h)
+    struct.pack_into('>IIfIfBBBBHHIII', hdr, 780, 0, 0, 0.0, (1 << bpc) - 1, 700.0,
+                     102, 6, 6, bits, 1 if bits in (10, 12) else 0, 0, 8192, 0, 0)
+    hdr[852:1356] = b'\xff' * 504
+    y, cb, cr = planes
+    n = w * h
+    if bits == 10:
+        words = array.array('I', (cb[i] << 2 | y[i] << 12 | cr[i] << 22 for i in range(n)))
+    else:
+        width = 8 if bits == 8 else 16
+        # 14 bits: ceil(v * 65535 / 16383), which the model reads back as v
+        # (it converts with floor(s * 16383 / 65535)).
+        scale = {8: lambda v: v, 12: lambda v: v << 4, 14: lambda v: -(-v * 65535 // 16383),
+                 16: lambda v: v}[bpc]
+        stream = [scale(v) for i in range(n) for v in (cb[i], y[i], cr[i])]
+        per = 32 // width
+        stream += [0] * (-len(stream) % per)
+        words = array.array('I', (sum(stream[j + k] << (width * k) for k in range(per))
+                                  for j in range(0, len(stream), per)))
+    if sys.byteorder == 'little':
+        words.byteswap()
+    data = words.tobytes()
+    struct.pack_into('>I', hdr, 16, 8192 + len(data))
+    return bytes(hdr) + data
+
+
+def write_ycbcr(out, name, w, h, bpc, samples, fmt):
+    """The picture in YCbCr, in the form the model reads for fmt."""
+    if fmt != 'ycbcr_444' and (w % 2 or (fmt == 'native_420' and h % 2)):
+        # Drop the last column (and row) of odd sizes: 4:2:x slices are even.
+        w2, h2 = w - w % 2, h - (h % 2 if fmt == 'native_420' else 0)
+        samples = array.array('H', (samples[3 * (y * w + x) + k]
+                                    for y in range(h2) for x in range(w2) for k in range(3)))
+        w, h = w2, h2
+    y, cb, cr = to_ycbcr(w, h, bpc, samples)
+    (out / 'master').mkdir(parents=True, exist_ok=True)
+    if fmt == 'ycbcr_444':
+        (out / f'{name}.dpx').write_bytes(dpx444_bytes(w, h, bpc, (y, cb, cr)))
+        planes = (y, cb, cr)
+        file = f'{name}.dpx'
+    else:
+        cb, cr = subsample(cb, w, h, fmt), subsample(cr, w, h, fmt)
+        planes = (y, cb, cr)
+        file = f'{name}_{w}x{h}.yuv'
+        if fmt == 'native_420':
+            data = b''.join(yuv_sample_bytes(p, bpc) for p in planes)
+        else:
+            data = yuv_sample_bytes([v for r in range(h) for x in range(w // 2)
+                                     for v in (cb[r * w // 2 + x], y[r * w + 2 * x], cr[r * w // 2 + x],
+                                               y[r * w + 2 * x + 1])], bpc, top=True)
+        (out / file).write_bytes(data)
+    (out / 'master' / f'{name}.yuv').write_bytes(b''.join(yuv_sample_bytes(p, bpc) for p in planes))
+    return file
 
 
 # --- synthetic pictures -------------------------------------------------------
@@ -188,8 +329,15 @@ def read_ppm8(path):
     return w, h, data[pos + 1:pos + 1 + 3 * w * h]
 
 
+def corpus_ycbcr(job):
+    """An 8-bit corpus image as it is, in YCbCr."""
+    src, fmt, out = job
+    w, h, rgb = read_ppm8(src)
+    return write_ycbcr(out, src.stem, w, h, 8, array.array('H', list(rgb)), fmt)
+
+
 def derive(job):
-    src, bpc, out = job
+    src, bpc, out, fmt = job
     w, h, rgb = read_ppm8(src)
     top = (1 << bpc) - 1
     k = (1 << (bpc - 8)) - 1
@@ -202,14 +350,17 @@ def derive(job):
         for i, n in enumerate(noise):
             v = scale[rgb[3 * i + c]] + n % span - k
             samples[3 * i + c] = 0 if v < 0 else top if v > top else v
+    if fmt != 'rgb':
+        return write_ycbcr(out, src.stem, w, h, bpc, samples, fmt)
     return write(out, src.stem, w, h, bpc, samples)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('kind', choices=('synthetic', 'derived'))
+    ap.add_argument('kind', choices=('synthetic', 'derived', 'corpus'))
     ap.add_argument('--bpc', type=int, nargs='+', default=[10, 12], choices=(8, 10, 12, 14, 16))
+    ap.add_argument('--format', default='rgb', choices=FORMATS)
     ap.add_argument('--out', default=str(Path.home() / 'dsc-runs' / 'hbd-pictures'))
     ap.add_argument('--corpus', default=str(Path.home() / 'vesa-corpus'))
     ap.add_argument('--jobs', type=int, default=os.cpu_count() or 1)
@@ -218,18 +369,32 @@ def main():
     if root == REPO or REPO in root.parents:
         print(f'ERROR: {root} is inside the repository; pictures stay outside it', file=sys.stderr)
         return 2
+    images = sorted(Path(a.corpus).expanduser().glob('*.ppm'))
+    if a.kind == 'corpus':
+        if a.format == 'rgb':
+            print('ERROR: the corpus is RGB already; corpus needs a YCbCr --format', file=sys.stderr)
+            return 2
+        out = root / f'corpus-8-{a.format}'
+        out.mkdir(parents=True, exist_ok=True)
+        with concurrent.futures.ProcessPoolExecutor(a.jobs) as pool:
+            for name in pool.map(corpus_ycbcr, [(p, a.format, out) for p in images]):
+                print(f'{out}/{name}')
+        return 0
     for bpc in a.bpc:
-        out = root / f'{a.kind}-{bpc}'
+        out = root / (f'{a.kind}-{bpc}' + ('' if a.format == 'rgb' else f'-{a.format}'))
         out.mkdir(parents=True, exist_ok=True)
         if a.kind == 'synthetic':
             for name, w, h, samples in synthetic(bpc):
+                if a.format != 'rgb':
+                    print(f'{out}/{write_ycbcr(out, name, w, h, bpc, samples, a.format)}')
+                    continue
                 write(out, name, w, h, bpc, samples)
                 print(f'{out}/{name}.{"ppm" if bpc in (8, 14) else "dpx"} {w}x{h}')
         else:
-            images = sorted(Path(a.corpus).expanduser().glob('*.ppm'))
             with concurrent.futures.ProcessPoolExecutor(a.jobs) as pool:
-                for name in pool.map(derive, [(p, bpc, out) for p in images]):
-                    print(f'{out}/{name}.{"ppm" if bpc in (8, 14) else "dpx"}')
+                for name in pool.map(derive, [(p, bpc, out, a.format) for p in images]):
+                    print(f'{out}/{name}' if a.format != 'rgb' else
+                          f'{out}/{name}.{"ppm" if bpc in (8, 14) else "dpx"}')
     return 0
 
 

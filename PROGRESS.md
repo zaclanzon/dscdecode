@@ -1743,3 +1743,122 @@ DSC 1.1 regression check still gives 34 of 34 matches
 * `tools/compare_model`: YCbCr streams (the model's output format chosen per
   stream, DPX 102 read back to planar), raw YCbCr comparison, the new
   switches, `_422`/`_420` rate files. The stand-in model writes YCbCr too.
+
+## Phase 5, part 2: the model decides OQ-37 to OQ-43; YCbCr model comparison (2026-09-25)
+
+Phase 5 is complete with this part.
+
+### Discriminators
+
+After 81f0e3b the model decoded every discriminator
+(`~/dsc-runs/m3/phase5/disc-model5.log`, runs under
+`~/dsc-runs/m3/phase5/runs/compare/20260924-195014-*`). The earlier inputs
+gave their earlier verdicts; the new ones:
+
+| Input | Model output matches | Other prediction |
+|---|---|---|
+| `oq37_activity420` | luma | sum: 3 samples differ |
+| `oq38_activity422` | sizes | total: 4 samples differ |
+| `oq39_bp420_edge` | luma | all: 10 samples differ |
+| `oq40_offset_adj` | start | subtract: 2 samples differ |
+| `oq41_ich_window` | container | pixels: 20 samples differ |
+| `oq41b_ich_window` | container | pixels: 13 samples differ |
+| `oq42_scale_first` | not | group: 9 samples in 3 pixels |
+| `oq42b_scale_first` | not | group: 9 samples in 3 pixels |
+| `oq43_scale_line` | first | until-unity: 5 samples in 2 pixels |
+| `oq43b_scale_line` | first | until-unity: 5 samples in 2 pixels |
+
+Every default was already the reading the model supports; RESEARCH.md marks
+OQ-37 to OQ-43 resolved.
+
+### Pictures and conversion
+
+`tools/make_pictures --format` converts RGB pictures to YCbCr. The
+conversion (also in its docstring): ITU-R BT.709 weights, limited range.
+With R, G, B scaled to [0, 1] by 2^bpc − 1, Y' = 0.2126 R + 0.7152 G +
+0.0722 B, Pb = (B − Y') / 1.8556, Pr = (R − Y') / 1.5748, and with
+s = 2^(bpc − 8): Y = round(s·(16 + 219·Y')), Cb = round(s·(128 + 224·Pb)),
+Cr = round(s·(128 + 224·Pr)), each clamped to the sample range. 4:2:2
+chroma is the mean of two horizontally adjacent 4:4:4 samples, 4:2:0 chroma
+the mean of a 2x2 block, both rounded half up; odd widths (and for 4:2:0 odd
+heights) lose their last column (row) first, so s08_odd_size is 636x125 in
+the 4:2:2 formats and 636x124 in 4:2:0. The sources: the eight synthetic
+RGB pictures of Phase 3 (640x216, one 637x125) at 8, 10, 12, 14 and 16 bpc;
+the 17 corpus images (1920x1080, 8 bpc) as they are; and the Phase 3
+derived corpus at 10 and 12 bpc (each image scaled to the depth, plus a few
+LSBs of deterministic noise). Outputs under
+`~/dsc-runs/hbd-pictures/{synthetic,corpus,derived}-<bpc>-<format>`.
+
+The model reads them as follows (found from its README.TXT and the files
+it writes; the harness sets these options): 4:4:4 as DPX descriptor 102 in
+its own default write layout, read with DPXR_DATUM_ORDER 0 and
+SWAP_R_AND_B 0 (the harness's template sets both the other way, which
+reverses the bytes of each word and was the first cause of mismatching
+input checks); 14-bit samples as 16-bit words holding ceil(v·65535/16383),
+which it scales back with a floor (v << 2 reads back as v − 1); 4:2:2 as
+UYVY `.yuv` whose 16-bit samples hold the value in the top bits; 4:2:0 as
+planar `.yuv` whose 16-bit samples hold the value as it is (it refuses
+larger values: "sample value did not match expected bit depth"). dscdecode's
+`.yuv` output follows the same two conventions. Each run checks the model's
+copy of its input (`.ref.yuv`, or `.ref.dpx` read back) against the source.
+
+### Model comparison, DSC 1.2 YCbCr CBR
+
+The decoder is the tree of this commit (release build, SHA-256
+7e0eaebf…d786c, copied to `~/dsc-runs/m3/phase5/bin/dscdecode` for the
+runs). Script `~/dsc-runs/m3/phase5/matrix5.sh` (the session stopped once
+during it; `matrix5b.sh` resumed from the set it stopped in); results under
+`~/dsc-runs/m3/phase5/runs/corpus/` and in
+`~/dsc-runs/m3/phase5/aggregate_v12.txt`. Every picture of each set was
+coded at three picture rates (4:4:4 and simple 4:2:2: 6, 8 and 12 bpp;
+native 4:2:2: 6, 8 and 10; native 4:2:0: 4, 6 and 8, with the model's
+`_422` and `_420` rate files), BP off and on, 1 and 2 slices per line
+(slices 108 lines high, the model's default); the model decoded its own
+bitstream and dscdecode decoded the same bitstream.
+
+| Format | Synthetic, 8–16 bpc (8 pictures) | Corpus, 8 bpc (17) | Derived, 10 and 12 bpc (17) | Runs | Bit-exact |
+|---|---|---|---|---|---|
+| YCbCr 4:4:4 | 480 | 204 | 408 | 1,092 | 1,092 |
+| Simple 4:2:2 | 480 | 204 | 408 | 1,092 | 1,092 |
+| Native 4:2:2 | 480 | 204 | 408 | 1,092 | 1,092 |
+| Native 4:2:0 | 480 | 204 | 408 | 1,092 | 1,092 |
+| All | 1,920 | 816 | 1,632 | 4,368 | 4,368 |
+
+All 4,368 decodes are bit-exact, with the defaults, and the model's copy of
+its input matched the source on every run. At 14 bpc the model's encoder
+died from a signal after writing its output in 192 runs (YCbCr 4:4:4 and
+native 4:2:2), accepted as in Phase 4. Where the Phase 5 questions arose,
+counted by `--stats` with the defaults: in native 4:2:2 the two predActivity
+readings disagreed on the keep-or-reset test 11,137,939 times and the ICH
+window readings placed 436,694 previous-line lookups differently; in native
+4:2:0, 2,929,780 predActivity disagreements, 306,222 BP decisions that
+depend on the chroma edge test, and 478,884 window disagreements. Block
+prediction was used in 68,840,236 groups in all.
+
+DSC 1.1 YCbCr (4:4:4 and simple 4:2:2) was not compared. The model's
+encoder refuses it with its own rate files at every depth ("In DSC 1.1 mode
+with YCbCr, the max QP for range 14 must be less than" 12, 16 or 20, even
+where the files' range 14 maximum is lower); the 480 runs attempted
+stopped at the encoder. The decoder's DSC 1.1 YCbCr path is tested by the
+fixture `ycc444_v11_8` only. `tools/run_corpus` now labels such rows
+"harness error" instead of "dscdecode error".
+
+### Tests
+
+* `tests/make_ycbcr_vectors.py`: six lossless YCbCr fixtures (4:4:4 at DSC
+  1.1 8 bpc and DSC 1.2 10 bpc, simple 4:2:2 at 12, native 4:2:2 at 10,
+  native 4:2:0 at 14 and 16), whose expected `.yuv` is written from the
+  chosen samples and which pydsc decodes to the same bytes.
+  `tests/test_cli.py` decodes them and checks that YCbCr output to `.ppm`
+  and RGB output to `.yuv` are refused: CLI checks 32 → 40.
+* `tests/test_rc.c`: OQ-42 and OQ-43 under all four combinations.
+* Discriminator decodes: 13,896.
+
+### Gate
+
+`scripts/ci.sh` with `DSCDECODE_MODEL_BIN` unset: every step passes, model
+SKIP. With `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref`: every step
+passes, including the model step (self-test and every discriminator; the
+superseded inputs are reported for the record). DSC 1.1 regression check,
+`tools/run_corpus --bpp 8 --bp 0 1 --slices 2 --min-images 17`: 34 of 34
+match (`~/dsc-runs/corpus/20260925-005420`).
