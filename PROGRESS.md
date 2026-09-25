@@ -2034,3 +2034,118 @@ every step passes, model SKIP (libFuzzer 498,318 executions in 61 s;
 smoke 2,480,000). With the model and the frozen binary: every step passes,
 every discriminator verdict is the default reading (libFuzzer 429,151 in
 61 s; smoke 2,480,000). Rebuild: byte-identical to the frozen binary.
+
+## Phase 4: v0.2.0 release gate (2026-09-25)
+
+Every comparison below used the frozen binary
+`~/dsc-runs/v0.2.0/bin/dscdecode`, SHA-256
+`7e0eaebf78bc295db741ddfd4691cfde90b3cda8a376451d884865140e7d786c` (GCC
+13.3.0, `make`, `-O2 -g`; toolchain in Phase 0), with its default readings,
+and the VESA C model version 1.67 as a black box. Every `results.json`
+records that binary. Scripts: `~/dsc-runs/v0.2.0/make_pictures.sh`,
+`matrix.sh`, `aggregate.py`; logs in `~/dsc-runs/v0.2.0/logs/`; results
+under `~/dsc-runs/v0.2.0/runs/corpus/` (one directory per set, listed in
+`~/dsc-runs/v0.2.0/resultdirs.txt`) and `runs/compare/`.
+
+Pictures. `tools/make_pictures` regenerated every set into
+`~/dsc-runs/v0.2.0/pictures/` (16 invocations: synthetic RGB at 8 to 16 bpc,
+derived RGB at 10 and 12, and synthetic, derived and corpus in each of the
+four YCbCr formats). All 876 files, in 39 sets, are byte-identical to
+`~/dsc-runs/hbd-pictures/` (`diff -r` and SHA-256 lists). The runs used the
+regenerated sets; the 8-bit RGB corpus is `~/vesa-corpus` as before.
+
+"Bit-exact" is equality of every sample of the model's decode and
+dscdecode's decode of the model's bitstream. "Input check" is the harness's
+check that the model read the picture exactly (not made for the 8-bit corpus
+PPMs, which the model reads directly).
+
+DSC 1.1 RGB 4:4:4, 8 bpc: the 17 corpus images, BP off and on, 1, 2 and 4
+slices per line (`20260925-151453`).
+
+| bpp | 6 | 7.5 | 8 | 10 | 12 | 15 | Total |
+|---|---|---|---|---|---|---|---|
+| Bit-exact / runs | 102 / 102 | 102 / 102 | 102 / 102 | 102 / 102 | 102 / 102 | 102 / 102 | 612 / 612 |
+
+DSC 1.1 RGB 4:4:4, 10 and 12 bpc: every installed rate, BP off and on, 1, 2
+and 4 slices.
+
+| Pictures | bpc | 6 / 8 / 10 / 12 / 15 bpp | Bit-exact / runs | Input check | Results |
+|---|---|---|---|---|---|
+| synthetic (8) | 10 | 48 each | 240 / 240 | 240 / 240 | `20260925-152027` |
+| synthetic (8) | 12 | 48 each | 240 / 240 | 240 / 240 | `20260925-152037` |
+| derived (17) | 10 | 102 each | 510 / 510 | 510 / 510 | `20260925-152047` |
+| derived (17) | 12 | 102 each | 510 / 510 | 510 / 510 | `20260925-152601` |
+| total | | | 1,500 / 1,500 | | |
+
+DSC 1.2 RGB 4:4:4, 8 to 16 bpc (the M3 Phase 4 matrix): same rates and
+settings, line buffer bpc + 1 (16 at 16 bpc).
+
+| Pictures | bpc | 6 / 8 / 10 / 12 / 15 bpp | Bit-exact / runs | Input check | Encoder signal | Results |
+|---|---|---|---|---|---|---|
+| synthetic (8) | 8 | 48 each | 240 / 240 | 240 / 240 | 0 | `20260925-153147` |
+| synthetic (8) | 10 | 48 each | 240 / 240 | 240 / 240 | 0 | `20260925-153155` |
+| synthetic (8) | 12 | 48 each | 240 / 240 | 240 / 240 | 0 | `20260925-153205` |
+| synthetic (8) | 14 | 48 each | 240 / 240 | 240 / 240 | 240 | `20260925-153215` |
+| synthetic (8) | 16 | 48 each | 240 / 240 | 240 / 240 | 0 | `20260925-153619` |
+| corpus (17) | 8 | 102 each | 510 / 510 | (not made) | 0 | `20260925-153630` |
+| derived (17) | 10 | 102 each | 510 / 510 | 510 / 510 | 0 | `20260925-154106` |
+| derived (17) | 12 | 102 each | 510 / 510 | 510 / 510 | 0 | `20260925-174745` |
+| total | | | 2,730 / 2,730 | | 240 | |
+
+DSC 1.2 YCbCr (the M3 Phase 5 matrix): three rates per format (4:4:4 and
+simple 4:2:2: 6, 8, 12 bpp; native 4:2:2: 6, 8, 10; native 4:2:0: 4, 6, 8),
+BP off and on, 1 and 2 slices per line. Each cell is bit-exact / runs; every
+rate of every set matched in full, and the input check matched on all 4,368.
+
+| Format | Synthetic 8 / 10 / 12 / 14 / 16 bpc | Corpus 8 bpc | Derived 10 / 12 bpc | Total | Encoder signal (14 bpc) |
+|---|---|---|---|---|---|
+| YCbCr 4:4:4 | 96 / 96 each | 204 / 204 | 204 / 204 each | 1,092 / 1,092 | 96 of 96 |
+| Simple 4:2:2 | 96 / 96 each | 204 / 204 | 204 / 204 each | 1,092 / 1,092 | 0 of 96 |
+| Native 4:2:2 | 96 / 96 each | 204 / 204 | 204 / 204 each | 1,092 / 1,092 | 96 of 96 |
+| Native 4:2:0 | 96 / 96 each | 204 / 204 | 204 / 204 each | 1,092 / 1,092 | 0 of 96 |
+| total | | | | 4,368 / 4,368 | 192 |
+
+Discriminators, `tools/compare_model discriminators`
+(`logs/discriminators.log`): exit 0. For every input with a verdict, the
+model's output matches the prediction of the decoder's default reading.
+`oq24b_bitsave_flat` and `oq24c_bitsave_flat` were built before `lagged`
+existed and have no prediction for it; decoded under the defaults, each is
+bit-exact with the model (`logs/discriminators-default.log`). The
+superseded `oq2_threshold_equality` and `oq24_bitsave_flat` are reported,
+not judged, as before; under the defaults `oq24_bitsave_flat` is bit-exact
+with the model and `oq2_threshold_equality` is rejected (it was built under
+the M1 readings of other questions).
+
+| Inputs | With a verdict | Verdict = default reading | Superseded |
+|---|---|---|---|
+| 38 | 36 | 36 (34 by name, `oq24b` and `oq24c` by a default decode) | 2 |
+
+Fixtures (`logs/fixtures.log`): each of the 24 frame fixtures (PPS and
+payload) decoded by the model and by dscdecode, `tools/compare_model
+bitstream`: 24 of 24 bit-exact, including `ycc444_v11_8` (DSC 1.1 YCbCr
+4:4:4) and the two invalid-padding fixtures. dscdecode's output equals the
+committed expected picture for all 22 that have one.
+
+Totals:
+
+| Set | Streams | Bit-exact |
+|---|---|---|
+| DSC 1.1 RGB 4:4:4, 8 bpc | 612 | 612 |
+| DSC 1.1 RGB 4:4:4, 10 and 12 bpc | 1,500 | 1,500 |
+| DSC 1.2 RGB 4:4:4, 8 to 16 bpc | 2,730 | 2,730 |
+| DSC 1.2 YCbCr 4:4:4, simple 4:2:2, native 4:2:2, native 4:2:0 | 4,368 | 4,368 |
+| Hand-derived fixtures | 24 | 24 |
+| Discriminators (verdict = default) | 36 | 36 |
+| Total | 9,270 | 9,270 |
+
+14 bpc encoder signal: the model's encoder died from a signal after writing
+its output in 432 of the 624 encodes at 14 bpc (all 240 RGB, all 96 YCbCr
+4:4:4, all 96 native 4:2:2; none of the simple 4:2:2 or native 4:2:0
+encodes), the same pattern as in M3. Each was accepted under the harness's
+conditions and decoded bit-exact.
+
+Gate (`~/dsc-runs/v0.2.0/phase4/`): `scripts/ci.sh` without the model:
+every step passes, model SKIP (libFuzzer 576,443 executions in 61 s;
+smoke 2,480,000). With the model and the frozen binary: every step passes
+(libFuzzer 529,381 in 61 s; smoke 2,480,000). Rebuild: byte-identical to
+the frozen binary.
