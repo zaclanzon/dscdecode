@@ -176,9 +176,11 @@ the standards are the authority.
 
 Three limits on using those statements here:
 
-* Version. The model installed here reports version 1.67. DSC 1.2b names
-  1.63 and DSC 1.2a names 1.57. Nothing here shows that 1.63 behaves like
-  1.67 on these questions.
+* Version. The model used for the comparisons reports version 1.67. DSC
+  1.2b names 1.63 and DSC 1.2a names 1.57. When this section was written,
+  nothing showed that 1.63 behaves like 1.67 on these questions; "Across
+  model versions" below now shows that 1.57 and 1.63 do, on every point
+  tested.
 * Observation. The model was used only as a black box, through its
   command line, its configuration files and the files it writes. A reading
   that reproduces its output is a description of its behavior on the
@@ -227,7 +229,44 @@ errata to DSC 1.2 in hand); no errata to DSC 1.2b was available.
 | OQ-42 `scale_first` (also DSC 1.1) | §6.8.2 | The scale starts at initial_scale_value and falls by one every scale_decrement_interval groups; with an interval of 1 it is not said whether the first group already counts. | The first group keeps initial_scale_value. | None. | A gap; the model fills it. |
 | OQ-43 `scale_line` (also DSC 1.1) | §6.8.2, Annex E | Decrements continue until the scale reaches unity; the passage calls it a start-of-slice adjustment, and Annex E sizes the interval so that unity is reached within the first line. | No decrement after the first line of the slice. | None. | A conflict only for parameters outside Annex E's guidance; the model prevails. |
 
+### Across model versions
+
+Added 2026-09-26 (see "Model versions" below). For each point: the model
+versions that decoded a test of it, and whether they behave as 1.67 does.
+"Long-standing": in every version tested that supports the format.
+
+| Question | Tested on | Behavior as in 1.67 | Standing |
+|---|---|---|---|
+| OQ-19 `delay_partial` | `oq19` (DSC 1.1): 1.31a to 1.67 | all five | long-standing, from 1.31a |
+| OQ-21 `prefix16` | `oq21`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 (1.48 on) |
+| OQ-23 `bitsave_pred` | `oq23`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 |
+| OQ-24 `bitsave_flat` | `oq24b` to `oq24e`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 |
+| OQ-25 `line_flat` | `oq25`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 |
+| OQ-26 `low_min` | `oq26`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 |
+| OQ-27 `decrement_test` | `oq27`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 |
+| OQ-28 `activity_qp` | `oq28`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 |
+| OQ-29 `bitsave_step` | `oq29`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 |
+| OQ-30 `target_floor` | `oq30`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 |
+| OQ-31 `flat_rerun` | `oq31`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 |
+| OQ-32 `rerun_bitsave` | `oq32`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 |
+| OQ-33 `mux16` | `oq33`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 |
+| OQ-34 `flat_top` | `oq34`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 |
+| OQ-35 `prefix16_scope` | `oq35`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 |
+| OQ-36 `prefix16_cut` | `oq36`: 1.48 to 1.67 | all four | long-standing in DSC 1.2 |
+| OQ-40 `offset_adj` | `oq40`: 1.57 to 1.67; 1.48 dies on it | 1.57, 1.63, 1.67 | from 1.57; 1.48 could not be tested (its native 4:2:0 decoding differs throughout, and its successors' READMEs call it incorrect) |
+| OQ-41 `ich_window` | `oq41` (4:2:2) and `oq41b` (4:2:0): 1.57 to 1.67; 1.48 on its own native 4:2:2 encodes | 1.48 (4:2:2), 1.57, 1.63, 1.67 | long-standing in native 4:2:2 (1.48 on); in native 4:2:0 from 1.57, 1.48 not testable |
+| OQ-42 `scale_first` | `oq42b` (DSC 1.1): 1.31a to 1.67; `oq42` (DSC 1.2): 1.48 to 1.67 | all five | long-standing, from 1.31a |
+| OQ-43 `scale_line` | `oq43b` (DSC 1.1): 1.31a to 1.67; `oq43` (DSC 1.2): 1.48 to 1.67 | all five | long-standing, from 1.31a |
+
+The versions the standards cite behave as 1.67 on every point tested:
+1.57 (DSC 1.2a) and 1.63 (DSC 1.2b) on all twenty. On the three that
+apply to DSC 1.1, so does 1.31a, the oldest build here (DSC 1.1 names
+version 1.31).
+
 ### Summary
+
+Reassessed on 2026-09-26 with the five model versions ("Across model
+versions" above). No point changes category. What the versions add:
 
 * Look like errors in the text: OQ-26, OQ-27 and OQ-29 (explicit values or
   conditions in §6.8.4 and Figure 6-17 that the model contradicts); OQ-30
@@ -235,20 +274,156 @@ errata to DSC 1.2 in hand); no errata to DSC 1.2b was available.
   DSC 1.2 can reach); OQ-21, OQ-35 and OQ-36 (Table 4-10's 16 bpc cut,
   which disagrees with §3.10.2 and with the model on its length, its scope
   and when it applies); OQ-40 (normative §6.8.2 omits the addition that
-  the informative Table E-2 describes).
+  the informative Table E-2 describes). The versions make this category
+  firmer. Each of these behaviors is present in 1.57 and 1.63, the versions
+  DSC 1.2a and DSC 1.2b cite, and all but OQ-40 already in 1.48; none comes
+  from a model change after the text was written. For OQ-21 the DSC 1.2b
+  correction of Table 4-10 moved the table away from the behavior of 1.63,
+  the version DSC 1.2b itself cites. OQ-40's behavior dates from the DSC
+  1.2a model (1.57): 1.48 decodes native 4:2:0 differently throughout,
+  which its successors' READMEs describe as the DSC 1.2 defect corrected in
+  DSC 1.2a; §6.8.2 disagrees with both cited versions.
 * Look like ambiguity: OQ-19, OQ-23, OQ-25, OQ-31, OQ-32, OQ-33, OQ-41 and
   OQ-42. The text is silent, or two passages allow both readings, and the
-  model picks one.
+  model picks one. Its pick has not changed between versions: from 1.31a
+  for OQ-19 and OQ-42 (DSC 1.1), from 1.48 for the others, except OQ-41 in
+  native 4:2:0, known only from 1.57 on.
 * Remain unclear: OQ-24 (the text's condition is open, and the model's
   window matches none of the readings the text suggests); OQ-28 (a naming
   slip, or the unstated pipeline timing); OQ-43 (the text's stop condition
   and the model's agree for Annex E parameters, so the model may reflect a
-  design assumption rather than show a text error).
+  design assumption rather than show a text error). The versions do not
+  decide these. They show that none is a late model change: OQ-24 and
+  OQ-28 behave the same from 1.48 on (no version tested ever used prevQp for
+  OQ-28), and OQ-43 from 1.31a, the oldest build tested (DSC 1.1 names
+  1.31), so the first-line-only decrement goes back to the DSC 1.1 model.
 
 None of these points is covered by an erratum in hand. Under DSC 1.2b §1.4.3
 the model's behavior is the standard's wherever the two differ, so the
-defaults follow it, as far as version 1.67 behaves like the 1.63 that DSC
-1.2b cites. Each text reading stays available behind its switch.
+defaults follow it. The earlier limit, that 1.67 had not been shown to
+behave like the 1.63 that DSC 1.2b cites, no longer applies to these
+points: 1.63 behaves like 1.67 on all twenty. Each text reading stays
+available behind its switch.
+
+## Model versions
+
+Added 2026-09-26. Five builds of the VESA C model were compared, each only
+as a black box (its README.TXT, configuration files, command line and output
+files). Details and every run are in PROGRESS.md, "Model versions". The
+decoder was not changed; every comparison used the v0.2.0 binary with its
+default readings unless a cell says otherwise.
+
+| Reported version | Copyright banner | Cited by | DSC versions (README) | Formats (README) |
+|---|---|---|---|---|
+| 1.31a | 2013-2014 | DSC 1.1 names 1.31 | 1.1 | RGB, YCbCr 4:4:4 and 4:2:2, 8 to 12 bpc |
+| 1.48 | 2013-2015 | | 1.1, 1.2 | RGB, YCbCr 4:4:4, simple 4:2:2, native 4:2:2 and 4:2:0, 8 to 16 bpc |
+| 1.57 | 2013-2016 | DSC 1.2a | 1.1, 1.2 (with a "DSC 1.2a" section) | as 1.48 |
+| 1.63 | 2013-2021 | DSC 1.2b | 1.1, 1.2/1.2a/1.2b | as 1.48 |
+| 1.67 | 2013-2021 | | 1.1, 1.2/1.2a/1.2b | as 1.48 |
+
+The 1.57, 1.63 and 1.67 READMEs say that native 4:2:0 was not correctly
+supported in DSC 1.2 and was deprecated, and that the DSC 1.2a model
+corrects it. The older versions differ in their interfaces (parameters they
+reject, output formats, a decode that needs the stream's bit depth, 1.48's
+standalone YCbCr decode dying from SIGSEGV, 1.63 not reading 8-bit 4:2:0
+.yuv files); `tools/compare_model` handles each (PROGRESS.md, Phase 1).
+
+### Discriminators by version
+
+The readings each version's output matches, over the discriminators of each
+question (a reading counts when every input with a prediction for it
+matched it). "n/a": the version does not document the input's DSC version
+or format. "crash": 1.48 documents native 4:2:2 and 4:2:0 but dies decoding
+a native bitstream on its own. "no input": no discriminator.
+
+| Question | Discriminators | 1.31a | 1.48 | 1.57 | 1.63 | 1.67 |
+|---|---|---|---|---|---|---|
+| OQ-1 `flat_restart` | 1 | in-flight | in-flight | in-flight | in-flight | in-flight |
+| OQ-2 `threshold_eq` | 1 | lower | lower | lower | lower | lower |
+| OQ-3 `frac_reset` | 1 | chunk | chunk | chunk | chunk | chunk |
+| OQ-4 `bp_left` | 1 | midpoint | midpoint | midpoint | midpoint | midpoint |
+| OQ-5 `incr_order` | none | no input | no input | no input | no input | no input |
+| OQ-6  | none | no input | no input | no input | no input | no input |
+| OQ-7 `bpg_combine` | 1 | n/a | add | add | add | add |
+| OQ-8  | none | no input | no input | no input | no input | no input |
+| OQ-9  | none | no input | no input | no input | no input | no input |
+| OQ-10 `bp_sad` | none | no input | no input | no input | no input | no input |
+| OQ-11 `rc_pipeline` | none | no input | no input | no input | no input | no input |
+| OQ-12 `delay_offset` | none | no input | no input | no input | no input | no input |
+| OQ-13 `bp_edge` | none | no input | no input | no input | no input | no input |
+| OQ-14 `scale_dec` | none | no input | no input | no input | no input | no input |
+| OQ-15 `partial_target` | none | no input | no input | no input | no input | no input |
+| OQ-16 `very_flat` | none | no input | no input | no input | no input | no input |
+| OQ-17 `partial_padding` | none | no input | no input | no input | no input | no input |
+| OQ-18 `flat_max_qp` | none | no input | no input | no input | no input | no input |
+| OQ-19 `delay_partial` | 1 | group-end | group-end | group-end | group-end | group-end |
+| OQ-20 `chroma_qlevel` | 1 | n/a | equal-depth | equal-depth | equal-depth | equal-depth |
+| OQ-21 `prefix16` | 1 | n/a | 13 | 13 | 13 | 13 |
+| OQ-22 `bitsave_ich` | 1 | n/a | not | not | not | not |
+| OQ-23 `bitsave_pred` | 1 | n/a | next | next | next | next |
+| OQ-24 `bitsave_flat` | 4 | n/a | lagged | lagged | lagged | lagged |
+| OQ-25 `line_flat` | 1 | n/a | signaled | signaled | signaled | signaled |
+| OQ-26 `low_min` | 1 | n/a | min-qp | min-qp | min-qp | min-qp |
+| OQ-27 `decrement_test` | 1 | n/a | size | size | size | size |
+| OQ-28 `activity_qp` | 1 | n/a | prev2 | prev2 | prev2 | prev2 |
+| OQ-29 `bitsave_step` | 1 | n/a | 2 | 2 | 2 | 2 |
+| OQ-30 `target_floor` | 1 | n/a | zero | zero | zero | zero |
+| OQ-31 `flat_rerun` | 1 | n/a | every | every | every | every |
+| OQ-32 `rerun_bitsave` | 1 | n/a | redo | redo | redo | redo |
+| OQ-33 `mux16` | 1 | n/a | 64 | 64 | 64 | 64 |
+| OQ-34 `flat_top` | 1 | n/a | at-or-above | at-or-above | at-or-above | at-or-above |
+| OQ-35 `prefix16_scope` | 1 | n/a | qlevel | qlevel | qlevel | qlevel |
+| OQ-36 `prefix16_cut` | 1 | n/a | longer | longer | longer | longer |
+| OQ-37 `activity420` | 1 | n/a | crash | luma | luma | luma |
+| OQ-38 `activity422` | 1 | n/a | crash | sizes | sizes | sizes |
+| OQ-39 `bp420_edge` | 1 | n/a | crash | luma | luma | luma |
+| OQ-40 `offset_adj` | 1 | n/a | crash | start | start | start |
+| OQ-41 `ich_window` | 2 | n/a | crash | container | container | container |
+| OQ-42 `scale_first` | 2 | not (DSC 1.1 input) | not | not | not | not |
+| OQ-43 `scale_line` | 2 | first (DSC 1.1 input) | first | first | first | first |
+
+Every input that a version decoded matched the same prediction as with
+1.67, and gave the same output as the decoder's default decode. No question
+changed its reading between versions; for each, the first version that
+behaves like 1.67 is the oldest one that decodes its discriminators.
+Beyond the discriminators:
+
+* 1.48, native 4:2:2 (OQ-38, OQ-41): on its own encodes (32 streams,
+  decoded by the model in one FUNCTION 0 run), the model follows `sizes` and
+  `container`, as 1.67 does; 16 and 22 of those streams separate the two
+  readings.
+* OQ-17: the two invalid-padding fixtures decode bit-exact, under `accept`,
+  in every version.
+* The superseded `oq2_threshold_equality`, which needs more bits than its
+  payload holds under the readings that reproduce the model, gives one
+  output in 1.31a, 1.48 and 1.57 and another in 1.63 and 1.67; neither reads
+  past the payload. It is the only discriminator whose output changed.
+
+### Model-encoded streams by version
+
+Bit-exact / runs; each version encoded the pictures and decoded its own
+bitstreams (Phase 3).
+
+| Set | 1.31a | 1.48 | 1.57 | 1.63 | 1.67 |
+|---|---|---|---|---|---|
+| DSC 1.1 corpus, 8 bpc, 8 bpp | 102 / 102 | 102 / 102 | 102 / 102 | 102 / 102 | 102 / 102 |
+| DSC 1.1 synthetic, 10 and 12 bpc, 8 bpp | 96 / 96 | | | | |
+| DSC 1.2 RGB synthetic, 8, 10 and 12 bpc, 6 to 15 bpp | n/a | 720 / 720 | 720 / 720 | 720 / 720 | 720 / 720 |
+| DSC 1.2 native 4:2:2 synthetic, 8 bpc, 8 bpp | n/a | 32 / 32 | 32 / 32 | 32 / 32 | 32 / 32 |
+| DSC 1.2 native 4:2:0 synthetic, 8 bpc, 6 bpp | n/a | 0 / 32 | 32 / 32 | 32 / 32 (from 4:4:4 DPX) | 32 / 32 |
+
+1.48's native 4:2:0 decode differs from dscdecode within the first groups of
+line 0, and no switch setting, text reading or combination of the text
+readings reproduces it. 1.57 decodes 1.48's own native 4:2:0 bitstreams
+differently from 1.48 (on the 8 that 1.57 and dscdecode decode alike, 1.48
+differs from both), in line with the READMEs' note on DSC 1.2 native 4:2:0.
+
+Behavior changes between versions:
+
+| Change | Older behavior | From | Setting that reproduces the older version |
+|---|---|---|---|
+| Native 4:2:0 decoding | 1.48 | 1.57 | none found |
+| Decoding after the payload is exhausted (`oq2`) | 1.31a to 1.57 | 1.63 | none possible without changing the decoder |
 
 ## Continuation — September 20, 2026
 

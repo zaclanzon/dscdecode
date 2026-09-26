@@ -253,6 +253,23 @@ neither C nor Python are listed but not checked.
   model's output rather than predicted from the text, so their
   discriminators confirm a fitted rule (the "Hypothesis source" column:
   22 marked "model output", and OQ-24).
+* Model versions. The comparisons behind the defaults used model version
+  1.67; DSC 1.2b cites 1.63 and DSC 1.2a cites 1.57. Versions 1.31a, 1.48,
+  1.57 and 1.63 have since been compared on the discriminators, the
+  fixtures and a subset of the model-encoded sets (RESEARCH.md, "Model
+  versions"). 1.57 and 1.63 give the same verdict as 1.67 on every
+  discriminator and are bit-exact on every set, so the defaults also
+  reproduce the versions the standards cite; 1.31a does on every DSC 1.1
+  test. The one output that changed, on the superseded `oq2` input, is
+  from a stream that runs out of payload (1.31a to 1.57 differ there from
+  1.63 and 1.67). Not covered: 1.48, a DSC 1.2 build, decodes native
+  4:2:0 differently and no reading reproduces it (its successors' READMEs
+  call its native 4:2:0 incorrect); its native results come from its own
+  encodes, since it cannot decode a YCbCr stream on its own; 1.63's native
+  4:2:0 was spot-checked only on pictures it converted from 4:4:4 itself;
+  the older versions were not run on model-encoded 14 and 16 bpc, YCbCr
+  4:4:4 or simple 4:2:2 pictures (only the corresponding discriminators and
+  fixtures).
 * The licensed VESA reference model is not included. `tools/compare_model`
   drives it as a black box when `DSCDECODE_MODEL_BIN` points at it, and
   `tests/discriminators/` holds inputs that separate the readings of the

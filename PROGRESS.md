@@ -2558,3 +2558,46 @@ the frozen binary. A first run of this gate (`phase3-gate/`) also passed,
 but its no-model libFuzzer step ran while the 1.48 native 4:2:2 set was
 being rerun and managed 472 executions in 76 s; the gate was repeated on an
 idle machine.
+
+## Phase 4: records (2026-09-26)
+
+* RESEARCH.md, new section "Model versions": the five builds, the
+  discriminator results by question and version (Phase 2), the
+  model-encoded sets by version (Phase 3) and the two behavior changes
+  found.
+* RESEARCH.md, "DSC 1.2 text and the reference model": a table "Across
+  model versions" gives, for each of the twenty points, the versions that
+  decoded a test of it and whether it is long-standing. Eighteen are
+  long-standing in every version that supports the format (OQ-19, OQ-42
+  and OQ-43 from 1.31a; the others from 1.48). OQ-40 is seen from 1.57 on;
+  1.48 could not be tested. OQ-41 is long-standing in native 4:2:2 (1.48
+  on, from its own encodes) and seen from 1.57 on in native 4:2:0. The
+  "Version" limit now points to this table.
+* Reassessment (the section's Summary): no point changes category. The
+  text-error category is firmer: each of those behaviors is present in 1.57
+  and 1.63, the versions DSC 1.2a and DSC 1.2b cite, and all but OQ-40 in
+  1.48, so none comes from a later model change; for OQ-21 the DSC 1.2b
+  change to Table 4-10 departs from the behavior of 1.63 itself. The
+  ambiguity points have kept the model's choice across versions. The three
+  unclear points are not decided by the versions, which only rule out a late
+  model change. The limit that 1.67 had not been shown to behave like 1.63
+  is removed for these points.
+* README, "Remaining correctness work": a new item on model versions, with
+  what the comparison covers and what it does not. The Status section is
+  unchanged.
+* Checks on every line added since main and on the draft VESA report: no
+  run of 9 or more words shared with the text of the five spec PDFs, and
+  no status word ("conformant", "validated", "certified", "compliant",
+  "clean-room").
+
+Gate (`~/dsc-runs/versions/phase4-gate/`): `scripts/ci.sh` without the
+model: every step passes, model SKIP (libFuzzer 472,586 executions in 61 s;
+smoke 2,480,000). With the model (1.67) and the frozen binary: every step
+passes, every discriminator verdict is the default reading (libFuzzer
+467,316 in 61 s; smoke 2,480,000). Release binary rebuilt from the branch
+tip (`make clean && make`): SHA-256
+`7e0eaebf78bc295db741ddfd4691cfde90b3cda8a376451d884865140e7d786c`, equal
+to the frozen v0.2.0 binary; `src/` and `include/` are unchanged from main.
+
+The draft report to VESA is outside the repository,
+`~/dsc-runs/vesa-report/report.md`. Nothing has been sent.
