@@ -18,9 +18,11 @@ Added:
 * CLI: PPM with maxval 2^bpc − 1 for RGB (two bytes per sample above 8 bpc);
   raw YCbCr to `*.yuv` in the layouts the VESA model reads and writes.
 * 26 new reading switches (OQ-7 and OQ-19 to OQ-43 in RESEARCH.md; 40 in
-  all). Where the DSC 1.2 rate-control text and the reference model differ,
-  the default follows the model and the text's reading stays available;
-  RESEARCH.md, "DSC 1.2 text and the reference model", compares the two.
+  all). Where the text is ambiguous or differs from the reference model,
+  which the specification says takes precedence (DSC 1.2b §1.4.3), in DSC
+  1.1 as in DSC 1.2, the default follows the model's observed behavior and
+  the text's reading stays available. RESEARCH.md, "DSC 1.2 text and the
+  reference model", compares the two for DSC 1.2.
 * Tests: fixtures at 10 to 16 bpc and in YCbCr; 33 new discriminators, for
   OQ-7 and OQ-19 to OQ-43 (38 inputs in all); a Python decoder model
   (`tests/pydsc.py`) that builds and checks the DSC 1.2 and native inputs.
@@ -57,9 +59,10 @@ OQ-43 (fixed in v0.2.0).
 ## v0.1.0 (2026-09-24)
 
 First release. DSC 1.1, 8 bits per component, RGB 4:4:4 at constant bit
-rate, block prediction included, written from the specification with no
-VESA model code. Bit-exact with the VESA C model on 760 test streams: the 17
-VESA 1080p evaluation images at six rates (612) and 148 synthetic pictures,
-hand-derived fixtures and fractional-rate tests. 14 reading switches for
-the open questions OQ-1 to OQ-18, where the text supports more than one
-reading. BSD-2-Clause-Patent.
+rate, block prediction included, written with no VESA model code. It was
+written from the specification; where the text is ambiguous or differs from
+the reference model, the defaults follow the model's observed behavior, and
+each such point is one of 14 reading switches (open questions OQ-1 to
+OQ-18). Bit-exact with the VESA C model on 760 test streams: the 17 VESA
+1080p evaluation images at six rates (612) and 148 synthetic pictures,
+hand-derived fixtures and fractional-rate tests. BSD-2-Clause-Patent.

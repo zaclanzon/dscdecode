@@ -2178,3 +2178,15 @@ every step passes, model SKIP (libFuzzer 432,709 executions in 61 s;
 smoke 2,480,000). With the model and the frozen binary: every step passes
 (libFuzzer 432,443 in 61 s; smoke 2,480,000). Rebuild: byte-identical to
 the frozen binary.
+
+## Wording fix before release (2026-09-25)
+
+The README summary said DSC 1.1 was written from the specification alone,
+but several DSC 1.1 defaults follow the model's observed behavior (the M2
+fitted readings, OQ-19, OQ-42, OQ-43; "Hypothesis source" in RESEARCH.md).
+The summary now says the decoder was written from the specification and
+follows the model's observed behavior where the text is ambiguous or differs
+from it, as DSC 1.2b §1.4.3 gives the model precedence. CHANGELOG.md
+(v0.1.0 and v0.2.0) and the release notes say the same; the release notes
+also state that the comparisons used model version 1.67 while DSC 1.2b
+cites 1.63. No code change.

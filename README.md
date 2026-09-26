@@ -6,10 +6,11 @@ monitor. This decoder is one piece of tooling for testing the display
 path in software instead.
 
 An open-source decoder for VESA DSC 1.1 and 1.2, written with no VESA model
-code, and bit-exact with the VESA C model on 9,270 test streams. DSC 1.1 was
-written from the specification. Where the DSC 1.2 rate-control text and the
-reference model differ, the decoder follows the model, and each difference
-is a reading switch (RESEARCH.md).
+code, and bit-exact with the VESA C model on 9,270 test streams. It was
+written from the specification. Where the text is ambiguous or differs from
+the reference model, which the specification says takes precedence (DSC 1.2b
+§1.4.3), the decoder follows the model's observed behavior, and each such
+point is a reading switch (RESEARCH.md).
 
 C11, libc only, built as a library and a command-line tool.
 
