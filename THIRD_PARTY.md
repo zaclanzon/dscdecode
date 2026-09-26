@@ -33,6 +33,13 @@ before the model decoded it. Only the model's README, its configuration
 files, its command line and the files it writes were used. No model source
 was used. The same method found OQ-19 and OQ-40 to OQ-43 (RESEARCH.md).
 
+Registration record. Registration: 2026-09-23. VESA Public Standards Download
+Registration, product-development path. Terms: Implementer's License Agreement
+(Exhibit D of VESA Policy 200D). Archive: `Display Stream Compression (DSC).zip`,
+SHA-256 `4d8058e817bc71d41e5f87445979ca6b8f54ea83dd08870c42d158b617d02be2`.
+The archive, the specification, and the reference model are not in this
+repository. The reference model is used only as a black box.
+
 ### Code similarity check (2026-09-26)
 
 To test whether any model code reached this repository, the project's own
@@ -58,10 +65,3 @@ and percentages. No model source was displayed.
   and 20 to 100 % with `sim_text`, so both tools detect shared code through
   reformatting and heavy edits. An unrelated image decoder
   (`stb_image.h`) against the model gives at most 1 % with `sim_c`.
-
-Registration record. Registration: 2026-09-23. VESA Public Standards Download
-Registration, product-development path. Terms: Implementer's License Agreement
-(Exhibit D of VESA Policy 200D). Archive: `Display Stream Compression (DSC).zip`,
-SHA-256 `4d8058e817bc71d41e5f87445979ca6b8f54ea83dd08870c42d158b617d02be2`.
-The archive, the specification, and the reference model are not in this
-repository. The reference model is used only as a black box.
