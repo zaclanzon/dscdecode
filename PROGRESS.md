@@ -2271,3 +2271,171 @@ frozen binary: every step passes, the model line reports version 1.67, and
 every discriminator verdict is the default reading (libFuzzer 422,544 in
 61 s; smoke 2,480,000). Rebuild: SHA-256 `7e0eaebf...`, equal to the frozen
 binary.
+
+## Phase 2: discriminators across model versions (2026-09-26)
+
+Every input in `tests/discriminators` was decoded by every model that
+documents its DSC version, format and bit depth (`tools/compare_model
+discriminators` with `DSCDECODE_MODEL_SHARE` set per model; script
+`~/dsc-runs/versions/phase2/run.sh`, one JSON summary per model, tables made
+by `tables.py` there). 1.31a decodes the eight DSC 1.1 inputs (`oq1`, `oq2`,
+`oq2b`, `oq3`, `oq4`, `oq19`, `oq42b`, `oq43b`); the thirty DSC 1.2 inputs
+are n/a for it. 1.48 to 1.67 take all 38. Predictions are those committed
+with each input before 1.67 decoded it; nothing was rebuilt.
+
+Each cell names the predictions the model's output matches, or "none" with
+the first sample where it differs from them (the same sample for every
+prediction of those inputs). Where two or more readings share a prediction
+on an input, the cell lists them all. Every output in the table that is not
+"none" or "crash" is also sample-for-sample equal to the frozen binary's
+decode with its default readings.
+
+| Input | Question | 1.31a | 1.48 | 1.57 | 1.63 | 1.67 |
+|---|---|---|---|---|---|---|
+| `oq1_flat_restart` | flat_restart | in-flight | in-flight | in-flight | in-flight | in-flight |
+| `oq2_threshold_equality` (superseded) | threshold_eq | none; first (6,0) R, model 128 | none; first (6,0) R, model 128 | none; first (6,0) R, model 128 | none; first (6,0) R, model 128 | none; first (6,0) R, model 128 |
+| `oq3_fractional_bpp` | frac_reset | chunk | chunk | chunk | chunk | chunk |
+| `oq2b_threshold_equality` | threshold_eq | lower | lower | lower | lower | lower |
+| `oq4_bp_left` | bp_left | midpoint | midpoint | midpoint | midpoint | midpoint |
+| `oq19_delay_partial` | delay_partial | group-end | group-end | group-end | group-end | group-end |
+| `oq7_bpg_combine` | bpg_combine | n/a | add | add | add | add |
+| `oq20_chroma_qlevel` | chroma_qlevel | n/a | equal-depth | equal-depth | equal-depth | equal-depth |
+| `oq21_prefix16` | prefix16 | n/a | 13 | 13 | 13 | 13 |
+| `oq22_bitsave_ich` | bitsave_ich | n/a | not | not | not | not |
+| `oq23_bitsave_pred_next` | bitsave_pred | n/a | next | next | next | next |
+| `oq24_bitsave_flat` (superseded) | bitsave_flat | n/a | none; first (14,1) R, model 138 | none; first (14,1) R, model 138 | none; first (14,1) R, model 138 | none; first (14,1) R, model 138 |
+| `oq25_line_flat` | line_flat | n/a | signaled | signaled | signaled | signaled |
+| `oq24b_bitsave_flat` | bitsave_flat | n/a | supergroup, group | supergroup, group | supergroup, group | supergroup, group |
+| `oq24c_bitsave_flat` | bitsave_flat | n/a | supergroup, received | supergroup, received | supergroup, received | supergroup, received |
+| `oq24d_bitsave_flat` | bitsave_flat | n/a | supergroup, group, lagged | supergroup, group, lagged | supergroup, group, lagged | supergroup, group, lagged |
+| `oq24e_bitsave_flat` | bitsave_flat | n/a | group, received, carrier, lagged | group, received, carrier, lagged | group, received, carrier, lagged | group, received, carrier, lagged |
+| `oq26_low_min` | low_min | n/a | min-qp | min-qp | min-qp | min-qp |
+| `oq27_decrement_test` | decrement_test | n/a | size | size | size | size |
+| `oq28_activity_qp` | activity_qp | n/a | prev2 | prev2 | prev2 | prev2 |
+| `oq29_bitsave_step` | bitsave_step | n/a | 2 | 2 | 2 | 2 |
+| `oq30_target_floor` | target_floor | n/a | zero | zero | zero | zero |
+| `oq31_flat_rerun` | flat_rerun | n/a | every | every | every | every |
+| `oq32_rerun_bitsave` | rerun_bitsave | n/a | redo | redo | redo | redo |
+| `oq33_mux16` | mux16 | n/a | 64 | 64 | 64 | 64 |
+| `oq34_flat_top` | flat_top | n/a | at-or-above | at-or-above | at-or-above | at-or-above |
+| `oq35_prefix16_scope` | prefix16_scope | n/a | qlevel | qlevel | qlevel | qlevel |
+| `oq36_prefix16_cut` | prefix16_cut | n/a | longer | longer | longer | longer |
+| `oq42_scale_first` | scale_first | n/a | not | not | not | not |
+| `oq42b_scale_first` | scale_first | not | not | not | not | not |
+| `oq43_scale_line` | scale_line | n/a | first | first | first | first |
+| `oq43b_scale_line` | scale_line | first | first | first | first | first |
+| `oq37_activity420` | activity420 | n/a | crash (SIGSEGV) | luma | luma | luma |
+| `oq38_activity422` | activity422 | n/a | crash (SIGSEGV) | sizes | sizes | sizes |
+| `oq39_bp420_edge` | bp420_edge | n/a | crash (SIGSEGV) | luma | luma | luma |
+| `oq40_offset_adj` | offset_adj | n/a | crash (SIGSEGV) | start | start | start |
+| `oq41_ich_window` | ich_window | n/a | crash (SIGSEGV) | container | container | container |
+| `oq41b_ich_window` | ich_window | n/a | crash (SIGSEGV) | container | container | container |
+
+By open question: the readings that fit every input with a prediction for
+them (a reading an input has no prediction for is not counted against it,
+as for OQ-24's `lagged` on `oq24b` and `oq24c`, which v0.2.0 judged by a
+default decode). "no input": the question has no discriminator.
+
+| Question | Switch | Inputs | 1.31a | 1.48 | 1.57 | 1.63 | 1.67 |
+|---|---|---|---|---|---|---|---|
+| OQ-1 | `flat_restart` | `oq1_flat_restart` | in-flight | in-flight | in-flight | in-flight | in-flight |
+| OQ-2 | `threshold_eq` | `oq2b_threshold_equality` | lower | lower | lower | lower | lower |
+| OQ-3 | `frac_reset` | `oq3_fractional_bpp` | chunk | chunk | chunk | chunk | chunk |
+| OQ-4 | `bp_left` | `oq4_bp_left` | midpoint | midpoint | midpoint | midpoint | midpoint |
+| OQ-5 | `incr_order` | none | no input | no input | no input | no input | no input |
+| OQ-6 | (none) | none | no input | no input | no input | no input | no input |
+| OQ-7 | `bpg_combine` | `oq7_bpg_combine` | n/a | add | add | add | add |
+| OQ-8 | (none) | none | no input | no input | no input | no input | no input |
+| OQ-9 | (none) | none | no input | no input | no input | no input | no input |
+| OQ-10 | `bp_sad` | none | no input | no input | no input | no input | no input |
+| OQ-11 | `rc_pipeline` | none | no input | no input | no input | no input | no input |
+| OQ-12 | `delay_offset` | none | no input | no input | no input | no input | no input |
+| OQ-13 | `bp_edge` | none | no input | no input | no input | no input | no input |
+| OQ-14 | `scale_dec` | none | no input | no input | no input | no input | no input |
+| OQ-15 | `partial_target` | none | no input | no input | no input | no input | no input |
+| OQ-16 | `very_flat` | none | no input | no input | no input | no input | no input |
+| OQ-17 | `partial_padding` | none | no input | no input | no input | no input | no input |
+| OQ-18 | `flat_max_qp` | none | no input | no input | no input | no input | no input |
+| OQ-19 | `delay_partial` | `oq19_delay_partial` | group-end | group-end | group-end | group-end | group-end |
+| OQ-20 | `chroma_qlevel` | `oq20_chroma_qlevel` | n/a | equal-depth | equal-depth | equal-depth | equal-depth |
+| OQ-21 | `prefix16` | `oq21_prefix16` | n/a | 13 | 13 | 13 | 13 |
+| OQ-22 | `bitsave_ich` | `oq22_bitsave_ich` | n/a | not | not | not | not |
+| OQ-23 | `bitsave_pred` | `oq23_bitsave_pred_next` | n/a | next | next | next | next |
+| OQ-24 | `bitsave_flat` | `oq24b_bitsave_flat`, `oq24c_bitsave_flat`, `oq24d_bitsave_flat`, `oq24e_bitsave_flat` | n/a | lagged | lagged | lagged | lagged |
+| OQ-25 | `line_flat` | `oq25_line_flat` | n/a | signaled | signaled | signaled | signaled |
+| OQ-26 | `low_min` | `oq26_low_min` | n/a | min-qp | min-qp | min-qp | min-qp |
+| OQ-27 | `decrement_test` | `oq27_decrement_test` | n/a | size | size | size | size |
+| OQ-28 | `activity_qp` | `oq28_activity_qp` | n/a | prev2 | prev2 | prev2 | prev2 |
+| OQ-29 | `bitsave_step` | `oq29_bitsave_step` | n/a | 2 | 2 | 2 | 2 |
+| OQ-30 | `target_floor` | `oq30_target_floor` | n/a | zero | zero | zero | zero |
+| OQ-31 | `flat_rerun` | `oq31_flat_rerun` | n/a | every | every | every | every |
+| OQ-32 | `rerun_bitsave` | `oq32_rerun_bitsave` | n/a | redo | redo | redo | redo |
+| OQ-33 | `mux16` | `oq33_mux16` | n/a | 64 | 64 | 64 | 64 |
+| OQ-34 | `flat_top` | `oq34_flat_top` | n/a | at-or-above | at-or-above | at-or-above | at-or-above |
+| OQ-35 | `prefix16_scope` | `oq35_prefix16_scope` | n/a | qlevel | qlevel | qlevel | qlevel |
+| OQ-36 | `prefix16_cut` | `oq36_prefix16_cut` | n/a | longer | longer | longer | longer |
+| OQ-37 | `activity420` | `oq37_activity420` | n/a | crash (SIGSEGV) | luma | luma | luma |
+| OQ-38 | `activity422` | `oq38_activity422` | n/a | crash (SIGSEGV) | sizes | sizes | sizes |
+| OQ-39 | `bp420_edge` | `oq39_bp420_edge` | n/a | crash (SIGSEGV) | luma | luma | luma |
+| OQ-40 | `offset_adj` | `oq40_offset_adj` | n/a | crash (SIGSEGV) | start | start | start |
+| OQ-41 | `ich_window` | `oq41_ich_window`, `oq41b_ich_window` | n/a | crash (SIGSEGV) | container | container | container |
+| OQ-42 | `scale_first` | `oq42_scale_first`, `oq42b_scale_first` | not (1 of 2 inputs; others n/a) | not | not | not | not |
+| OQ-43 | `scale_line` | `oq43_scale_line`, `oq43b_scale_line` | first (1 of 2 inputs; others n/a) | first | first | first | first |
+
+Findings:
+
+* No discriminator separates an older version from 1.67. Every input a
+  version decoded matched the same prediction as with 1.67, and the same
+  output. For each question with a discriminator, the first version that
+  behaves like 1.67 is the oldest one that decodes the input: 1.31a for the
+  DSC 1.1 inputs (OQ-1 to OQ-4, OQ-19, and OQ-42 and OQ-43 through `oq42b`
+  and `oq43b`), 1.48 for the DSC 1.2 RGB inputs (OQ-7, OQ-20 to OQ-36, and
+  `oq42` and `oq43`), 1.57 for the native 4:2:2 and 4:2:0 inputs (OQ-37 to
+  OQ-41), because 1.48 cannot decode those.
+* 1.48 dies from SIGSEGV on each of the six native inputs (and, in the
+  fixtures below, on every YCbCr stream), so it gives no verdict on OQ-37
+  to OQ-41. This is recorded as "crash", not n/a: its README documents the
+  native modes. Phase 3 decodes its own native encodes with FUNCTION 0.
+* `oq2_threshold_equality` (superseded; built under M1 readings the model
+  does not follow) is the one input whose model output changed between
+  versions. 1.31a, 1.48 and 1.57 give one output, 1.63 and 1.67 another;
+  the two agree up to (83,0) and first differ at (84,0) R (1.57: 135, 1.63:
+  137), 18 samples in 6 pixels. Under the default readings, which reproduce
+  every other input, the stream needs more bits than its payload holds:
+  dscdecode stops with "truncated input" after 23 of the line's 32 groups,
+  while every model decodes the line to its end. Appending 256 zero or 0xFF
+  bytes to the `.dsc` file changes neither 1.57's output nor 1.63's, so
+  neither reads past the payload; they differ in what they do once it is
+  exhausted. No reading
+  reproduces either version, and none can: dscdecode refuses a payload
+  longer than the PPS implies, and the decoder is not changed. This is a
+  change in the model's handling of a stream that is not decodable, not a
+  change in any of the questions.
+* `oq24_bitsave_flat` (superseded) gives the same output in 1.48 to 1.67,
+  equal to the default decode, as with 1.67 in v0.2.0.
+
+Fixtures, for the questions without a discriminator: the 24 frame fixtures
+(`tests/fixtures`, PPS and payload) through `tools/compare_model bitstream`
+on each version (`~/dsc-runs/versions/phase2/fixtures/`).
+
+| Version | Bit-exact | Not decoded |
+|---|---|---|
+| 1.31a | 18 of 18 RGB | 6 YCbCr and DSC 1.2 fixtures n/a |
+| 1.48 | 18 of 18 RGB | 6 YCbCr fixtures: SIGSEGV |
+| 1.57 | 24 of 24 | |
+| 1.63 | 24 of 24 | |
+| 1.67 | 24 of 24 | |
+
+Among them, `invalid_partial_residual` and `invalid_partial_ich` decode
+without error and bit-exact in every version: OQ-17's `accept` holds from
+1.31a on. The three 12 bpc fixtures on 1.31a needed the harness's 12-bit
+PPM header handling (Phase 1). The other questions without a discriminator
+(OQ-5, OQ-6, OQ-8 to OQ-16, OQ-18) are tested in Phase 3 on model-encoded
+streams.
+
+Gate (`~/dsc-runs/versions/phase2-gate/`): `scripts/ci.sh` without the
+model: every step passes, model SKIP (libFuzzer 418,976 executions in 61 s;
+smoke 2,480,000). With the model (1.67) and the frozen binary: every step
+passes, every discriminator verdict is the default reading, the superseded
+`oq2` and `oq24` reported for the record (libFuzzer 441,333 in 61 s; smoke
+2,480,000). Rebuild: SHA-256 `7e0eaebf...`, equal to the frozen binary.
