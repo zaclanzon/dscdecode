@@ -16,6 +16,9 @@ for the 4:2:2 and 4:2:0 formats. --bpp is the picture's rate.
 
 dscdecode is the release build unless --build sanitize (or DSCDECODE_BUILD, or
 DSCDECODE_BIN) says otherwise; see tools/compare_model. Its path is printed.
+The model is DSCDECODE_MODEL_BIN with the configuration directory
+DSCDECODE_MODEL_SHARE (tools/compare_model); its path, SHA-256 and reported
+version are printed and recorded in results.json.
 
 Writes results.json and results.md (a table for PROGRESS.md) to a new directory
 under ~/dsc-runs/corpus. Images are never copied into the repository, and a
@@ -185,6 +188,7 @@ def main():
         return cm.SKIP
     try:
         exe = cm.announce_binary()
+        model = cm.announce_model()
     except cm.HarnessError as e:
         print(f'ERROR: {e}', file=sys.stderr)
         return 2
@@ -244,7 +248,8 @@ def main():
             print(lines[-1], flush=True)
             status |= 0 if s['results'][0]['match'] else 1
     (work / 'results.json').write_text(json.dumps(dict(corpus=str(corpus), skipped=skipped,
-                                                       dscdecode=str(exe), runs=summaries),
+                                                       dscdecode=str(exe), model=model,
+                                                       runs=summaries),
                                                   indent=1))
     (work / 'results.md').write_text('\n'.join(lines) + '\n')
     print(f'\n{len(ready)} images, {len(summaries)} runs; results in {work}')

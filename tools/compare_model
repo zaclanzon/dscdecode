@@ -11,7 +11,15 @@
   compare_model --self-test                one small image comparison
 
 The model binary comes from DSCDECODE_MODEL_BIN. If that is unset, every mode
-prints SKIP and exits 77, which scripts/ci.sh counts as a pass.
+prints SKIP and exits 77, which scripts/ci.sh counts as a pass. Its
+configuration directory (README.TXT, test*.cfg, rc_*.cfg) comes from
+DSCDECODE_MODEL_SHARE (the older name DSCDECODE_MODEL_CFG_DIR is also read),
+default /usr/local/share/dsc-ref. Older model versions document fewer
+parameters, and reject a configuration that sets one they do not know; the
+harness sets only parameters named in that directory, and reports an input
+whose DSC version, format or bit depth the model does not document as n/a
+(discriminators mode) or as an error (other modes). Every result.json
+records the model binary, its SHA-256 and the version it reports.
 
 dscdecode is the release build, build/release/dscdecode (make). --build
 sanitize, or DSCDECODE_BUILD=sanitize, selects the ASan/UBSan build,
@@ -35,6 +43,8 @@ is reported as SUPERSEDED and left out of the verdict and the exit status.
 """
 import argparse
 import datetime
+import functools
+import hashlib
 import itertools
 import json
 import os
@@ -94,6 +104,10 @@ RC_NAME = re.compile(r'rc_(\d+)bpc_(\d+)bpp(_42[02])?\.cfg$')
 
 class HarnessError(Exception):
     pass
+
+
+class ModelSignal(HarnessError):
+    """The model died from a signal."""
 
 
 # --- images ----------------------------------------------------------------
@@ -174,12 +188,30 @@ def to_maxval(maxval, body, target):
     return out
 
 
+def header_maxval(maxval, body, other):
+    """The maxval to read a model PPM with. Version 1.31a writes 12-bit
+    pictures with maxval 2047 over 12-bit samples; where a sample exceeds
+    the stated maxval, the header cannot be the samples' range, and the
+    other picture's larger maxval is used. Otherwise the stated one."""
+    if 255 < maxval < other and max(samples(maxval, body)) > maxval:
+        return other
+    return maxval
+
+
 def compare_images(expected_path, actual_path):
     """First differing sample and counts. Expected is the model's output."""
     ew, eh, em, e = read_pnm(expected_path)
     aw, ah, am, a = read_pnm(actual_path)
     if (ew, eh) != (aw, ah):
         return dict(match=False, size_mismatch=[ew, eh, aw, ah])
+    stated, em = em, header_maxval(em, e, am)
+    result = compare_images_body(ew, em, e, am, a)
+    if em != stated:
+        result['model_maxval_header'] = stated
+    return result
+
+
+def compare_images_body(ew, em, e, am, a):
     if em > am and to_maxval(em, e, am) is not None:
         e, em, a = to_maxval(em, e, am), am, samples(am, a)
     if em != am:
@@ -331,16 +363,116 @@ def describe(result):
 
 # --- the model, as a black box ---------------------------------------------
 
+DEFAULT_SHARE = '/usr/local/share/dsc-ref'
+PARAMETER = re.compile(r'\b[A-Z][A-Z0-9_]*[A-Z0-9]\b')
+# Parameters a model may not document, and the value that means the same as
+# leaving them out: a model without DSC_VERSION_MINOR codes DSC 1.1, one
+# without SIMPLE_422 or the native modes codes 4:4:4, and one without
+# PPM_FILE_OUTPUT writes PPM for PPM input (README.TXT of version 1.31a).
+ABSENT_MEANS = dict(DSC_VERSION_MINOR='1', SIMPLE_422='0', NATIVE_422='0', NATIVE_420='0',
+                    PPM_FILE_OUTPUT='1')
+
+
+def model_share():
+    return Path(os.environ.get('DSCDECODE_MODEL_SHARE') or
+                os.environ.get('DSCDECODE_MODEL_CFG_DIR') or DEFAULT_SHARE)
+
+
+def cfg_settings(path):
+    """KEY VALUE lines of a model .cfg, comments removed."""
+    out = {}
+    for line in Path(path).read_text(errors='replace').splitlines():
+        words = line.split('//')[0].split()
+        if len(words) >= 2:
+            out.setdefault(words[0], words[1])
+    return out
+
+
+class Interface:
+    """What a model's configuration directory documents: the parameter names
+    in its README.TXT and .cfg files, and the bit depths of its rc_*.cfg
+    files. A directory without README.TXT (the harness tests) is taken to
+    document everything, as version 1.67 does."""
+
+    def __init__(self, share):
+        readme = share / 'README.TXT'
+        self.keys = None
+        if readme.exists():
+            text = readme.read_text(errors='replace')
+            text += ''.join(f.read_text(errors='replace') for f in sorted(share.glob('*.cfg')))
+            self.keys = set(PARAMETER.findall(text))
+        self.bpcs = sorted({int(m.group(1)) for m in (RC_NAME.match(f.name)
+                                                      for f in share.glob('rc_*.cfg')) if m})
+
+    def knows(self, key):
+        return self.keys is None or key in self.keys
+
+    def dsc_versions(self):
+        return (1, 2) if self.knows('DSC_VERSION_MINOR') else (1,)
+
+    def formats(self):
+        """Coding formats the harness can run with this model: YCbCr needs
+        the model's YCbCr file output (DPX for 4:4:4, .yuv otherwise)."""
+        out = ['rgb']
+        if self.knows('DPX_FILE_OUTPUT') and self.knows('DPXR_DATUM_ORDER'):
+            out.append('ycbcr_444')
+        if self.knows('YUV_FILE_OUTPUT'):
+            out += [f for f in ('simple_422', 'native_422', 'native_420')
+                    if self.knows(f.upper())]
+        return out
+
+    def unsupported(self, version, fmt, bpc):
+        """Why a stream is outside what the model documents, or None."""
+        if version not in self.dsc_versions():
+            return f'the model documents DSC 1.{"/1.".join(map(str, self.dsc_versions()))} only'
+        if fmt not in self.formats():
+            return f'the model documents no {fmt} coding the harness can run'
+        if self.bpcs and bpc not in self.bpcs:
+            return f'the model has no rc files for {bpc} bpc'
+        return None
+
+
+@functools.lru_cache(maxsize=None)
+def model_identity(binary, share):
+    """Binary path, SHA-256, the version its banner reports (run without
+    arguments), and the configuration directory."""
+    p = subprocess.run([binary], capture_output=True, text=True, timeout=60)
+    m = re.search(r'version (\S+)', p.stdout + p.stderr)
+    return dict(bin=binary, sha256=hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
+                version=m.group(1) if m else 'unknown', share=share)
+
+
 class Model:
     def __init__(self, run_dir):
         self.bin = os.environ.get('DSCDECODE_MODEL_BIN')
         if not self.bin:
             print('SKIP: DSCDECODE_MODEL_BIN is not set')
             sys.exit(SKIP)
-        self.cfg_dir = Path(os.environ.get('DSCDECODE_MODEL_CFG_DIR', '/usr/local/share/dsc-ref'))
+        self.cfg_dir = model_share()
+        self.iface = Interface(self.cfg_dir)
+        self.identity = model_identity(self.bin, str(self.cfg_dir))
         self.dir = run_dir
         self.dir.mkdir(parents=True, exist_ok=True)
         self.encode_signal = None
+        self.input_used = None
+
+    def unsupported(self, pps):
+        return self.iface.unsupported(pps[0] & 15, stream_format(pps), pps_geometry(pps)[2])
+
+    def settings(self, settings):
+        """settings without the parameters this model does not document,
+        where leaving them out means the same (ABSENT_MEANS); a parameter it
+        does not document with any other value is an error."""
+        out = {}
+        for key, value in settings.items():
+            if self.iface.knows(key):
+                out[key] = value
+            elif key == 'SIMPLE_422' and self.iface.knows('ENABLE_422'):
+                out['ENABLE_422'] = value          # the name before DSC 1.2
+            elif ABSENT_MEANS.get(key) != value:
+                raise HarnessError(f'model version {self.identity["version"]} does not document '
+                                   f'{key} (needed: {key} {value})')
+        return out
 
     def run(self, cfg_name, cfg_text, list_lines, done_file=None):
         (self.dir / f'{cfg_name}.list').write_text(''.join(l + '\n' for l in list_lines))
@@ -358,7 +490,8 @@ class Model:
                 slices[-1][0] == slices[-1][1]):
             self.encode_signal = -p.returncode
         elif p.returncode:
-            raise HarnessError(f'model {cfg_name} failed ({p.returncode}): {(p.stdout + p.stderr)[-400:]}')
+            kind = ModelSignal if p.returncode < 0 else HarnessError
+            raise kind(f'model {cfg_name} failed ({p.returncode}): {(p.stdout + p.stderr)[-400:]}')
         return p.stdout
 
     def rc_file(self, bpc, bpp, suffix=''):
@@ -381,10 +514,27 @@ class Model:
         the native modes double it in the PPS (Table 4-1) and take the
         model's rc_*_422 and rc_*_420 files."""
         w, h = image_size(image)
+        why = self.iface.unsupported(version, fmt, bpc)
+        if why:
+            raise HarnessError(f'model version {self.identity["version"]}: {why}')
+        if (Path(image).suffix.lower() == '.dpx' and fmt == 'rgb' and
+                not self.iface.knows('DPXR_DATUM_ORDER')):
+            # A model without the DPX layout options is given the PPM master
+            # that tools/make_pictures writes beside the DPX (same samples);
+            # check_source compares the model's copy with that master.
+            master = Path(image).parent / 'master' / (Path(image).stem + '.ppm')
+            if not master.exists():
+                raise HarnessError(f'model version {self.identity["version"]} has no DPX layout '
+                                   f'options and {master} does not exist')
+            image = self.input_used = master
         link = self.dir / ('input' + Path(image).suffix.lower())
         if not link.exists():
             link.symlink_to(Path(image).resolve())
-        template = (self.cfg_dir / 'test_dsc_1_1.cfg').read_text()
+        # Versions before DSC 1.2 ship test.cfg and no test_dsc_1_1.cfg.
+        template = self.cfg_dir / 'test_dsc_1_1.cfg'
+        if not template.exists():
+            template = self.cfg_dir / 'test.cfg'
+        template = template.read_text()
         native = fmt in ('native_422', 'native_420')
         rc = self.rc_file(bpc, bpp, {'native_422': '_422', 'native_420': '_420'}.get(fmt, ''))
         shutil.copy(self.cfg_dir / rc, self.dir / rc)
@@ -418,7 +568,15 @@ class Model:
             settings.update(SWAP_R_AND_B='0', DPXR_DATUM_ORDER='1', DPXR_PAD_ENDS='1')
         if slice_height:
             settings['SLICE_HEIGHT'] = str(slice_height)
-        self.run('encode', edit_cfg(template, settings, rc), [link.name], done_file='input.dsc')
+        if (fmt == 'native_420' and (self.cfg_dir / '420mode.cfg').exists() and
+                'SECOND_LINE_BPG_OFFSET' not in cfg_settings(self.cfg_dir / rc)):
+            # Version 1.48's 4:2:0 rc files leave the second-line parameters
+            # to 420mode.cfg (its test.cfg includes it for native 4:2:0).
+            for key, value in cfg_settings(self.cfg_dir / '420mode.cfg').items():
+                settings.setdefault(key, value)
+        settings = self.settings(settings)
+        self.encode_cfg, self.encode_list = edit_cfg(template, settings, rc), [link.name]
+        self.run('encode', self.encode_cfg, self.encode_list, done_file='input.dsc')
         dsc = self.dir / 'input.dsc'
         if not dsc.exists():
             raise HarnessError('model wrote no input.dsc')
@@ -451,6 +609,7 @@ class Model:
             raise HarnessError('model wrote no input.ref.ppm to check its input against')
         mw, mh, mm, mb = read_pnm(master)
         rw, rh, rm, rb = read_pnm(ref)
+        rm = header_maxval(rm, rb, mm)
         same = (mw, mh) == (rw, rh) and (
             (mm, mb) == (rm, rb) or (rm > mm and to_maxval(rm, rb, mm) == samples(mm, mb)))
         if not same:
@@ -464,19 +623,57 @@ class Model:
         planar .yuv."""
         pps = dsc.read_bytes()[4:132]
         fmt = stream_format(pps)
-        if fmt == 'rgb':
+        why = self.unsupported(pps)
+        if why:
+            raise HarnessError(f'model version {self.identity["version"]}: {why}')
+        listed, (w, h, bpc) = dsc.name, pps_geometry(pps)
+        # Versions 1.31a to 1.63 stop with a bit-depth error unless
+        # BITS_PER_COMPONENT is the stream's, although their READMEs say
+        # decoding ignores it (observed); 1.67 decodes without it.
+        depth = f'BITS_PER_COMPONENT {bpc}\n'
+        if fmt == 'rgb' and not self.iface.knows('PPM_FILE_OUTPUT'):
+            # Version 1.31a: listing NAME.ppm decodes NAME.dsc and writes
+            # NAME.out.ppm (README.TXT; the PPM is only used for PSNR).
+            source = dsc.with_suffix('.ppm')
+            if not source.exists():
+                maxval = (1 << bpc) - 1
+                source.write_bytes(f'P6\n{w} {h}\n{maxval}\n'.encode() +
+                                   bytes(3 * w * h * (2 if maxval > 255 else 1)))
+            cfg, out, listed = '', self.dir / (dsc.stem + '.out.ppm'), source.name
+        elif fmt == 'rgb':
             cfg, out = 'PPM_FILE_OUTPUT 1\n', self.dir / (dsc.stem + '.out.ppm')
         elif fmt == 'ycbcr_444':
             cfg, out = 'DPX_FILE_OUTPUT 1\n', self.dir / (dsc.stem + '.out.dpx')
         else:
             cfg = f"YUV_FILE_OUTPUT 1\nYUV_FILE_FORMAT {0 if fmt == 'native_420' else 1}\n"
             out = self.dir / (dsc.stem + '.out.yuv')
-        self.run('decode', 'FUNCTION 2\nSRC_LIST @LIST@\n' + cfg, [dsc.name])
+        self.run('decode', 'FUNCTION 2\nSRC_LIST @LIST@\n' + depth + cfg, [listed])
         if not out.exists():
             raise HarnessError(f'model wrote no {out.name}')
         if fmt == 'ycbcr_444':
-            w, h, bpc = pps_geometry(pps)
             out = dpx_to_yuv(out, self.dir / (dsc.stem + '.out.444.yuv'), w, h, bpc)
+        return out
+
+
+    def decode_combined(self, dsc):
+        """The model's decode of its own encode, from one FUNCTION 0 run
+        (encode and decode in one process) with the encode's configuration.
+        Version 1.48 dies from a signal when it decodes a YCbCr bitstream
+        on its own (FUNCTION 2) and not in this mode; the
+        caller checks that dscdecode decodes the FUNCTION 1 bitstream to the
+        same picture. A match shows that the two bitstreams decode alike; a
+        mismatch in this mode does not tell which of the two differs."""
+        fmt = stream_format(dsc.read_bytes()[4:132])
+        out = self.dir / ('input.out.' + ('ppm' if fmt == 'rgb' else
+                                          'dpx' if fmt == 'ycbcr_444' else 'yuv'))
+        out.unlink(missing_ok=True)
+        self.run('combined', re.sub(r'(?m)^FUNCTION 1$', 'FUNCTION 0', self.encode_cfg),
+                 self.encode_list)
+        if not out.exists():
+            raise HarnessError(f'model wrote no {out.name} in FUNCTION 0')
+        if fmt == 'ycbcr_444':
+            w, h, bpc = pps_geometry(dsc.read_bytes()[4:132])
+            out = dpx_to_yuv(out, self.dir / 'input.out.444.yuv', w, h, bpc)
         return out
 
 
@@ -547,6 +744,18 @@ def announce_binary(stream=sys.stdout):
     if not exe.is_file():
         raise HarnessError(f'{exe} does not exist; build it with make')
     return exe
+
+
+def announce_model(stream=sys.stdout):
+    """Print the model binary, the version it reports and its
+    configuration directory."""
+    share = model_share()
+    if not share.is_dir():
+        raise HarnessError(f'model configuration directory {share} does not exist')
+    m = model_identity(os.environ['DSCDECODE_MODEL_BIN'], str(share))
+    print(f"model: {m['bin']} version {m['version']}, sha256 {m['sha256'][:16]}..., "
+          f"configuration {m['share']}", file=stream, flush=True)
+    return m
 
 
 def dscdecode(pps, payload, out, readings=None, extra=()):
@@ -643,7 +852,10 @@ def run_image(image, bpp=8.0, slices=1, slice_height=None, bp=False, line_buffer
     line_buffer = line_buffer or min(bpc + 1, 16)
     dsc = model.encode(image, bpp, slices, slice_height, bp, line_buffer, bpc, version, fmt)
     source = model.check_source(image, fmt, bpc)
-    model_out = model.decode(dsc)
+    try:
+        model_out, model_decode = model.decode(dsc), 'function2'
+    except ModelSignal:
+        model_out, model_decode = model.decode_combined(dsc), 'function0'
     pps, payload = split_dsc(dsc, run_dir)
     if stream_format(Path(pps).read_bytes()) != fmt:
         raise HarnessError(f'the model coded {stream_format(Path(pps).read_bytes())}, not {fmt}')
@@ -651,7 +863,11 @@ def run_image(image, bpp=8.0, slices=1, slice_height=None, bp=False, line_buffer
     summary = dict(mode='image', image=str(image), format=fmt, bpc=bpc, dsc_version=f'1.{version}',
                    bpp=bpp, slices=slices, block_pred=int(bp), slice_height=slice_height,
                    line_buffer=line_buffer, source_check=source, run_dir=str(run_dir),
-                   dscdecode=str(dscdecode_binary()), results=results)
+                   dscdecode=str(dscdecode_binary()), model=model.identity, results=results)
+    if model.input_used:
+        summary['model_input'] = str(model.input_used)
+    if model_decode != 'function2':
+        summary['model_decode'] = model_decode
     if model.encode_signal:
         summary['model_encode_signal'] = model.encode_signal
     (run_dir / 'result.json').write_text(json.dumps(summary, indent=1))
@@ -690,6 +906,8 @@ def mode_bitstream(a):
                               reading_sets(a.all_readings, parse_readings(a.reading), a.vary))
     (run_dir / 'result.json').write_text(json.dumps(dict(mode='bitstream', pps=str(a.pps),
                                                          payload=str(a.payload),
+                                                         dscdecode=str(dscdecode_binary()),
+                                                         model=model.identity,
                                                          results=results), indent=1))
     if not a.json:
         print(f'{a.payload}  [{run_dir}]')
@@ -711,6 +929,17 @@ def mode_discriminators(a):
         model = Model(run_dir)
         entry = manifest[name]
         verdicts = {}
+        na = model.unsupported((root / f'{name}.pps').read_bytes())
+        if na:
+            # Outside what this model version documents: not decoded, and
+            # left out of the verdict and the exit status.
+            summary[name] = dict(question=entry['question'], supported=None, na=na,
+                                 run_dir=str(run_dir), model=model.identity,
+                                 superseded_by=entry.get('superseded_by'))
+            (run_dir / 'result.json').write_text(json.dumps(dict(mode='discriminator', name=name,
+                                                                 **summary[name]), indent=1))
+            print(f"{name} ({entry['question']}): n/a, {na}  [{run_dir}]")
+            continue
         try:
             model_out = wrap_and_decode(root / f'{name}.pps', root / f'{name}.bin', run_dir, model)
         except HarnessError as e:
@@ -733,7 +962,10 @@ def mode_discriminators(a):
         superseded = entry.get('superseded_by')
         summary[name] = dict(question=entry['question'], supported=supported,
                              verdicts=verdicts, run_dir=str(run_dir), stale_assumptions=stale,
-                             superseded_by=superseded)
+                             superseded_by=superseded, model=model.identity)
+        (run_dir / 'result.json').write_text(json.dumps(dict(mode='discriminator', name=name,
+                                                             dscdecode=str(dscdecode_binary()),
+                                                             **summary[name]), indent=1))
         matches = ', '.join(supported) if supported else 'NEITHER prediction'
         if superseded:
             print(f"{name} ({entry['question']}): SUPERSEDED by {superseded}; "
@@ -823,6 +1055,7 @@ def main():
     try:
         if a.self_test or a.mode:
             announce_binary(sys.stderr if a.json else sys.stdout)
+            announce_model(sys.stderr if a.json else sys.stdout)
         if a.self_test:
             return mode_self_test(a)
         if a.mode == 'image':

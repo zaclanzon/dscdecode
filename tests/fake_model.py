@@ -5,13 +5,18 @@ It accepts the model's command line (-F CONFIG) and file conventions but does
 no DSC work of its own. FUNCTION 1 writes FAKE_MODEL_FIXTURE's PPS and payload
 as NAME.dsc, whatever the image. FUNCTION 2 decodes NAME.dsc with dscdecode
 (readings from FAKE_MODEL_READINGS, space-separated NAME=VALUE) into
-NAME.out.ppm, then applies FAKE_MODEL_CORRUPT="x,y,component,delta" if set.
+NAME.out.ppm, then applies FAKE_MODEL_CORRUPT="x,y,component,delta" if set;
+a listed NAME.ppm decodes NAME.dsc, as version 1.31a does. FUNCTION 0 does
+both, without writing NAME.dsc. With FAKE_MODEL_CRASH_DECODE set, FUNCTION 2
+dies from SIGSEGV, as version 1.48 does on native 4:2:2 and 4:2:0 streams.
+Without arguments it prints a version banner (FAKE_MODEL_VERSION, default 0).
 A YCbCr stream is decoded into NAME.out.yuv, or for 4:4:4 into the model's
 8-bit DPX layout (NAME.out.dpx); FAKE_MODEL_CORRUPT then changes the first
 byte of the image data by delta.
 """
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 
@@ -28,17 +33,25 @@ def settings(cfg):
 
 
 def main():
+    if len(sys.argv) == 1:
+        print(f"fake model version {os.environ.get('FAKE_MODEL_VERSION', '0')}")
+        return
     assert sys.argv[1] == '-F'
     s = settings(sys.argv[2])
     names = Path(s['SRC_LIST']).read_text().split()
     for name in names:
         stem = Path(name).stem
-        if s['FUNCTION'] == '1':
+        if s['FUNCTION'] in ('0', '1'):
             fixture = Path(os.environ.get('FAKE_MODEL_FIXTURE', ROOT / 'tests/fixtures/color_crop'))
             data = b'DSCF' + fixture.with_suffix('.pps').read_bytes() + fixture.with_suffix('.bin').read_bytes()
-            Path(stem + '.dsc').write_bytes(data)
-        elif s['FUNCTION'] == '2':
-            data = Path(name).read_bytes()
+            if s['FUNCTION'] == '1':
+                Path(stem + '.dsc').write_bytes(data)
+                continue
+        if s['FUNCTION'] == '2' and os.environ.get('FAKE_MODEL_CRASH_DECODE'):
+            os.kill(os.getpid(), signal.SIGSEGV)
+        if s['FUNCTION'] in ('0', '2'):
+            if s['FUNCTION'] == '2':
+                data = Path(stem + '.dsc' if name.endswith('.ppm') else name).read_bytes()
             pps = data[4:132]
             Path('fake.pps').write_bytes(pps)
             Path('fake.bin').write_bytes(data[132:])

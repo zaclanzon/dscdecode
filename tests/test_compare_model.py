@@ -80,6 +80,62 @@ def corpus_checks(tmp, fake):
     print('PASS run_corpus: 4 images x 2 settings; refuses a corpus inside the repo')
 
 
+def maxval_checks(tmp):
+    """Version 1.31a's 12-bit PPM: maxval 2047 over 12-bit samples."""
+    import importlib.machinery
+    cm = importlib.machinery.SourceFileLoader('compare_model', str(TOOL)).load_module()
+    body = b''.join(v.to_bytes(2, 'big') for v in (4095, 2048, 7, 0, 1, 2))
+    model, mine = Path(tmp) / 'model12.ppm', Path(tmp) / 'mine12.ppm'
+    model.write_bytes(b'P6\n2 1\n2047\n' + body)
+    mine.write_bytes(b'P6\n2 1\n4095\n' + body)
+    r = cm.compare_images(model, mine)
+    assert r['match'] and r['model_maxval_header'] == 2047, r
+    dark = b''.join(v.to_bytes(2, 'big') for v in (2047, 2046, 7, 0, 1, 2))
+    model.write_bytes(b'P6\n2 1\n2047\n' + dark)
+    mine.write_bytes(b'P6\n2 1\n4095\n' + dark)
+    assert cm.compare_images(model, mine).get('maxval_mismatch') == [2047, 4095]
+    print('PASS model PPM whose samples exceed its maxval is read at the other maxval; '
+          'otherwise a maxval mismatch')
+
+
+def old_model_checks(tmp, fake, image):
+    """A configuration directory like version 1.31a's: a README.TXT without
+    DSC_VERSION_MINOR, SIMPLE_422 (ENABLE_422 instead), the native modes or
+    PPM_FILE_OUTPUT, test.cfg and no test_dsc_1_1.cfg, rc files for 8 bpc."""
+    import json
+    share = Path(tmp) / 'share-old'
+    share.mkdir()
+    (share / 'README.TXT').write_text(
+        'Parameters: FUNCTION SRC_LIST BITS_PER_PIXEL BITS_PER_COMPONENT ENABLE_422\n'
+        'USE_YUV_INPUT VBR_ENABLE SLICE_WIDTH SLICE_HEIGHT INCLUDE BLOCK_PRED_ENABLE\n')
+    (share / 'test.cfg').write_text('SRC_LIST x.txt\nFUNCTION 0\nSLICE_HEIGHT 108\n'
+                                    'LINE_BUFFER_BPC 9\nINCLUDE rc_8bpc_12bpp.cfg\n')
+    (share / 'rc_8bpc_8bpp.cfg').write_text('BITS_PER_PIXEL 8\n')
+    env = dict({k: v for k, v in fake.items() if k != 'DSCDECODE_MODEL_CFG_DIR'},
+               DSCDECODE_MODEL_SHARE=str(share), FAKE_MODEL_VERSION='1.31a')
+    code, out = run(['image', image, '--run-dir', Path(tmp) / 'old'], **env)
+    assert code == 0 and 'match (bit-exact)' in out and 'version 1.31a' in out, out
+    run_dir = Path(tmp) / 'old'
+    keys = {l.split()[0] for l in (run_dir / 'encode.cfg').read_text().splitlines()
+            if l.strip() and not l.startswith('//')}
+    assert 'ENABLE_422' in keys and not keys & {'DSC_VERSION_MINOR', 'SIMPLE_422', 'NATIVE_422',
+                                                'NATIVE_420', 'PPM_FILE_OUTPUT'}, keys
+    assert (run_dir / 'decode.list').read_text() == 'input.ppm\n'
+    assert 'BITS_PER_COMPONENT 8' in (run_dir / 'decode.cfg').read_text()
+    model = json.loads((run_dir / 'result.json').read_text())['model']
+    assert model['version'] == '1.31a' and len(model['sha256']) == 64, model
+    code, out = run(['image', image, '--dsc-version', '2'], **env)
+    assert code == 2 and 'documents DSC 1.1 only' in out, out
+    print('PASS older model interface: undocumented parameters left out, PPM listed for '
+          'decode, DSC 1.2 refused, version and SHA-256 recorded')
+    code, out = run(['discriminators', 'oq3_fractional_bpp', 'oq7_bpg_combine', 'oq38_activity422'],
+                    FAKE_MODEL_READINGS='frac_reset=chunk', **env)
+    assert 'oq3_fractional_bpp (frac_reset): model output matches chunk' in out, out
+    assert 'oq7_bpg_combine (bpg_combine): n/a, the model documents DSC 1.1 only' in out, out
+    assert 'oq38_activity422 (activity422): n/a' in out and code == 0, out
+    print('PASS discriminators mode: inputs outside the model\'s DSC versions are n/a')
+
+
 def main():
     exe = str(Path(sys.argv[1] if len(sys.argv) > 1 else ROOT / 'build' / 'release' / 'dscdecode').resolve())
     with tempfile.TemporaryDirectory(prefix='dsc-cm-') as tmp:
@@ -132,10 +188,20 @@ def main():
         assert 'SLICE_WIDTH 2' in written and 'FUNCTION 1' in written, written
         assert written.index('INCLUDE rc_8bpc_8bpp.cfg') < written.index('BITS_PER_PIXEL 8'), written
         print('PASS image mode: config, encode, split, both decodes')
+        code, out = run(['image', image, '--run-dir', Path(tmp) / 'crash'], FAKE_MODEL_CRASH_DECODE='1',
+                        DSCDECODE_MODEL_CFG_DIR=str(cfg), **{k: v for k, v in fake.items()
+                                                             if k != 'DSCDECODE_MODEL_CFG_DIR'})
+        assert code == 0 and 'match (bit-exact)' in out, out
+        assert 'FUNCTION 0' in (Path(tmp) / 'crash' / 'combined.cfg').read_text().split('\n')
+        import json
+        assert json.loads((Path(tmp) / 'crash' / 'result.json').read_text())['model_decode'] == 'function0'
+        print('PASS image mode: a model decode killed by a signal is redone as FUNCTION 0, and recorded')
         code, out = run(['--self-test'], DSCDECODE_MODEL_CFG_DIR=str(cfg),
                         **{k: v for k, v in fake.items() if k != 'DSCDECODE_MODEL_CFG_DIR'})
         assert code == 0 and 'match (bit-exact)' in out, out
         print('PASS --self-test with a model configured')
+        old_model_checks(tmp, fake, image)
+        maxval_checks(tmp)
         # The stub decodes with one chosen reading per question, which must be
         # the one reported. With the M1 pipeline readings, every input built
         # under them gets a verdict, and oq2b, built under the decoder's

@@ -2190,3 +2190,84 @@ from it, as DSC 1.2b §1.4.3 gives the model precedence. CHANGELOG.md
 (v0.1.0 and v0.2.0) and the release notes say the same; the release notes
 also state that the comparisons used model version 1.67 while DSC 1.2b
 cites 1.63. No code change.
+
+# Model versions (branch model-versions)
+
+This part checks whether the differences between the DSC text and model
+version 1.67 (RESEARCH.md, "DSC 1.2 text and the reference model") also
+appear in older versions of the VESA C model. Every model is used as a black
+box: its README.TXT, its configuration files, its command line and the files
+it writes. The decoder is not changed; the model runs use the frozen v0.2.0
+binary (`~/dsc-runs/v0.2.0/bin/dscdecode`, SHA-256 `7e0eaebf...`). Runs and
+scripts are under `~/dsc-runs/versions/`. Each phase ends with
+`scripts/ci.sh` without and with `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref`,
+then a rebuild of the release binary, whose SHA-256 must equal the frozen
+one (script `~/dsc-runs/versions/gate.sh`).
+
+## Phase 1: the models (2026-09-26)
+
+Five builds are installed, each a binary in `/usr/local/bin` with its
+configuration directory (README.TXT, test configurations, rc files) in
+`/usr/local/share/<name>`. The version is the one each prints in its banner
+when run without arguments. The DSC standards cite three of them: DSC 1.1
+lists model version 1.31 as a normative reference, DSC 1.2a lists 1.57 and
+DSC 1.2b lists 1.63 (RESEARCH.md).
+
+| Installed as | Reported version | Banner | SHA-256 | DSC versions (README) | Formats (README) | bpc (rc files) |
+|---|---|---|---|---|---|---|
+| `dsc-ref-m20150914` | 1.31a | 2013-2014 Broadcom Corporation | `02da8b7c...` | 1.1 only: no DSC_VERSION_MINOR | RGB; YCbCr 4:4:4 and 4:2:2 (ENABLE_422, the DSC 1.1 4:2:2 mode); DPX and PPM files | 8, 10, 12 |
+| `dsc-ref-m12v1` | 1.48 | 2013-2015 Broadcom Corporation | `1f51133b...` | 1.1 and 1.2 (DSC_VERSION_MINOR, default 2) | RGB, YCbCr 4:4:4, simple 4:2:2, native 4:2:2 and 4:2:0; DPX, PPM and .yuv files | 8 to 16 |
+| `dsc-ref-m20161212` | 1.57 | 2013-2016 Broadcom Limited | `82c6e2d6...` | 1.1 and 1.2; a section "features added to DSC 1.2a" | as 1.48 | 8 to 16 |
+| `dsc-ref-m20210623` | 1.63 | 2013-2021 Broadcom Inc. | `2b683963...` | 1.1 and "1.2/1.2a/1.2b" | as 1.48 | 8 to 16 |
+| `dsc-ref` | 1.67 | 2013-2021 Broadcom Inc. | `b6008eaa...` | 1.1 and "1.2/1.2a/1.2b" | as 1.48 | 8 to 16 |
+
+The 1.57 README adds that native 4:2:0 was not correctly supported in DSC
+1.2 and was deprecated, and that the DSC 1.2a model corrects it; 1.63 and
+1.67 repeat that note. So 1.48 is a DSC 1.2 model whose native 4:2:0 its
+successors describe as incorrect.
+
+Differences the harness handles. All five write the same `.dsc` container
+(`DSCF`, the 128-byte PPS, the payload) and read the same `rc_*.cfg` format.
+
+| Version | Difference | Found in | Handling in `tools/compare_model` |
+|---|---|---|---|
+| 1.31a | A configuration that sets a parameter the model does not know stops it ("unknown configuration field") | its output | Only parameters named in the model's README.TXT or .cfg files are set. A parameter that is absent where leaving it out means the same (DSC_VERSION_MINOR 1, SIMPLE_422 0, NATIVE_422 0, NATIVE_420 0, PPM_FILE_OUTPUT 1) is left out; any other is an error |
+| 1.31a | No test_dsc_1_1.cfg; test.cfg is the template | configuration directory | test.cfg is used when test_dsc_1_1.cfg is missing |
+| 1.31a | ENABLE_422 in place of SIMPLE_422 | README | mapped |
+| 1.31a | No PPM_FILE_OUTPUT. A decode of NAME.dsc writes DPX; listing NAME.ppm instead decodes NAME.dsc and writes NAME.out.ppm (the PPM serves for PSNR) | README, its output | the decode lists NAME.ppm: the source picture in image mode, otherwise an all-zero placeholder of the stream's size and depth |
+| 1.31a | No DPX layout options (DPXR_*, DPXW_*) | README | an RGB DPX picture is replaced by the PPM master `tools/make_pictures` writes beside it (same samples); the input check compares the model's copy with that master; `model_input` in result.json |
+| 1.31a to 1.63 | The decode stops with a bit-depth error unless BITS_PER_COMPONENT equals the stream's, though their READMEs say decoding ignores it; 1.67 decodes without it | their output (1.31a at 10 bpc; 1.48, 1.57 and 1.63 at 16 bpc, in the first Phase 2 run) | every decode configuration sets BITS_PER_COMPONENT to the stream's bpc, for every version |
+| 1.48 | Its native 4:2:0 rc files leave second_line_bpg_offset and second_line_offset_adj to 420mode.cfg, which its test.cfg includes for native 4:2:0 | configuration directory | for native 4:2:0, the settings of 420mode.cfg are added when the rc file lacks them (12 and 512, the values in the 1.67 rc files) |
+| 1.31a | A 12 bpc picture is written as PPM with maxval 2047 over 12-bit samples (both NAME.ref.ppm and NAME.out.ppm); at 10 bpc the maxval is 1023 | its output (the three 12 bpc fixtures, Phase 2) | where a model PPM has a sample above its stated maxval, it is read at the other picture's maxval, and `model_maxval_header` records the stated one; a picture with no sample above 2047 still reports a maxval mismatch |
+| 1.48 | Any YCbCr bitstream (4:4:4, simple 4:2:2, native 4:2:2 and 4:2:0) decoded on its own (FUNCTION 2) kills the model with SIGSEGV, whatever the output options; repeating the native settings in the decode configuration does not help. FUNCTION 0 (encode and decode in one process) decodes its own encodes | its output (Phase 2) | image mode: when the FUNCTION 2 decode dies from a signal, the encode configuration is rerun with FUNCTION 0 and its output compared; `model_decode: function0` in result.json. A match shows that the FUNCTION 1 bitstream and the one decoded in memory decode alike. Discriminators and fixtures cannot be decoded that way |
+| 1.48 | range 14's maximum QP in some native 4:2:0 rc files (for example 11 in `rc_8bpc_6bpp_420.cfg`, where 1.67 has 12) | configuration directory | none needed: an encoder setting |
+| 1.57, 1.63 | Configuration directories identical to 1.67's except README.TXT | `diff` | none |
+
+Harness (`tools/compare_model`, `tools/run_corpus`):
+
+* `DSCDECODE_MODEL_SHARE` selects the model's configuration directory
+  (default `/usr/local/share/dsc-ref`); the older name
+  `DSCDECODE_MODEL_CFG_DIR` is still read.
+* The model's interface is read from that directory as above. A stream whose
+  DSC version, format or bit depth the model does not document is reported
+  n/a in discriminators mode (not decoded, not counted) and is an error in
+  the other modes.
+* Every result.json (image and bitstream modes, each discriminator's run
+  directory, and run_corpus's results.json) records the model binary, its
+  SHA-256, its reported version and its configuration directory. Every mode
+  prints them.
+* Tests (`tests/test_compare_model.py`, fake model): an interface like
+  1.31a's (parameters left out, PPM listed for decode, DSC 1.2 refused,
+  version and SHA-256 recorded, DSC 1.2 discriminators n/a), the FUNCTION 0
+  fallback, and the 12-bit PPM header.
+
+With the new harness each model passes `compare_model --self-test` (a
+192x108 DSC 1.1 ramp, bit-exact).
+
+Gate (`~/dsc-runs/versions/phase1/`): `scripts/ci.sh` without the model:
+every step passes, model SKIP (libFuzzer 437,877 executions in 61 s;
+smoke 2,480,000). With `DSCDECODE_MODEL_BIN=/usr/local/bin/dsc-ref` and the
+frozen binary: every step passes, the model line reports version 1.67, and
+every discriminator verdict is the default reading (libFuzzer 422,544 in
+61 s; smoke 2,480,000). Rebuild: SHA-256 `7e0eaebf...`, equal to the frozen
+binary.
