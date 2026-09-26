@@ -2439,3 +2439,122 @@ smoke 2,480,000). With the model (1.67) and the frozen binary: every step
 passes, every discriminator verdict is the default reading, the superseded
 `oq2` and `oq24` reported for the record (libFuzzer 441,333 in 61 s; smoke
 2,480,000). Rebuild: SHA-256 `7e0eaebf...`, equal to the frozen binary.
+
+## Phase 3: matrix spot checks (2026-09-26)
+
+The frozen binary with its default readings decoded bitstreams that each
+model version encoded, and the result was compared with that version's own
+decode (`tools/run_corpus` with `DSCDECODE_MODEL_SHARE` per model; script
+`~/dsc-runs/versions/phase3/matrix.sh`, summary `aggregate.py`, results
+under `~/dsc-runs/versions/phase3/runs/corpus/`). Pictures are those of the
+v0.2.0 gate (`~/dsc-runs/v0.2.0/pictures/`) and `~/vesa-corpus`. RGB sets:
+BP off and on, 1, 2 and 4 slices per line; native sets: BP off and on, 1
+and 2 slices. "Input check" is the harness's check that the model read the
+picture exactly. 1.67 was run too, as the baseline under the new harness.
+
+| Set | 1.31a | 1.48 | 1.57 | 1.63 | 1.67 |
+|---|---|---|---|---|---|
+| DSC 1.1 corpus, 8 bpc, 8 bpp (17 pictures) | 102 / 102 | 102 / 102 | 102 / 102 | 102 / 102 | 102 / 102 |
+| DSC 1.1 synthetic, 10 bpc, 8 bpp | 48 / 48 | | | | |
+| DSC 1.1 synthetic, 12 bpc, 8 bpp | 48 / 48 | | | | |
+| DSC 1.2 RGB synthetic, 8 bpc, 6 / 8 / 10 / 12 / 15 bpp | n/a | 240 / 240 | 240 / 240 | 240 / 240 | 240 / 240 |
+| DSC 1.2 RGB synthetic, 10 bpc, same rates | n/a | 240 / 240 | 240 / 240 | 240 / 240 | 240 / 240 |
+| DSC 1.2 RGB synthetic, 12 bpc, same rates | n/a | 240 / 240 | 240 / 240 | 240 / 240 | 240 / 240 |
+| DSC 1.2 native 4:2:2 synthetic, 8 bpc, 8 bpp | n/a | 32 / 32 (FUNCTION 0) | 32 / 32 | 32 / 32 | 32 / 32 |
+| DSC 1.2 native 4:2:0 synthetic, 8 bpc, 6 bpp | n/a | 0 / 32 | 32 / 32 | 32 / 32 (4:4:4 DPX input, see below) | 32 / 32 |
+
+Cells are bit-exact / runs. Every rate of every RGB set matched in full (48
+of 48 each). The input check matched on every run that has one (all but the
+8-bit corpus PPMs, which the model reads directly): 1.31a read the 10 and 12
+bpc PPM masters exactly (its 12-bit PPMs carry the maxval 2047 header of
+Phase 1); 1.48 to 1.67 read the DPX and .yuv pictures exactly.
+
+1.48, native 4:2:2: its standalone decode dies (Phase 1), so its output
+is its FUNCTION 0 decode of the same encode; all 32 match dscdecode's decode
+of the FUNCTION 1 bitstream, which also shows that the two bitstreams decode
+alike.
+
+Because 1.48 gives no verdict on the native discriminators, its native
+4:2:2 set was run again keeping every file (`--keep`,
+`~/dsc-runs/versions/phase3/oq41-148/`), and each bitstream was decoded under
+both readings of the two native 4:2:2 questions: `ich_window` container
+matches all 32, pixels 10 (22 streams separate them); `activity422` sizes
+matches all 32, total 16 (16 separate them). So 1.48 follows the 1.67
+readings of OQ-41 (in native 4:2:2) and OQ-38, on its own encodes rather
+than on discriminators.
+
+1.48, native 4:2:0 (FUNCTION 0 decode), per picture, the four settings:
+
+| Picture | 1 slice/line (BP off, on) | 2 slices/line (BP off, on) |
+|---|---|---|
+| s01_gradient | first (5,0) Cb, model 129, dscdecode 130 | same |
+| s02_noise | dscdecode: invalid compressed slice | same |
+| s03_text | dscdecode: invalid compressed slice | same |
+| s04_flat_blocks | first (1,0) Cr, 118 / 108 | same |
+| s05_waves | first (39,0) Y, 208 / 212 | dscdecode: invalid compressed slice |
+| s06_low_bits | first (232,1) Y, 121 / 123 | dscdecode: invalid compressed slice |
+| s07_mixed | first (39,0) Y, 208 / 212 | dscdecode: invalid compressed slice |
+| s08_odd_size | first (39,0) Y, 208 / 212 | dscdecode: invalid compressed slice |
+
+Search for a setting that reproduces 1.48 (`sweep.py`,
+`sweep-m12v1-native420.jsonl`): each of the 32 bitstreams was decoded with
+each of the 46 non-default values of the 40 switches, one at a time, which
+includes the text reading of each of the 20 points of RESEARCH.md; then
+with all twenty text readings together (with `bitsave_pred` raw, and again
+with adjusted). No question changed between versions in Phase 2, so there
+were no further readings to try. No setting reproduces 1.48's output on any
+of the 32: none found. The PPS fields of native 4:2:0 (second-line
+offsets, nsl_bpg_offset) are the same as in 1.67's encode of the same
+picture; the PPSs differ only in initial_offset and range 14's maximum QP,
+which the encoder sets.
+
+Cross-check: 1.57 decoded the 32 bitstreams 1.48 wrote (FUNCTION 2,
+`cross148-by-157.txt`). On the 8 of s01 and s04, 1.57's output equals
+dscdecode's, while 1.48's own decode differs from both within the first
+groups of line 0. So 1.48 and 1.57 decode the same native 4:2:0 bitstream
+differently, which matches the 1.57 README's statement that native 4:2:0
+was not correctly supported in DSC 1.2 and was corrected in the DSC 1.2a
+model. On the other 24, 1.57 decodes to the end without a message where
+dscdecode rejects 16 and differs from 1.57 on 8 (first differences from
+(44,4) to (594,13), all Y); these streams were made by the DSC 1.2 native
+4:2:0 encoder, and under the DSC 1.2a rules, which dscdecode and 1.57
+follow on 1.57's own encodes, they appear to leave the conditions under
+which the two agree, as `oq2` does in Phase 2. That part was not
+investigated further. The FUNCTION 0 caveat applies: that 1.48's in-memory
+bitstream equals the one it writes is shown for native 4:2:2 (32 matches),
+not for 4:2:0.
+
+1.63, native 4:2:0: the model stops before encoding every one of the 32
+pictures ("YUV read error: sample value did not match expected bit depth",
+then "Error read YUV file"); 1.57 and 1.67 read the same files, and 1.63
+reads the 4:2:2 UYVY files. Given 16-bit samples instead, it encodes one
+frame whose reference copy is not the picture. So the set was rerun with
+the 4:4:4 YCbCr DPX of the same eight pictures (`synthetic-8-ycbcr_444`) and
+each run's own encode configuration, the model converting to 4:2:0 itself
+(script `native420_via_dpx.sh`, `native420-dpx.txt`); the model's bitstream
+then went through `compare_model bitstream`. All 32 are bit-exact. There is
+no input check on this route (the model's 4:2:0 conversion is its own), and
+the pictures are not the .yuv ones. 1.63's native 4:2:0 decoding is also
+covered by Phase 2 (five discriminators, two fixtures, as 1.67).
+
+Behavior changes found between versions, with the setting that reproduces
+the older one:
+
+| Change | Versions | Setting that reproduces the older version |
+|---|---|---|
+| Native 4:2:0 decoding | 1.48 differs; 1.57 on as 1.67 | none found |
+| Decode of a stream that runs out of payload (`oq2`, Phase 2) | 1.31a to 1.57 one output; 1.63 and 1.67 another | none possible without a decoder change |
+
+Not decoding behavior, but found here: 1.48's standalone decode of YCbCr
+streams dies (Phase 1), and 1.63 does not read 8-bit planar 4:2:0 .yuv
+files.
+
+Gate (`~/dsc-runs/versions/phase3-gate2/`): `scripts/ci.sh` without the
+model: every step passes, model SKIP (libFuzzer 478,672 executions in 61 s;
+smoke 2,480,000). With the model (1.67) and the frozen binary: every step
+passes, every discriminator verdict is the default reading (libFuzzer
+368,688 in 61 s; smoke 2,480,000). Rebuild: SHA-256 `7e0eaebf...`, equal to
+the frozen binary. A first run of this gate (`phase3-gate/`) also passed,
+but its no-model libFuzzer step ran while the 1.48 native 4:2:2 set was
+being rerun and managed 472 executions in 76 s; the gate was repeated on an
+idle machine.
