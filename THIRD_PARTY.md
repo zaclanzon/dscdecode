@@ -33,6 +33,32 @@ before the model decoded it. Only the model's README, its configuration
 files, its command line and the files it writes were used. No model source
 was used. The same method found OQ-19 and OQ-40 to OQ-43 (RESEARCH.md).
 
+### Code similarity check (2026-09-26)
+
+To test whether any model code reached this repository, the project's own
+C sources at v0.1.0 and v0.2.0 (`src/` and `include/dsc.h`) were compared
+with the source of five VESA C model versions (2015-09-14, the first DSC
+1.2 model, 2016-12-12, 2021-06-23, and 2021-12-13, version 1.67). The tool
+was the similarity tester SIM (`similarity-tester` 3.0.2-1). The comparison
+ran as a separate system user, the only user able to read the model
+source, and its output was limited to file names, line ranges, run lengths
+and percentages. No model source was displayed.
+
+* Names and values compared (`sim_text`, runs of 8 or more words): no
+  shared text in any pair of files, at a threshold of 1 %.
+* Shape only (`sim_c`, which ignores identifiers and the contents of
+  numbers and strings; runs of 24 or more tokens): every pair of files at
+  1 to 3 %, except `src/options.c` (49 to 89 %). The longest shared run in
+  the whole comparison, 60 tokens, is part of that file's list of default
+  assignments of the form `o->field = CONSTANT;`, matched against a block
+  of structure assignments in the model. The file matches itself the same
+  way (119 tokens), and its names are this project's reading switches. The
+  high percentage comes from the file's small size and uniform shape.
+* Controls: v0.2.0 against v0.1.0 gives 40 to 94 % per file with `sim_c`
+  and 20 to 100 % with `sim_text`, so both tools detect shared code through
+  reformatting and heavy edits. An unrelated image decoder
+  (`stb_image.h`) against the model gives at most 1 % with `sim_c`.
+
 Registration record. Registration: 2026-09-23. VESA Public Standards Download
 Registration, product-development path. Terms: Implementer's License Agreement
 (Exhibit D of VESA Policy 200D). Archive: `Display Stream Compression (DSC).zip`,
